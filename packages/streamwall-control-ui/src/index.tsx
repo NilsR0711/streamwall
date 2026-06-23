@@ -2,7 +2,7 @@ import '@fontsource/noto-sans'
 import Color from 'color'
 import { orderBy, range, truncate } from 'lodash-es'
 import { DateTime } from 'luxon'
-import { type ComponentProps, type JSX } from 'preact'
+import { type JSX } from 'preact'
 import {
   useCallback,
   useEffect,
@@ -11,7 +11,7 @@ import {
   useState,
 } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { type IconType } from 'react-icons'
+import { type IconBaseProps } from 'react-icons'
 import {
   FaExchangeAlt,
   FaRedoAlt,
@@ -998,7 +998,7 @@ function StreamDelayBox({
 function OrientationIndicator({
   orientation,
   ...props
-}: { orientation: 'V' | 'H' | null } & ComponentProps<IconType>) {
+}: { orientation: 'V' | 'H' | null | undefined } & IconBaseProps) {
   if (orientation === 'V') {
     return <MdOutlineStayCurrentPortrait {...props} />
   } else if (orientation === 'H') {

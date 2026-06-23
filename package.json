@@ -2,7 +2,8 @@
   "name": "streamwall",
   "scripts": {
     "start:app": "npm -w packages/streamwall start",
-    "start:server": "npm -w packages/streamwall-control-client run build && npm -w packages/streamwall-control-server start"
+    "start:server": "npm -w packages/streamwall-control-client run build && npm -w packages/streamwall-control-server start",
+    "lint": "eslint ."
   },
   "workspaces": [
     "packages/streamwall",
@@ -12,8 +13,14 @@
     "packages/streamwall-control-ui"
   ],
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.5.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.0",
+    "globals": "^17.7.0",
     "prettier": "^3.8.4",
     "prettier-plugin-organize-imports": "^4.3.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.0"
   }
 }

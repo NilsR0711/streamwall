@@ -1,6 +1,17 @@
-import type { Rectangle } from 'electron'
 import { isEqual } from 'lodash-es'
 import type { ContentKind } from './types.ts'
+
+/**
+ * A rectangle in screen coordinates. Structurally identical to Electron's
+ * `Rectangle`, but defined locally so this shared package does not depend on
+ * the (heavy, main-process-only) `electron` module.
+ */
+export interface Rectangle {
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 export interface ViewPos extends Rectangle {
   /**
