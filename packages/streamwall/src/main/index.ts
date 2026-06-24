@@ -439,6 +439,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     updateState({ views: viewStates })
   })
 
+  // StreamWindow resized -> re-layout stream views and rebroadcast state so the
+  // overlay grid matches the new window dimensions.
+  streamWindow.on('resize', () => {
+    updateViewsFromStateDoc()
+    updateState({})
+  })
+
   // StreamWindow <- main init state
   streamWindow.on('load', () => {
     streamWindow.onState(clientState)

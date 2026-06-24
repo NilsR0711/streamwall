@@ -31,6 +31,7 @@ export interface StreamWindowEventMap {
   load: []
   close: []
   state: [ViewState[]]
+  resize: []
 }
 
 export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
@@ -61,12 +62,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     win.loadURL('about:blank')
     win.on('close', () => this.emit('close'))
 
-    // Work around https://github.com/electron/electron/issues/14308
-    // via https://github.com/lutzroeder/netron/commit/910ce67395130690ad76382c094999a4f5b51e92
     win.once('ready-to-show', () => {
-      win.resizable = false
       win.show()
     })
+
+    // Keep the wall responsive: when the window is resized / maximized /
+    // fullscreened, rescale the background, overlay and stream views to fill
+    // the new content area.
+    win.on('resize', () => this.handleResize())
+
     this.win = win
 
     const backgroundView = new WebContentsView({
@@ -138,6 +142,20 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     ipcMain.on('devtools-overlay', () => {
       overlayView.webContents.openDevTools()
     })
+  }
+
+  handleResize() {
+    const [width, height] = this.win.getContentSize()
+    if (width === this.config.width && height === this.config.height) {
+      return
+    }
+    this.config.width = width
+    this.config.height = height
+    this.backgroundView.setBounds({ x: 0, y: 0, width, height })
+    this.overlayView.setBounds({ x: 0, y: 0, width, height })
+    // Let the main process re-layout the stream views and rebroadcast state
+    // (config is shared by reference, so the overlay gets the new dimensions).
+    this.emit('resize')
   }
 
   createView() {
