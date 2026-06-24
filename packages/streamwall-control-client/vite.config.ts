@@ -20,6 +20,8 @@ export default defineConfig({
 
   plugins: [
     // FIXME: working around TS error: "Type 'Plugin<any>' is not assignable to type 'PluginOption'"
-    ...(preact() as Plugin[]),
+    // devToolsEnabled: false avoids the preact:transform-hook-names plugin, which
+    // crashes under newer Vite/Node (zimmerframe is ESM-only, loaded via require()).
+    ...(preact({ devToolsEnabled: false }) as Plugin[]),
   ],
 })
