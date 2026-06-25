@@ -581,6 +581,25 @@ export function ControlUI({
     [stateDoc, stateIdxMap, swapStartIdx],
   )
 
+  const swapBoxes = useCallback(
+    (fromIdx: number, toIdx: number) => {
+      stateDoc.transact(() => {
+        const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
+        const fromStreamId = viewsMap.get(String(fromIdx))?.get('streamId')
+        const toStreamId = viewsMap.get(String(toIdx))?.get('streamId')
+        const fromSpaces = stateIdxMap.get(fromIdx)?.spaces ?? [fromIdx]
+        const toSpaces = stateIdxMap.get(toIdx)?.spaces ?? [toIdx]
+        for (const idx of fromSpaces) {
+          viewsMap.get(String(idx))?.set('streamId', toStreamId)
+        }
+        for (const idx of toSpaces) {
+          viewsMap.get(String(idx))?.set('streamId', fromStreamId)
+        }
+      })
+    },
+    [stateDoc, stateIdxMap],
+  )
+
   const [hoveringIdx, setHoveringIdx] = useState<number>()
   const updateHoveringIdx = useCallback(
     (ev: MouseEvent) => {
@@ -603,49 +622,55 @@ export function ControlUI({
     },
     [setHoveringIdx, cols, rows],
   )
-  const [dragStart, setDragStart] = useState<number | undefined>()
-  const handleDragStart = useCallback(
+  const DRAG_THRESHOLD_PX = 5
+  const [moveStart, setMoveStart] = useState<
+    { idx: number; x: number; y: number } | undefined
+  >()
+  const [moveTargetIdx, setMoveTargetIdx] = useState<number | undefined>()
+
+  const handleGridMouseDown = useCallback(
     (ev: MouseEvent) => {
       if (hoveringIdx == null) {
         return
       }
-      ev.preventDefault()
       if (swapStartIdx !== undefined) {
         handleSwap(hoveringIdx)
-      } else {
-        setDragStart(hoveringIdx)
-        // Select the text (if it is an input element)
-        if (ev.target instanceof HTMLInputElement) {
-          ev.target.select()
-        }
-      }
-    },
-    [handleSwap, swapStartIdx, hoveringIdx],
-  )
-  useLayoutEffect(() => {
-    function endDrag() {
-      if (
-        dragStart == null ||
-        cols == null ||
-        rows == null ||
-        hoveringIdx == null
-      ) {
         return
       }
-      stateDoc.transact(() => {
-        const viewsState = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        const streamId = viewsState.get(String(dragStart))?.get('streamId')
-        for (let idx = 0; idx < cols * rows; idx++) {
-          if (idxInBox(cols, dragStart, hoveringIdx, idx)) {
-            viewsState.get(String(idx))?.set('streamId', streamId)
-          }
-        }
-      })
-      setDragStart(undefined)
+      setMoveStart({ idx: hoveringIdx, x: ev.clientX, y: ev.clientY })
+    },
+    [hoveringIdx, swapStartIdx, handleSwap],
+  )
+
+  useLayoutEffect(() => {
+    if (moveStart == null) {
+      setMoveTargetIdx(undefined)
+      return
     }
-    window.addEventListener('mouseup', endDrag)
-    return () => window.removeEventListener('mouseup', endDrag)
-  }, [stateDoc, dragStart, hoveringIdx])
+    setMoveTargetIdx(hoveringIdx)
+  }, [moveStart, hoveringIdx])
+
+  useLayoutEffect(() => {
+    function endMove(ev: MouseEvent) {
+      if (moveStart == null) {
+        return
+      }
+      const moved = Math.hypot(
+        ev.clientX - moveStart.x,
+        ev.clientY - moveStart.y,
+      )
+      if (
+        moved > DRAG_THRESHOLD_PX &&
+        hoveringIdx != null &&
+        hoveringIdx !== moveStart.idx
+      ) {
+        swapBoxes(moveStart.idx, hoveringIdx)
+      }
+      setMoveStart(undefined)
+    }
+    window.addEventListener('mouseup', endMove)
+    return () => window.removeEventListener('mouseup', endMove)
+  }, [moveStart, hoveringIdx, swapBoxes])
 
   const [focusedInputIdx, setFocusedInputIdx] = useState<number | undefined>()
   const handleBlurInput = useCallback(() => setFocusedInputIdx(undefined), [])
@@ -999,10 +1024,13 @@ export function ControlUI({
                   range(0, cols).map((x) => {
                     const idx = cols * y + x
                     const { streamId } = sharedState?.views?.[idx] ?? {}
-                    const isDragHighlighted =
-                      dragStart != null &&
-                      hoveringIdx != null &&
-                      idxInBox(cols, dragStart, hoveringIdx, idx)
+                    const isMoveHighlight =
+                      moveStart != null &&
+                      moveTargetIdx != null &&
+                      moveStart.idx !== moveTargetIdx &&
+                      (stateIdxMap.get(moveTargetIdx)?.spaces ?? [
+                        moveTargetIdx,
+                      ]).includes(idx)
                     return (
                       <GridInput
                         style={{
@@ -1014,9 +1042,9 @@ export function ControlUI({
                         idx={idx}
                         spaceValue={streamId ?? ''}
                         onChangeSpace={handleSetView}
-                        isHighlighted={isDragHighlighted}
+                        isHighlighted={isMoveHighlight}
                         role={role}
-                        onMouseDown={handleDragStart}
+                        onMouseDown={handleGridMouseDown}
                         onFocus={setFocusedInputIdx}
                         onBlur={handleBlurInput}
                       />
@@ -1110,7 +1138,7 @@ export function ControlUI({
                       onRotateView={handleRotateStream}
                       onBrowse={handleBrowse}
                       onDevTools={handleDevTools}
-                      onMouseDown={handleDragStart}
+                      onMouseDown={handleGridMouseDown}
                     />
                   )
                 },
