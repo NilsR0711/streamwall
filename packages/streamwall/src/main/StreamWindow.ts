@@ -233,6 +233,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.emit('state', states)
   }
 
+  /**
+   * Reconfigures the grid dimensions at runtime. The actual re-layout happens on
+   * the next `setViews()` call (driven by the server after it remaps the views
+   * state), which reads `cols`/`rows` from `this.config`.
+   */
+  setGridSize(cols: number, rows: number) {
+    this.config = { ...this.config, cols, rows }
+  }
+
   setViews(viewContentMap: ViewContentMap, streams: StreamList) {
     const { width, height, cols, rows } = this.config
     const spaceWidth = Math.floor(width / cols)
