@@ -8,7 +8,12 @@ import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
-import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import {
+  ControlCommand,
+  StreamwallState,
+  clampGridDimension,
+  remapGridAssignments,
+} from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
@@ -420,6 +425,40 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     } else if (msg.type === 'set-stream-running' && streamdelayClient) {
       console.debug('Setting stream running:', msg.isStreamRunning)
       streamdelayClient.setStreamRunning(msg.isStreamRunning)
+    } else if (msg.type === 'set-grid-size') {
+      const cols = clampGridDimension(msg.cols)
+      const rows = clampGridDimension(msg.rows)
+      const oldCols = streamWindowConfig.cols
+
+      // Read current assignments keyed by old cell index.
+      const oldAssignments = new Map<number, string | undefined>()
+      for (const [key, viewData] of viewsState) {
+        oldAssignments.set(Number(key), viewData.get('streamId'))
+      }
+
+      // Remap by (x, y) into the new grid, then rebuild the views map.
+      const newAssignments = remapGridAssignments(
+        oldCols,
+        cols,
+        rows,
+        oldAssignments,
+      )
+      stateDoc.transact(() => {
+        for (const key of [...viewsState.keys()]) {
+          viewsState.delete(key)
+        }
+        for (const [idx, streamId] of newAssignments) {
+          const data = new Y.Map<string | undefined>()
+          data.set('streamId', streamId)
+          viewsState.set(String(idx), data)
+        }
+      })
+
+      streamWindowConfig.cols = cols
+      streamWindowConfig.rows = rows
+      streamWindow.setGridSize(cols, rows)
+      updateViewsFromStateDoc()
+      updateState({ config: { ...clientState.config, cols, rows } })
     }
   }
 
