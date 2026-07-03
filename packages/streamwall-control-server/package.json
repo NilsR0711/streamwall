@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx ./src/index.ts",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test --test-force-exit --test-timeout=20000 \"src/**/*.test.ts\""
   },
   "repository": "github:streamwall/streamwall",
   "author": "Max Goodhart <c@chromakode.com>",
