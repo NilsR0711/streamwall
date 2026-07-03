@@ -1,6 +1,6 @@
 import TOML from '@iarna/toml'
 import * as Sentry from '@sentry/electron/main'
-import { BrowserWindow, app, session } from 'electron'
+import { BrowserWindow, app } from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
@@ -23,6 +23,7 @@ import {
   pollDataURL,
   watchDataFile,
 } from './data'
+import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -248,13 +249,6 @@ function parseArgs(): StreamwallConfig {
 }
 
 async function main(argv: ReturnType<typeof parseArgs>) {
-  // Reject all permission requests from web content.
-  session
-    .fromPartition('persist:session')
-    .setPermissionRequestHandler((webContents, permission, callback) => {
-      callback(false)
-    })
-
   const db = await loadStorage(
     join(app.getPath('userData'), 'streamwall-storage.json'),
   )
@@ -396,10 +390,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            partition: 'persist:session',
+            // Keep the operator's browsing isolated from the stream views and
+            // off disk by using a dedicated ephemeral partition.
+            partition: BROWSE_PARTITION,
             sandbox: true,
           },
         })
+        hardenSession(browseWindow.webContents.session)
       }
       if (msg.type === 'browse') {
         console.debug('Attempting to browse URL:', msg.url)
