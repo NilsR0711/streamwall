@@ -13,6 +13,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook'
 import { IconType } from 'react-icons'
 import {
+  FaCog,
   FaExchangeAlt,
   FaRedoAlt,
   FaRegLifeRing,
@@ -436,6 +437,16 @@ export function ControlUI({
     [send],
   )
 
+  const handleInteractView = useCallback(
+    (viewIdx: number) => {
+      send({
+        type: 'interact-view',
+        viewIdx,
+      })
+    },
+    [send],
+  )
+
   const handleRotateStream = useCallback(
     (streamId: string) => {
       const stream = streams.find((d) => d._id === streamId)
@@ -794,6 +805,7 @@ export function ControlUI({
                       onSetBackgroundListening={handleSetBackgroundListening}
                       onSetBlurred={handleSetBlurred}
                       onReloadView={handleReloadView}
+                      onInteractView={handleInteractView}
                       onSwapView={handleSwapView}
                       onRotateView={handleRotateStream}
                       onBrowse={handleBrowse}
@@ -1180,6 +1192,7 @@ function GridControls({
   onSetBackgroundListening,
   onSetBlurred,
   onReloadView,
+  onInteractView,
   onSwapView,
   onRotateView,
   onBrowse,
@@ -1203,6 +1216,7 @@ function GridControls({
   ) => void
   onSetBlurred: (idx: number, isBlurred: boolean) => void
   onReloadView: (idx: number) => void
+  onInteractView: (idx: number) => void
   onSwapView: (idx: number) => void
   onRotateView: (streamId: string) => void
   onBrowse: (streamId: string) => void
@@ -1234,6 +1248,10 @@ function GridControls({
     () => onReloadView(idx),
     [idx, onReloadView],
   )
+  const handleInteractClick = useCallback(
+    () => onInteractView(idx),
+    [idx, onInteractView],
+  )
   const handleSwapClick = useCallback(() => onSwapView(idx), [idx, onSwapView])
   const handleRotateClick = useCallback(
     () => onRotateView(streamId),
@@ -1251,6 +1269,15 @@ function GridControls({
     <StyledGridControlsContainer style={style} onMouseDown={onMouseDown}>
       {isDisplaying && (
         <StyledGridButtons side="left">
+          {roleCan(role, 'interact-view') && (
+            <StyledSmallButton
+              onClick={handleInteractClick}
+              tabIndex={1}
+              title="Interact with stream (e.g. lower quality/bitrate)"
+            >
+              <FaCog />
+            </StyledSmallButton>
+          )}
           {showDebug ? (
             <>
               {roleCan(role, 'reload-view') && (
