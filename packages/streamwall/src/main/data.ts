@@ -3,7 +3,6 @@ import { Repeater } from '@repeaterjs/repeater'
 import { watch } from 'chokidar'
 import { EventEmitter, once } from 'events'
 import { promises as fsPromises } from 'fs'
-import { isArray } from 'lodash-es'
 import fetch from 'node-fetch'
 import { promisify } from 'util'
 import {
@@ -11,6 +10,7 @@ import {
   StreamDataContent,
   StreamList,
 } from '../../../streamwall-shared/src/types'
+import { sanitizeStreamDataList } from './streamData'
 
 const sleep = promisify(setTimeout)
 
@@ -23,7 +23,7 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
     let data: StreamDataContent[] = []
     try {
       const resp = await fetch(url)
-      data = (await resp.json()) as StreamDataContent[]
+      data = sanitizeStreamDataList(await resp.json())
     } catch (err) {
       console.warn('error loading stream data', err)
     }
@@ -50,12 +50,7 @@ export async function* watchDataFile(path: string): DataSource {
     } catch (err) {
       console.warn('error reading data file', err)
     }
-    if (data && isArray(data.streams)) {
-      // TODO: type validate with Zod
-      yield data.streams as unknown as StreamList
-    } else {
-      yield []
-    }
+    yield sanitizeStreamDataList(data?.streams)
     await once(watcher, 'change')
   }
 }
@@ -74,18 +69,26 @@ export async function* combineDataSources(
   idGen: StreamIDGenerator,
 ) {
   for await (const streamLists of Repeater.latest(dataSources)) {
-    const dataByURL = new Map<string, StreamData>()
-    for (const list of streamLists) {
-      for (const data of list) {
-        const existing = dataByURL.get(data.link)
-        dataByURL.set(data.link, { ...existing, ...data } as StreamData)
+    let streams: StreamList
+    try {
+      const dataByURL = new Map<string, StreamData>()
+      for (const list of streamLists) {
+        for (const data of list) {
+          const existing = dataByURL.get(data.link)
+          dataByURL.set(data.link, { ...existing, ...data } as StreamData)
+        }
       }
+
+      streams = idGen.process([...dataByURL.values()]) as StreamList
+
+      // Retain the index to speed up local lookups
+      streams.byURL = dataByURL
+    } catch (err) {
+      // A malformed data source must not take down the whole pipeline;
+      // skip this batch and keep serving the next update.
+      console.warn('error combining stream data', err)
+      continue
     }
-
-    const streams = idGen.process([...dataByURL.values()]) as StreamList
-
-    // Retain the index to speed up local lookups
-    streams.byURL = dataByURL
     yield streams
   }
 }
