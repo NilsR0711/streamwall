@@ -13,7 +13,11 @@ async function makeAuthDb() {
   const dir = mkdtempSync(path.join(tmpdir(), 'swcs-invite-'))
   const db = await loadStorage(path.join(dir, 'storage.json'))
   const auth = new Auth(db.data.auth)
-  return { db, auth, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+  return {
+    db,
+    auth,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
 }
 
 async function runCapturing(args: {
@@ -45,7 +49,11 @@ describe('initialInviteCodes admin bootstrap', () => {
   test('mints and logs an admin invite on first run', async () => {
     const { db, auth, cleanup } = await makeAuthDb()
     try {
-      const logs = await runCapturing({ db, auth, baseURL: 'http://localhost:3000' })
+      const logs = await runCapturing({
+        db,
+        auth,
+        baseURL: 'http://localhost:3000',
+      })
       assert.equal(adminInvites(auth).length, 1)
       assert.equal(loggedInviteLinks(logs).length, 1)
     } finally {
@@ -57,7 +65,11 @@ describe('initialInviteCodes admin bootstrap', () => {
     const { db, auth, cleanup } = await makeAuthDb()
     try {
       await auth.createToken({ kind: 'session', role: 'admin', name: 'Admin' })
-      const logs = await runCapturing({ db, auth, baseURL: 'http://localhost:3000' })
+      const logs = await runCapturing({
+        db,
+        auth,
+        baseURL: 'http://localhost:3000',
+      })
       assert.equal(adminInvites(auth).length, 0)
       assert.equal(loggedInviteLinks(logs).length, 0)
     } finally {
@@ -74,8 +86,16 @@ describe('initialInviteCodes admin bootstrap', () => {
         baseURL: 'http://localhost:3000',
         log: () => {},
       })
-      const logs = await runCapturing({ db, auth, baseURL: 'http://localhost:3000' })
-      assert.equal(adminInvites(auth).length, 1, 'must not duplicate the invite')
+      const logs = await runCapturing({
+        db,
+        auth,
+        baseURL: 'http://localhost:3000',
+      })
+      assert.equal(
+        adminInvites(auth).length,
+        1,
+        'must not duplicate the invite',
+      )
       assert.equal(
         loggedInviteLinks(logs).length,
         0,
@@ -91,7 +111,11 @@ describe('initialInviteCodes admin bootstrap', () => {
     try {
       await auth.createToken({ kind: 'session', role: 'admin', name: 'Admin' })
       process.env[ENV_KEY] = '1'
-      const logs = await runCapturing({ db, auth, baseURL: 'http://localhost:3000' })
+      const logs = await runCapturing({
+        db,
+        auth,
+        baseURL: 'http://localhost:3000',
+      })
       assert.equal(adminInvites(auth).length, 1)
       assert.equal(loggedInviteLinks(logs).length, 1)
     } finally {

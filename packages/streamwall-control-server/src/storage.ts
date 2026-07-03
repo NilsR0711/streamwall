@@ -39,9 +39,10 @@ export async function loadStorage(
  * because it is validated against its scrypt hash in `auth.tokens`.
  */
 async function migrateStorage(db: StorageDB) {
-  const token = db.data.streamwallToken as
-    | { tokenId: string; secret?: string }
-    | null
+  const token = db.data.streamwallToken as {
+    tokenId: string
+    secret?: string
+  } | null
   if (token && 'secret' in token) {
     await db.update((data) => {
       data.streamwallToken = { tokenId: token.tokenId }

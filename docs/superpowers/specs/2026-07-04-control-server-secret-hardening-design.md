@@ -27,12 +27,12 @@ The browser control client (`/client/ws`) already authenticates via an
 
 ## Approach & Decisions
 
-| Area | Decision |
-| --- | --- |
-| Invite transport | **URL fragment + same-origin POST exchange.** Fragments never reach the server, so the secret stays out of access logs and `Referer`. |
-| Uplink config | **`Authorization: Bearer <tokenId>:<secret>` header, backward compatible.** A legacy `control.endpoint` that still embeds `?token=` is parsed, its token moved to the header, and a deprecation warning is logged. |
-| Admin invite | **Hash-only, print-once.** Minted + logged only when no admin can currently get in; `STREAMWALL_CONTROL_NEW_ADMIN_INVITE=1` forces a fresh invite for recovery. |
-| Test harness | **`node:test` + `tsx`.** Zero new runtime/dev dependencies, fitting a security PR. |
+| Area             | Decision                                                                                                                                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Invite transport | **URL fragment + same-origin POST exchange.** Fragments never reach the server, so the secret stays out of access logs and `Referer`.                                                                              |
+| Uplink config    | **`Authorization: Bearer <tokenId>:<secret>` header, backward compatible.** A legacy `control.endpoint` that still embeds `?token=` is parsed, its token moved to the header, and a deprecation warning is logged. |
+| Admin invite     | **Hash-only, print-once.** Minted + logged only when no admin can currently get in; `STREAMWALL_CONTROL_NEW_ADMIN_INVITE=1` forces a fresh invite for recovery.                                                    |
+| Test harness     | **`node:test` + `tsx`.** Zero new runtime/dev dependencies, fitting a security PR.                                                                                                                                 |
 
 ## Components
 
@@ -71,6 +71,7 @@ token exists. A migration on load strips any legacy `secret` field and rewrites
 ### 4. Startup logging (P1 log side / P2)
 
 `initialInviteCodes`:
+
 - Uplink: minted + its endpoint/token printed **once** at creation. Restarts
   print the endpoint without a secret (the plaintext no longer exists).
 - Admin invite: created + logged only when there is **no admin session and no

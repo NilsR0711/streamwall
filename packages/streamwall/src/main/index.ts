@@ -9,9 +9,9 @@ import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
 import {
+  StreamwallState,
   resolveControlConnection,
   resolveGridDimensions,
-  StreamwallState,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'

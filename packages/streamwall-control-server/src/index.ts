@@ -161,17 +161,20 @@ export async function initApp({
 
   // Serve the invite acceptance page. The secret is never in the URL the server
   // sees: it rides in the fragment and is exchanged by the page via POST.
-  app.get<{ Params: { id: string } }>('/invite/:id', async (_request, reply) => {
-    const nonce = randomBytes(16).toString('base64')
-    reply
-      .header('Referrer-Policy', 'no-referrer')
-      .header(
-        'Content-Security-Policy',
-        `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'`,
-      )
-      .type('text/html')
-      .send(renderInvitePage(nonce))
-  })
+  app.get<{ Params: { id: string } }>(
+    '/invite/:id',
+    async (_request, reply) => {
+      const nonce = randomBytes(16).toString('base64')
+      reply
+        .header('Referrer-Policy', 'no-referrer')
+        .header(
+          'Content-Security-Policy',
+          `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'`,
+        )
+        .type('text/html')
+        .send(renderInvitePage(nonce))
+    },
+  )
 
   // Exchange the invite secret (posted from the acceptance page) for a session
   // cookie. Same-origin only, single use.
@@ -215,148 +218,144 @@ export async function initApp({
     },
   )
 
-  app.get(
-    '/streamwall/ws',
-    { websocket: true },
-    async (ws, request) => {
-      ws.binaryType = 'arraybuffer'
-      const handleMessage = queueWebSocketMessages(ws)
+  app.get('/streamwall/ws', { websocket: true }, async (ws, request) => {
+    ws.binaryType = 'arraybuffer'
+    const handleMessage = queueWebSocketMessages(ws)
 
-      // The uplink authenticates with an Authorization: Bearer header so the
-      // secret never appears in the URL (and thus never in access logs).
-      const credential = parseBearerCredential(request.headers.authorization)
-      if (!credential) {
-        ws.send(JSON.stringify({ error: 'unauthorized' }))
-        ws.close()
-        return
-      }
+    // The uplink authenticates with an Authorization: Bearer header so the
+    // secret never appears in the URL (and thus never in access logs).
+    const credential = parseBearerCredential(request.headers.authorization)
+    if (!credential) {
+      ws.send(JSON.stringify({ error: 'unauthorized' }))
+      ws.close()
+      return
+    }
 
-      const tokenInfo = await auth.validateToken(
-        credential.tokenId,
-        credential.secret,
+    const tokenInfo = await auth.validateToken(
+      credential.tokenId,
+      credential.secret,
+    )
+    if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
+      ws.send(JSON.stringify({ error: 'unauthorized' }))
+      ws.close()
+      return
+    }
+
+    if (currentStreamwallWs != null) {
+      console.warn(
+        'Rejecting Streamwall connection (already connected) from',
+        request.ip,
+        tokenInfo,
       )
-      if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
-        ws.send(JSON.stringify({ error: 'unauthorized' }))
-        ws.close()
-        return
-      }
+      ws.send(JSON.stringify({ error: 'streamwall already connected' }))
+      ws.close()
+      return
+    }
 
-      if (currentStreamwallWs != null) {
-        console.warn(
-          'Rejecting Streamwall connection (already connected) from',
-          request.ip,
-          tokenInfo,
-        )
-        ws.send(JSON.stringify({ error: 'streamwall already connected' }))
-        ws.close()
-        return
-      }
+    currentStreamwallWs = ws
 
-      currentStreamwallWs = ws
-
-      const pingInterval = setInterval(() => {
-        ws.ping()
-        const pongTimeout = setTimeout(() => {
-          if (ws.readyState === ws.OPEN) {
-            console.warn(
-              `Streamwall timeout: no pong within ${STREAMWALL_PING_TIMEOUT_MS}ms. Closing connection.`,
-            )
-            ws.terminate()
-          }
-        }, STREAMWALL_PING_TIMEOUT_MS)
-        ws.once('pong', () => {
-          clearTimeout(pongTimeout)
-        })
+    const pingInterval = setInterval(() => {
+      ws.ping()
+      const pongTimeout = setTimeout(() => {
+        if (ws.readyState === ws.OPEN) {
+          console.warn(
+            `Streamwall timeout: no pong within ${STREAMWALL_PING_TIMEOUT_MS}ms. Closing connection.`,
+          )
+          ws.terminate()
+        }
       }, STREAMWALL_PING_TIMEOUT_MS)
-
-      ws.on('close', () => {
-        console.log('Streamwall disconnected')
-        currentStreamwallWs = null
-        currentStreamwallConn = null
-        clearInterval(pingInterval)
-
-        for (const client of clients.values()) {
-          client.ws.close()
-        }
+      ws.once('pong', () => {
+        clearTimeout(pongTimeout)
       })
+    }, STREAMWALL_PING_TIMEOUT_MS)
 
-      let clientState: StateWrapper | null = null
-      const stateDoc = new Y.Doc()
+    ws.on('close', () => {
+      console.log('Streamwall disconnected')
+      currentStreamwallWs = null
+      currentStreamwallConn = null
+      clearInterval(pingInterval)
 
-      console.log('Streamwall connecting from', request.ip, tokenInfo)
+      for (const client of clients.values()) {
+        client.ws.close()
+      }
+    })
 
-      handleMessage((rawData) => {
-        if (rawData instanceof ArrayBuffer) {
-          Y.applyUpdate(stateDoc, new Uint8Array(rawData))
-          return
-        }
+    let clientState: StateWrapper | null = null
+    const stateDoc = new Y.Doc()
 
-        let msg: ControlUpdateMessage
+    console.log('Streamwall connecting from', request.ip, tokenInfo)
 
-        try {
-          msg = JSON.parse(rawData.toString())
-        } catch (err) {
-          console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
-          return
-        }
+    handleMessage((rawData) => {
+      if (rawData instanceof ArrayBuffer) {
+        Y.applyUpdate(stateDoc, new Uint8Array(rawData))
+        return
+      }
 
-        try {
-          if (msg.type === 'state') {
-            if (clientState === null) {
-              clientState = new StateWrapper(msg.state)
-              clientState.update({ auth: auth.getState() })
-              currentStreamwallConn = {
-                ws,
-                clientState,
-                stateDoc,
-              }
+      let msg: ControlUpdateMessage
 
-              console.log('Streamwall connected from', request.ip, tokenInfo)
-            } else {
-              clientState.update(msg.state)
+      try {
+        msg = JSON.parse(rawData.toString())
+      } catch (err) {
+        console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
+        return
+      }
+
+      try {
+        if (msg.type === 'state') {
+          if (clientState === null) {
+            clientState = new StateWrapper(msg.state)
+            clientState.update({ auth: auth.getState() })
+            currentStreamwallConn = {
+              ws,
+              clientState,
+              stateDoc,
             }
 
-            for (const client of clients.values()) {
-              try {
-                if (client.ws.readyState !== WebSocket.OPEN) {
-                  continue
-                }
-                const stateView = clientState.view(client.identity.role)
-                const delta = stateDiff.diff(client.lastStateSent, stateView)
-                if (!delta) {
-                  continue
-                }
-                client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
-                client.lastStateSent = stateView
-              } catch (err) {
-                console.error('failed to send client state delta', client)
+            console.log('Streamwall connected from', request.ip, tokenInfo)
+          } else {
+            clientState.update(msg.state)
+          }
+
+          for (const client of clients.values()) {
+            try {
+              if (client.ws.readyState !== WebSocket.OPEN) {
+                continue
               }
+              const stateView = clientState.view(client.identity.role)
+              const delta = stateDiff.diff(client.lastStateSent, stateView)
+              if (!delta) {
+                continue
+              }
+              client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
+              client.lastStateSent = stateView
+            } catch (err) {
+              console.error('failed to send client state delta', client)
             }
           }
-        } catch (err) {
-          console.error('Failed to handle ws message:', rawData, err)
         }
-      })
+      } catch (err) {
+        console.error('Failed to handle ws message:', rawData, err)
+      }
+    })
 
-      stateDoc.on('update', (update, origin) => {
+    stateDoc.on('update', (update, origin) => {
+      try {
+        ws.send(update)
+      } catch (err) {
+        console.error('Failed to send Streamwall doc update')
+      }
+      for (const client of clients.values()) {
+        if (client.clientId === origin) {
+          continue
+        }
         try {
-          ws.send(update)
+          client.ws.send(update)
         } catch (err) {
-          console.error('Failed to send Streamwall doc update')
+          console.error('Failed to send client doc update:', client)
         }
-        for (const client of clients.values()) {
-          if (client.clientId === origin) {
-            continue
-          }
-          try {
-            client.ws.send(update)
-          } catch (err) {
-            console.error('Failed to send client doc update:', client)
-          }
-        }
-      })
-    },
-  )
+      }
+    })
+  })
 
   // Authenticated client routes
   app.register(async function (fastify) {

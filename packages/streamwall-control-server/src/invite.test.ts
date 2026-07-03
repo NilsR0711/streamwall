@@ -40,7 +40,9 @@ describe('GET /invite/:id (acceptance page)', () => {
 })
 
 describe('POST /invite/:id (exchange)', () => {
-  async function makeInvite(auth: Awaited<ReturnType<typeof createTestApp>>['auth']) {
+  async function makeInvite(
+    auth: Awaited<ReturnType<typeof createTestApp>>['auth'],
+  ) {
     return auth.createToken({ kind: 'invite', role: 'operator', name: 'Op' })
   }
 
