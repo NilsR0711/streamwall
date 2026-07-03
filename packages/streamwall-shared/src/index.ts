@@ -1,5 +1,7 @@
 export * from './colors.ts'
+export * from './controlEndpoint.ts'
 export * from './geometry.ts'
 export * from './roles.ts'
 export * from './stateDiff.ts'
 export * from './types.ts'
+export * from './uplink.ts'
