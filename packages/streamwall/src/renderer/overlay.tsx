@@ -18,6 +18,7 @@ import { TailSpin } from 'svg-loaders-react'
 import { matchesState } from 'xstate'
 import packageInfo from '../../package.json'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
+import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 
 import '@fontsource/noto-sans'
 import 'streamwall-control-ui/src/index.css'
@@ -103,7 +104,7 @@ function Overlay({
         <OverlayIFrame
           key={s._id}
           src={s.link}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"
           scrolling="no"
         />

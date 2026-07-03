@@ -6,6 +6,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { styled } from 'styled-components'
 import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
+import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 
 declare global {
   interface Window {
@@ -21,7 +22,7 @@ function Background({ streams }: { streams: StreamList }) {
         <BackgroundIFrame
           key={s._id}
           src={s.link}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"
           scrolling="no"
         />
