@@ -1,5 +1,6 @@
 export * from './colors.ts'
 export * from './geometry.ts'
+export * from './grid.ts'
 export * from './roles.ts'
 export * from './stateDiff.ts'
 export * from './types.ts'
