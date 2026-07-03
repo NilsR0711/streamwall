@@ -150,6 +150,13 @@ export class Auth extends EventEmitter<AuthEvents> {
 
     const providedTokenHashBuf = Buffer.from(tokenHash)
     const expectedTokenHashBuf = Buffer.from(tokenData.tokenHash)
+    // scrypt hashes are base62-encoded and can differ in length. timingSafeEqual
+    // throws on mismatched lengths, so guard first: a different length can never
+    // be a match. This reveals nothing about the stored secret (the provided
+    // hash is derived from attacker-controlled input).
+    if (providedTokenHashBuf.length !== expectedTokenHashBuf.length) {
+      return null
+    }
     const isTokenMatch = timingSafeEqual(
       providedTokenHashBuf,
       expectedTokenHashBuf,

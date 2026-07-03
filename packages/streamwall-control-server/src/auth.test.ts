@@ -58,6 +58,23 @@ describe('Auth token storage', () => {
     assert.equal(await auth.validateToken('unknown-id', secret), null)
   })
 
+  test('validateToken rejects wrong secrets without throwing (length-safe)', async () => {
+    const auth = new Auth()
+    const { tokenId } = await auth.createToken({
+      kind: 'invite',
+      role: 'operator',
+      name: 'Op',
+    })
+
+    // scrypt hashes are base62-encoded and therefore vary in length. A naive
+    // timingSafeEqual on mismatched lengths throws; validation must instead
+    // return null for every wrong secret regardless of its hash length.
+    for (let i = 0; i < 200; i++) {
+      const result = await auth.validateToken(tokenId, `wrong-secret-${i}`)
+      assert.equal(result, null, `wrong secret #${i} must be rejected as null`)
+    }
+  })
+
   test('a token validates after reconstructing Auth from stored (hash-only) data', async () => {
     const auth = new Auth()
     const { tokenId, secret } = await auth.createToken({
