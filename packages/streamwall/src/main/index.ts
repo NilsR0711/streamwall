@@ -454,11 +454,14 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         }
       })
 
-      streamWindowConfig.cols = cols
-      streamWindowConfig.rows = rows
+      // streamWindow.config, streamWindowConfig and clientState.config are the
+      // same shared object, and setGridSize mutates it in place. Broadcast that
+      // shared object via updateState({}) rather than detaching a copy, so a
+      // later window resize keeps the overlay/control grid in sync with the wall
+      // (issue #14).
       streamWindow.setGridSize(cols, rows)
       updateViewsFromStateDoc()
-      updateState({ config: { ...clientState.config, cols, rows } })
+      updateState({})
     }
   }
 

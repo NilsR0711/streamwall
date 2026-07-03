@@ -237,9 +237,17 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * Reconfigures the grid dimensions at runtime. The actual re-layout happens on
    * the next `setViews()` call (driven by the server after it remaps the views
    * state), which reads `cols`/`rows` from `this.config`.
+   *
+   * Mutates `this.config` in place rather than replacing it: the main process
+   * shares a single config object across `streamWindow.config`,
+   * `clientState.config` and the resize pipeline (`handleResize` likewise
+   * mutates it in place). Replacing the object would detach those references and
+   * leave the overlay/control grid drawing stale dimensions after the next
+   * resize.
    */
   setGridSize(cols: number, rows: number) {
-    this.config = { ...this.config, cols, rows }
+    this.config.cols = cols
+    this.config.rows = rows
   }
 
   setViews(viewContentMap: ViewContentMap, streams: StreamList) {
