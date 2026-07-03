@@ -449,7 +449,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       if (msg.type === 'browse') {
         console.debug('Attempting to browse URL:', msg.url)
         try {
-          ensureValidURL(msg.url)
+          await ensureValidURL(msg.url)
           browseWindow.loadURL(msg.url)
         } catch (error) {
           console.error('Invalid URL:', msg.url)
