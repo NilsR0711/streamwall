@@ -127,6 +127,7 @@ export type ControlCommand =
   | { type: 'update-custom-stream'; url: string; data: LocalStreamData }
   | { type: 'delete-custom-stream'; url: string }
   | { type: 'reload-view'; viewIdx: number }
+  | { type: 'interact-view'; viewIdx: number }
   | { type: 'browse'; url: string }
   | { type: 'dev-tools'; viewIdx: number }
   | { type: 'set-stream-censored'; isCensored: boolean }
