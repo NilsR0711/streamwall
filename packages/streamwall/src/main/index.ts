@@ -8,7 +8,11 @@ import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
-import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import {
+  ControlCommand,
+  resolveGridDimensions,
+  StreamwallState,
+} from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
@@ -35,8 +39,9 @@ const SENTRY_DSN =
 export interface StreamwallConfig {
   help: boolean
   grid: {
-    cols: number
-    rows: number
+    count: number
+    cols?: number
+    rows?: number
   }
   window: {
     x?: number
@@ -99,14 +104,19 @@ function parseArgs(): StreamwallConfig {
       .config('config', (configPath) => {
         return TOML.parse(fs.readFileSync(configPath, 'utf-8'))
       })
-      .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
-      .option('grid.cols', {
+      .group(['grid.count', 'grid.cols', 'grid.rows'], 'Grid dimensions')
+      .option('grid.count', {
+        describe: 'Number of columns and rows for a square grid',
         number: true,
         default: 3,
       })
-      .option('grid.rows', {
+      .option('grid.cols', {
+        describe: 'Number of columns (overrides grid.count)',
         number: true,
-        default: 3,
+      })
+      .option('grid.rows', {
+        describe: 'Number of rows (overrides grid.count)',
+        number: true,
       })
       .group(
         [
@@ -265,9 +275,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   const overlayStreamData = new LocalStreamData()
 
+  const { cols, rows } = resolveGridDimensions(argv.grid)
   const streamWindowConfig = {
-    cols: argv.grid.cols,
-    rows: argv.grid.rows,
+    cols,
+    rows,
     width: argv.window.width,
     height: argv.window.height,
     x: argv.window.x,
@@ -336,14 +347,23 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     }, 1000),
   )
 
+  const viewCount = cols * rows
   stateDoc.transact(() => {
-    for (let i = 0; i < argv.grid.cols * argv.grid.rows; i++) {
+    for (let i = 0; i < viewCount; i++) {
       if (viewsState.has(String(i))) {
         continue
       }
       const data = new Y.Map<string | undefined>()
       data.set('streamId', undefined)
       viewsState.set(String(i), data)
+    }
+    // Drop view slots outside the current grid (e.g. after the grid has been
+    // made smaller) so stale stream assignments aren't retained or resurfaced
+    // if the grid is later grown again.
+    for (const key of [...viewsState.keys()]) {
+      if (Number(key) >= viewCount) {
+        viewsState.delete(key)
+      }
     }
   })
 
