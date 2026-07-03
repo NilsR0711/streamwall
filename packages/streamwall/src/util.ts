@@ -5,7 +5,9 @@ import { BlockList, isIP } from 'node:net'
 // loopback, private LAN, carrier-grade NAT, link-local (including the cloud
 // metadata endpoint 169.254.169.254) and the unspecified address, for both
 // IPv4 and IPv6. Using a BlockList lets Node match IPv4-mapped IPv6 addresses
-// (e.g. ::ffff:127.0.0.1) against the IPv4 rules automatically.
+// (e.g. ::ffff:127.0.0.1) against the IPv4 rules automatically; the NAT64 and
+// 6to4 prefixes below cover the other IPv4-embedding IPv6 transition forms,
+// which BlockList does not unwrap on its own.
 const blockedAddresses = new BlockList()
 blockedAddresses.addSubnet('0.0.0.0', 8, 'ipv4') // "this" network / unspecified
 blockedAddresses.addSubnet('10.0.0.0', 8, 'ipv4') // private
@@ -18,6 +20,8 @@ blockedAddresses.addAddress('::', 'ipv6') // unspecified
 blockedAddresses.addAddress('::1', 'ipv6') // loopback
 blockedAddresses.addSubnet('fc00::', 7, 'ipv6') // unique local
 blockedAddresses.addSubnet('fe80::', 10, 'ipv6') // link-local
+blockedAddresses.addSubnet('64:ff9b::', 96, 'ipv6') // NAT64 (embeds IPv4)
+blockedAddresses.addSubnet('2002::', 16, 'ipv6') // 6to4 (embeds IPv4)
 
 function isBlockedAddress(ip: string): boolean {
   const family = isIP(ip)
@@ -62,8 +66,10 @@ export async function ensureValidURL(
     throw new Error(`rejecting attempt to load non-http URL '${urlStr}'`)
   }
 
-  // IPv6 literals are bracketed in url.hostname (e.g. "[::1]").
-  const hostname = url.hostname.replace(/^\[|\]$/g, '')
+  // IPv6 literals are bracketed in url.hostname (e.g. "[::1]"), and a fully
+  // qualified name may carry a trailing dot (e.g. "localhost."); strip both so
+  // the loopback fast-path cannot be skipped by a trailing dot.
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '')
   if (hostname === '') {
     throw new Error(`rejecting attempt to load URL with no host '${urlStr}'`)
   }

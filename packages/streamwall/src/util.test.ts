@@ -142,3 +142,39 @@ test('allows a public hostname that resolves to a public address', async () => {
     ensureValidURL('http://stream.example.com/', resolvesTo('93.184.216.34')),
   )
 })
+
+// IPv4-embedded IPv6 transition forms that can deliver traffic to an internal
+// IPv4 address (in addition to the IPv4-mapped ::ffff: form covered above).
+test('rejects a NAT64-embedded link-local URL', async () => {
+  await assert.rejects(
+    ensureValidURL('http://[64:ff9b::169.254.169.254]/'),
+    /private-network/,
+  )
+})
+
+test('rejects a 6to4-embedded link-local URL', async () => {
+  await assert.rejects(
+    ensureValidURL('http://[2002:a9fe:a9fe::]/'),
+    /private-network/,
+  )
+})
+
+test('rejects a 6to4-embedded loopback URL', async () => {
+  await assert.rejects(
+    ensureValidURL('http://[2002:7f00:1::]/'),
+    /private-network/,
+  )
+})
+
+test('allows a public IPv6-literal URL', async () => {
+  await assert.doesNotReject(ensureValidURL('http://[2606:4700:4700::1111]/'))
+})
+
+// A trailing FQDN dot must not slip past the loopback fast-path.
+test('rejects the localhost hostname with a trailing dot', async () => {
+  await assert.rejects(ensureValidURL('http://localhost./'), /loopback/)
+})
+
+test('rejects a *.localhost hostname with a trailing dot', async () => {
+  await assert.rejects(ensureValidURL('http://admin.localhost./'), /loopback/)
+})
