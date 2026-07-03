@@ -8,16 +8,13 @@ import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
-import {
-  ControlCommand,
-  resolveGridDimensions,
-  StreamwallState,
-} from 'streamwall-shared'
+import { StreamwallState, resolveGridDimensions } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
 import { ensureValidURL } from '../util'
+import { isControlCommand } from './controlCommand'
 import ControlWindow from './ControlWindow'
 import {
   LocalStreamData,
@@ -370,7 +367,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   updateViewsFromStateDoc()
   viewsState.observeDeep(updateViewsFromStateDoc)
 
-  const onCommand = async (msg: ControlCommand) => {
+  const onCommand = async (rawMsg: unknown) => {
+    if (!isControlCommand(rawMsg)) {
+      console.warn('Ignoring malformed control message:', rawMsg)
+      return
+    }
+    const msg = rawMsg
     console.debug('Received message:', msg)
     if (msg.type === 'set-listening-view') {
       console.debug('Setting listening view:', msg.viewIdx)
@@ -507,6 +509,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           msg = JSON.parse(ev.data)
         } catch (err) {
           console.warn('Failed to parse control WebSocket message:', err)
+          return
         }
 
         onCommand(msg)
