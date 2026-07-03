@@ -147,7 +147,7 @@ const viewStateMachine = setup({
       }) => {
         assert(content !== null)
 
-        ensureValidURL(content.url)
+        await ensureValidURL(content.url)
         const wc = view.webContents
         wc.audioMuted = true
         wc.executeJavaScript(`
