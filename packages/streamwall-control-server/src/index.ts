@@ -21,6 +21,10 @@ import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export const SESSION_COOKIE_NAME = 's'
+// `@fastify/cookie` serializes `maxAge` into the RFC 6265 `Max-Age` attribute,
+// which is measured in SECONDS (not milliseconds). Keep this value in seconds —
+// one year — so sessions stay long-lived while remaining bounded.
+export const SESSION_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
 const STREAMWALL_PING_TIMEOUT_MS = 5 * 1000
 
 interface Client {
@@ -135,7 +139,8 @@ export async function initApp({
           path: '/',
           httpOnly: true,
           secure: isSecure,
-          maxAge: 1 * 365 * 24 * 60 * 60 * 1000,
+          sameSite: 'strict',
+          maxAge: SESSION_COOKIE_MAX_AGE_SECONDS,
         },
       )
 
