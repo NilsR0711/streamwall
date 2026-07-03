@@ -15,7 +15,13 @@
 #active-color = "#fff"
 
 [grid]
+# Number of columns and rows for a square grid (e.g. 3 = 3x3, 4 = 4x4).
 #count = 3
+
+# For a non-square grid, override the number of columns and/or rows
+# individually. These take precedence over "count".
+#cols = 4
+#rows = 2
 
 [control]
 # Address to serve control server from

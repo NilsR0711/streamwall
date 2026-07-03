@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\""
+  },
   "dependencies": {
     "color": "^5.0.0",
     "jsondiffpatch": "^0.7.3"

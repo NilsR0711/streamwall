@@ -4,5 +4,6 @@
     "@tsconfig/node22/tsconfig",
     "@tsconfig/node-ts/tsconfig"
   ],
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["node_modules", "**/*.test.ts"]
 }
