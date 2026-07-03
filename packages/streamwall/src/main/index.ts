@@ -30,6 +30,7 @@ import {
   watchDataFile,
 } from './data'
 import { applyGridResize } from './gridResize'
+import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
@@ -445,6 +446,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           },
         })
         hardenSession(browseWindow.webContents.session)
+        // Deny popups; the browse window is meant to show a single URL.
+        denyWindowOpen(browseWindow.webContents)
       }
       if (msg.type === 'browse') {
         console.debug('Attempting to browse URL:', msg.url)

@@ -17,6 +17,7 @@ import {
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { loadHTML } from './loadHTML'
+import { secureStreamView } from './navigationSecurity'
 import { allocateViewPartition, hardenSession } from './partitions'
 import viewStateMachine, { ViewActor } from './viewStateMachine'
 
@@ -183,14 +184,9 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
     const viewId = view.webContents.id
 
-    // Prevent view pages from navigating away from the specified URL.
-    view.webContents.on('will-navigate', (ev) => {
-      if (ev.url === view.webContents.getURL()) {
-        console.log('Allowing page to reload:', ev.url)
-        return
-      }
-      ev.preventDefault()
-    })
+    // Lock the view to its stream URL: deny popups and block navigation/redirect
+    // escapes while still allowing the page to reload itself.
+    secureStreamView(view.webContents)
 
     // Hidden window used for loading the BrowserView before it's positioned in the wall
     const offscreenWin = new BrowserWindow({
