@@ -7,6 +7,7 @@ import WebSocket from 'ws'
 import * as Y from 'yjs'
 
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   type AuthTokenInfo,
   type ControlCommandMessage,
@@ -38,6 +39,10 @@ interface StreamwallConnection {
 interface AppOptions {
   baseURL: string
   clientStaticPath: string
+}
+
+interface InitAppOptions extends AppOptions {
+  db?: StorageDB
 }
 
 declare module 'fastify' {
@@ -82,7 +87,11 @@ function queueWebSocketMessages(ws: WebSocket) {
   return setMessageHandler
 }
 
-async function initApp({ baseURL, clientStaticPath }: AppOptions) {
+export async function initApp({
+  baseURL,
+  clientStaticPath,
+  db: providedDb,
+}: InitAppOptions) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
   const isSecure = baseURL.startsWith('https')
@@ -90,7 +99,7 @@ async function initApp({ baseURL, clientStaticPath }: AppOptions) {
   let currentStreamwallWs: WebSocket | null = null
   let currentStreamwallConn: StreamwallConnection | null = null
 
-  const db = await loadStorage()
+  const db = providedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth)
 
   const app = Fastify()
@@ -449,7 +458,7 @@ async function initApp({ baseURL, clientStaticPath }: AppOptions) {
   return { app, db, auth }
 }
 
-async function initialInviteCodes({
+export async function initialInviteCodes({
   db,
   auth,
   baseURL,
@@ -520,11 +529,19 @@ export default async function runServer({
   return { server: app.server }
 }
 
-runServer({
-  hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
-  port: process.env.STREAMWALL_CONTROL_PORT,
-  baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
-  clientStaticPath:
-    process.env.STREAMWALL_CONTROL_STATIC ??
-    path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
-})
+// Only boot a server when executed directly (e.g. `tsx ./src/index.ts`), not
+// when imported by tests or other modules.
+const isMainModule =
+  process.argv[1] != null &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isMainModule) {
+  runServer({
+    hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
+    port: process.env.STREAMWALL_CONTROL_PORT,
+    baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
+    clientStaticPath:
+      process.env.STREAMWALL_CONTROL_STATIC ??
+      path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
+  })
+}

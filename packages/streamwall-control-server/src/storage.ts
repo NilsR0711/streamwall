@@ -24,8 +24,9 @@ const defaultData: StoredData = {
 
 export type StorageDB = Low<StoredData>
 
-export async function loadStorage() {
-  const dbPath = process.env.DB_PATH || 'storage.json'
+export async function loadStorage(
+  dbPath: string = process.env.DB_PATH || 'storage.json',
+) {
   const db = await JSONFilePreset<StoredData>(dbPath, defaultData)
   return db
 }
