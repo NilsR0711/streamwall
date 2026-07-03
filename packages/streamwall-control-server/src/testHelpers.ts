@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { FastifyInstance } from 'fastify'
 import type { Auth } from './auth.ts'
 import { initApp } from './index.ts'
@@ -36,8 +37,15 @@ export async function createTestApp(
     db,
   })
 
+  // lowdb writes atomically via a sibling temp file; while it exists a write is
+  // in flight. Auth-state changes persist through fire-and-forget writes, so
+  // wait for them to drain before removing the dir to avoid a deletion race.
+  const tmpFile = path.join(path.dirname(dbPath), `.${path.basename(dbPath)}.tmp`)
   const cleanup = async () => {
     await app.close()
+    for (let i = 0; i < 100 && existsSync(tmpFile); i++) {
+      await delay(5)
+    }
     rmSync(dir, { recursive: true, force: true })
   }
 

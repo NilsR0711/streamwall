@@ -2,6 +2,7 @@ import fastifyCookie from '@fastify/cookie'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import Fastify from 'fastify'
+import { randomBytes } from 'node:crypto'
 import process from 'node:process'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
@@ -88,6 +89,52 @@ function queueWebSocketMessages(ws: WebSocket) {
   return setMessageHandler
 }
 
+/**
+ * Minimal, self-contained invite acceptance page. It reads the secret from the
+ * URL fragment (which never reaches the server), POSTs it to exchange for a
+ * session cookie, and replaces the fragment URL in history on success. The
+ * inline script runs under a per-request CSP nonce.
+ */
+function renderInvitePage(nonce: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accepting invite…</title>
+</head>
+<body>
+<noscript>JavaScript is required to accept this invite.</noscript>
+<p id="status">Accepting invite…</p>
+<script nonce="${nonce}">
+(async () => {
+  const status = document.getElementById('status');
+  const secret = location.hash.slice(1);
+  if (!secret) {
+    status.textContent = 'Invalid invite link.';
+    return;
+  }
+  try {
+    const res = await fetch(location.pathname, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    });
+    if (res.ok) {
+      location.replace('/');
+    } else {
+      status.textContent = 'This invite is invalid or has already been used.';
+    }
+  } catch (err) {
+    status.textContent = 'Could not reach the server. Please try again.';
+  }
+})();
+</script>
+</body>
+</html>
+`
+}
+
 export async function initApp({
   baseURL,
   clientStaticPath,
@@ -112,17 +159,36 @@ export async function initApp({
     },
   })
 
-  app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
+  // Serve the invite acceptance page. The secret is never in the URL the server
+  // sees: it rides in the fragment and is exchanged by the page via POST.
+  app.get<{ Params: { id: string } }>('/invite/:id', async (_request, reply) => {
+    const nonce = randomBytes(16).toString('base64')
+    reply
+      .header('Referrer-Policy', 'no-referrer')
+      .header(
+        'Content-Security-Policy',
+        `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'`,
+      )
+      .type('text/html')
+      .send(renderInvitePage(nonce))
+  })
+
+  // Exchange the invite secret (posted from the acceptance page) for a session
+  // cookie. Same-origin only, single use.
+  app.post<{ Params: { id: string }; Body: { secret?: string } }>(
     '/invite/:id',
     async (request, reply) => {
-      const { id } = request.params
-      const { token } = request.query
-
-      if (!token || typeof token !== 'string') {
+      if (request.headers.origin !== expectedOrigin) {
         return reply.code(403).send()
       }
 
-      const tokenInfo = await auth.validateToken(id, token)
+      const { id } = request.params
+      const secret = request.body?.secret
+      if (!secret || typeof secret !== 'string') {
+        return reply.code(403).send()
+      }
+
+      const tokenInfo = await auth.validateToken(id, secret)
       if (!tokenInfo || tokenInfo.kind !== 'invite') {
         return reply.code(403).send()
       }
@@ -144,8 +210,8 @@ export async function initApp({
         },
       )
 
-      await auth.deleteToken(tokenInfo.tokenId)
-      return reply.redirect('/')
+      auth.deleteToken(tokenInfo.tokenId)
+      return reply.code(204).send()
     },
   )
 

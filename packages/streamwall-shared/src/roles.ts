@@ -57,5 +57,8 @@ export function inviteLink({
   tokenId: string
   secret: string
 }) {
-  return `${baseURL}/invite/${tokenId}?token=${secret}`
+  // The secret lives in the URL fragment, which is never sent to the server.
+  // The acceptance page reads it client-side and exchanges it via POST, keeping
+  // the secret out of access logs, browser history, and the Referer header.
+  return `${baseURL}/invite/${tokenId}#${secret}`
 }
