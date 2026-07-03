@@ -1,5 +1,11 @@
 import assert from 'assert'
-import { BrowserWindow, ipcMain, WebContents, WebContentsView } from 'electron'
+import {
+  BrowserWindow,
+  ipcMain,
+  Session,
+  WebContents,
+  WebContentsView,
+} from 'electron'
 import EventEmitter from 'events'
 import intersection from 'lodash/intersection'
 import isEqual from 'lodash/isEqual'
@@ -333,6 +339,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         return view
       }
     }
+  }
+
+  getViewContent(viewIdx: number): ViewContent | null {
+    return this.findViewByIdx(viewIdx)?.getSnapshot().context.content ?? null
+  }
+
+  getViewSession(viewIdx: number): Session | null {
+    const view = this.findViewByIdx(viewIdx)
+    return view ? view.getSnapshot().context.view.webContents.session : null
   }
 
   sendViewEvent(viewIdx: number, event: EventFrom<typeof viewStateMachine>) {

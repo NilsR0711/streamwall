@@ -1,6 +1,6 @@
 import TOML from '@iarna/toml'
 import * as Sentry from '@sentry/electron/main'
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, type Session } from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
@@ -10,8 +10,8 @@ import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
 import {
   ControlCommand,
-  resolveGridDimensions,
   StreamwallState,
+  resolveGridDimensions,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -27,6 +27,7 @@ import {
   pollDataURL,
   watchDataFile,
 } from './data'
+import { InteractWindow } from './InteractWindow'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
@@ -289,6 +290,22 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }
   const streamWindow = new StreamWindow(streamWindowConfig)
   const controlWindow = new ControlWindow()
+  const interactWindow = new InteractWindow<Session>(
+    (session) =>
+      new BrowserWindow({
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          // Share the target view's isolated session so quality/bitrate changes
+          // the operator makes here (persisted to the view's cookies /
+          // localStorage) carry over when the view reloads. That session was
+          // already hardened in StreamWindow.createView, so unlike the browse
+          // window it needs no separate hardenSession call here.
+          session,
+        },
+      }),
+  )
 
   let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
@@ -399,6 +416,30 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     } else if (msg.type === 'reload-view') {
       console.debug('Reloading view:', msg.viewIdx)
       streamWindow.reloadView(msg.viewIdx)
+    } else if (msg.type === 'interact-view') {
+      console.debug('Opening interact window for view:', msg.viewIdx)
+      const content = streamWindow.getViewContent(msg.viewIdx)
+      const session = streamWindow.getViewSession(msg.viewIdx)
+      if (!content || !session) {
+        console.warn('No view to interact with at index:', msg.viewIdx)
+        return
+      }
+      try {
+        await ensureValidURL(content.url)
+      } catch (error) {
+        console.error('Invalid URL for interact-view:', content.url, error)
+        return
+      }
+      const stream = clientState.streams.byURL?.get(content.url)
+      const label = stream?.label ?? stream?.source ?? content.url
+      interactWindow.open(
+        {
+          url: content.url,
+          title: `Interact: ${label}`,
+          session,
+        },
+        () => streamWindow.reloadView(msg.viewIdx),
+      )
     } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
       if (browseWindow && !browseWindow.isDestroyed()) {
         // DevTools needs a fresh webContents to work. Close any existing window.
