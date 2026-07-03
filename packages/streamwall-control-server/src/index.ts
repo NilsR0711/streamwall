@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 
@@ -82,7 +83,11 @@ function queueWebSocketMessages(ws: WebSocket) {
   return setMessageHandler
 }
 
-async function initApp({ baseURL, clientStaticPath }: AppOptions) {
+export async function initApp({
+  baseURL,
+  clientStaticPath,
+  db: injectedDb,
+}: AppOptions & { db?: StorageDB }) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
   const isSecure = baseURL.startsWith('https')
@@ -90,7 +95,7 @@ async function initApp({ baseURL, clientStaticPath }: AppOptions) {
   let currentStreamwallWs: WebSocket | null = null
   let currentStreamwallConn: StreamwallConnection | null = null
 
-  const db = await loadStorage()
+  const db = injectedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth)
 
   const app = Fastify()
@@ -520,11 +525,16 @@ export default async function runServer({
   return { server: app.server }
 }
 
-runServer({
-  hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
-  port: process.env.STREAMWALL_CONTROL_PORT,
-  baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
-  clientStaticPath:
-    process.env.STREAMWALL_CONTROL_STATIC ??
-    path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
-})
+const isMainModule =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isMainModule) {
+  runServer({
+    hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
+    port: process.env.STREAMWALL_CONTROL_PORT,
+    baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
+    clientStaticPath:
+      process.env.STREAMWALL_CONTROL_STATIC ??
+      path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
+  })
+}
