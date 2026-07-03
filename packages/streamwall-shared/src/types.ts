@@ -15,6 +15,7 @@ export interface StreamWindowConfig {
 
 export interface ContentDisplayOptions {
   rotation?: number
+  fit?: 'cover' | 'contain'
 }
 
 /** Metadata scraped from a loaded view */
@@ -124,6 +125,7 @@ export type ControlCommand =
     }
   | { type: 'set-view-blurred'; viewIdx: number; blurred: boolean }
   | { type: 'rotate-stream'; url: string; rotation: number }
+  | { type: 'set-stream-fit'; url: string; fit: 'cover' | 'contain' }
   | { type: 'update-custom-stream'; url: string; data: LocalStreamData }
   | { type: 'delete-custom-stream'; url: string }
   | { type: 'reload-view'; viewIdx: number }

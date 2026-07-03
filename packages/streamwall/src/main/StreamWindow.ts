@@ -25,8 +25,8 @@ function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   if (!stream) {
     return {}
   }
-  const { rotation } = stream
-  return { rotation }
+  const { rotation, fit } = stream
+  return { rotation, fit }
 }
 
 export interface StreamWindowEventMap {
