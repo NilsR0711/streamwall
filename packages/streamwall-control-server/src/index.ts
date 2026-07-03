@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 
@@ -20,6 +21,10 @@ import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export const SESSION_COOKIE_NAME = 's'
+// `@fastify/cookie` serializes `maxAge` into the RFC 6265 `Max-Age` attribute,
+// which is measured in SECONDS (not milliseconds). Keep this value in seconds —
+// one year — so sessions stay long-lived while remaining bounded.
+export const SESSION_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
 const STREAMWALL_PING_TIMEOUT_MS = 5 * 1000
 
 interface Client {
@@ -82,7 +87,11 @@ function queueWebSocketMessages(ws: WebSocket) {
   return setMessageHandler
 }
 
-async function initApp({ baseURL, clientStaticPath }: AppOptions) {
+export async function initApp({
+  baseURL,
+  clientStaticPath,
+  db: injectedDb,
+}: AppOptions & { db?: StorageDB }) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
   const isSecure = baseURL.startsWith('https')
@@ -90,7 +99,7 @@ async function initApp({ baseURL, clientStaticPath }: AppOptions) {
   let currentStreamwallWs: WebSocket | null = null
   let currentStreamwallConn: StreamwallConnection | null = null
 
-  const db = await loadStorage()
+  const db = injectedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth)
 
   const app = Fastify()
@@ -130,7 +139,8 @@ async function initApp({ baseURL, clientStaticPath }: AppOptions) {
           path: '/',
           httpOnly: true,
           secure: isSecure,
-          maxAge: 1 * 365 * 24 * 60 * 60 * 1000,
+          sameSite: 'strict',
+          maxAge: SESSION_COOKIE_MAX_AGE_SECONDS,
         },
       )
 
@@ -520,11 +530,16 @@ export default async function runServer({
   return { server: app.server }
 }
 
-runServer({
-  hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
-  port: process.env.STREAMWALL_CONTROL_PORT,
-  baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
-  clientStaticPath:
-    process.env.STREAMWALL_CONTROL_STATIC ??
-    path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
-})
+const isMainModule =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isMainModule) {
+  runServer({
+    hostname: process.env.STREAMWALL_CONTROL_HOSTNAME,
+    port: process.env.STREAMWALL_CONTROL_PORT,
+    baseURL: process.env.STREAMWALL_CONTROL_URL ?? 'http://localhost:3000',
+    clientStaticPath:
+      process.env.STREAMWALL_CONTROL_STATIC ??
+      path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
+  })
+}
