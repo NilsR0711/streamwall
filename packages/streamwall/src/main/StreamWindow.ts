@@ -17,6 +17,7 @@ import {
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { loadHTML } from './loadHTML'
+import { allocateViewPartition, hardenSession } from './partitions'
 import viewStateMachine, { ViewActor } from './viewStateMachine'
 
 function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
@@ -147,15 +148,19 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     } = this
     assert(win != null, 'Window must be initialized')
     const { backgroundColor } = this.config
+    // Give every view its own unique, ephemeral partition so that streams can
+    // not share cookies/localStorage/cache with each other, the browse window,
+    // or anything persisted to disk.
     const view = new WebContentsView({
       webPreferences: {
         preload: path.join(__dirname, 'mediaPreload.js'),
         nodeIntegration: false,
         contextIsolation: true,
         backgroundThrottling: false,
-        partition: 'persist:session',
+        partition: allocateViewPartition(),
       },
     })
+    hardenSession(view.webContents.session)
     view.setBackgroundColor(backgroundColor)
 
     const viewId = view.webContents.id

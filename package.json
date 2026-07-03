@@ -2,7 +2,8 @@
   "name": "streamwall",
   "scripts": {
     "start:app": "npm -w packages/streamwall start",
-    "start:server": "npm -w packages/streamwall-control-client run build && npm -w packages/streamwall-control-server start"
+    "start:server": "npm -w packages/streamwall-control-client run build && npm -w packages/streamwall-control-server start",
+    "test": "npm run test --workspaces --if-present"
   },
   "workspaces": [
     "packages/streamwall",

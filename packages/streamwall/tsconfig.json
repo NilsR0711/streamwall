@@ -19,5 +19,6 @@
     "outDir": "dist",
     "moduleResolution": "node",
     "resolveJsonModule": true
-  }
+  },
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
