@@ -44,6 +44,8 @@ npm start -- --data.json-url="https://your-site/api/streams.json" --data.toml-fi
 
 ## Hotkeys
 
+**cmd/ctrl+q** quits Streamwall. It works whenever any Streamwall window is focused, and is the only way to exit when the stream window is configured to be frameless (a frameless window has no title bar or close button — see `window.frameless` in `example.config.toml`).
+
 The following hotkeys are available with the "control" webpage focused:
 
 - **alt+[1...9]**: Listen to the numbered stream

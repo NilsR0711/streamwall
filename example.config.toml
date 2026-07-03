@@ -6,6 +6,7 @@
 # Position a frameless window (useful for capturing w/ fixed screen positions)
 #x = 0
 #y = 0
+# A frameless window has no title bar or close button; press Cmd/Ctrl+Q to quit.
 #frameless = false
 
 # Set the background color (useful for chroma-keying)
