@@ -536,10 +536,12 @@ export async function initialInviteCodes({
   db,
   auth,
   baseURL,
+  log = console.log,
 }: {
   db: StorageDB
   auth: Auth
   baseURL: string
+  log?: (...args: unknown[]) => void
 }) {
   const wsBase = baseURL.replace(/^http/, 'ws')
 
@@ -562,38 +564,59 @@ export async function initialInviteCodes({
     await db.update((data) => {
       data.streamwallToken = { tokenId: created.tokenId }
     })
-    console.log('🔌 Streamwall uplink token created — configure the app once:')
-    console.log(`     control.endpoint = ${wsBase}/streamwall/ws`)
-    console.log(`     control.token    = ${created.tokenId}:${created.secret}`)
-    console.log(
+    log('🔌 Streamwall uplink token created — configure the app once:')
+    log(`     control.endpoint = ${wsBase}/streamwall/ws`)
+    log(`     control.token    = ${created.tokenId}:${created.secret}`)
+    log(
       '     (shown only now; set STREAMWALL_CONTROL_NEW_UPLINK_TOKEN=1 to mint a new one)',
     )
   } else {
-    console.log(
+    log(
       `🔌 Streamwall uplink endpoint: ${wsBase}/streamwall/ws (token already configured)`,
     )
   }
 
-  // Invalidate any existing admin invites and create a new one:
-  for (const adminToken of auth
-    .getState()
-    .invites.filter(({ role }) => role === 'admin')) {
-    auth.deleteToken(adminToken.tokenId)
-  }
-  const adminToken = await auth.createToken({
-    kind: 'invite',
-    role: 'admin',
-    name: 'Server admin',
-  })
-
-  console.log(
-    '🔑 Admin invite:',
-    inviteLink({
-      baseURL,
-      tokenId: adminToken.tokenId,
-      secret: adminToken.secret,
-    }),
+  // Bootstrap admin invite: minted and printed only when no admin can currently
+  // get in, so the secret is not re-logged on every restart. Recover from a
+  // lockout by setting STREAMWALL_CONTROL_NEW_ADMIN_INVITE=1.
+  const state = auth.getState()
+  const hasAdminSession = state.sessions.some(({ role }) => role === 'admin')
+  const pendingAdminInvites = state.invites.filter(
+    ({ role }) => role === 'admin',
   )
+  const forceNewAdminInvite = isEnvFlag(
+    process.env.STREAMWALL_CONTROL_NEW_ADMIN_INVITE,
+  )
+
+  if (forceNewAdminInvite) {
+    for (const invite of pendingAdminInvites) {
+      auth.deleteToken(invite.tokenId)
+    }
+  }
+
+  const needAdminInvite =
+    forceNewAdminInvite ||
+    (!hasAdminSession && pendingAdminInvites.length === 0)
+
+  if (needAdminInvite) {
+    const adminToken = await auth.createToken({
+      kind: 'invite',
+      role: 'admin',
+      name: 'Server admin',
+    })
+    log(
+      '🔑 Admin invite:',
+      inviteLink({
+        baseURL,
+        tokenId: adminToken.tokenId,
+        secret: adminToken.secret,
+      }),
+    )
+  } else if (pendingAdminInvites.length > 0) {
+    log(
+      '🔑 Admin invite already pending (set STREAMWALL_CONTROL_NEW_ADMIN_INVITE=1 to mint a new one).',
+    )
+  }
 }
 
 export default async function runServer({
