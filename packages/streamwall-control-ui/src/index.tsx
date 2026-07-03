@@ -13,6 +13,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook'
 import { IconType } from 'react-icons'
 import {
+  FaCompressArrowsAlt,
   FaExchangeAlt,
   FaRedoAlt,
   FaRegLifeRing,
@@ -451,6 +452,21 @@ export function ControlUI({
     [streams],
   )
 
+  const handleFitStream = useCallback(
+    (streamId: string) => {
+      const stream = streams.find((d) => d._id === streamId)
+      if (!stream) {
+        return
+      }
+      send({
+        type: 'set-stream-fit',
+        url: stream.link,
+        fit: stream.fit === 'contain' ? 'cover' : 'contain',
+      })
+    },
+    [streams],
+  )
+
   const handleBrowse = useCallback(
     (streamId: string) => {
       const stream = streams.find((d) => d._id === streamId)
@@ -770,6 +786,7 @@ export function ControlUI({
                   if (!streamId) {
                     return null
                   }
+                  const streamData = streams.find((d) => d._id === streamId)
                   return (
                     <GridControls
                       idx={pos.spaces[0]}
@@ -784,6 +801,7 @@ export function ControlUI({
                       isListening={isListening}
                       isBackgroundListening={isBackgroundListening}
                       isBlurred={isBlurred}
+                      isContain={streamData?.fit === 'contain'}
                       isSwapping={
                         swapStartIdx != null &&
                         pos.spaces.includes(swapStartIdx)
@@ -796,6 +814,7 @@ export function ControlUI({
                       onReloadView={handleReloadView}
                       onSwapView={handleSwapView}
                       onRotateView={handleRotateStream}
+                      onFitView={handleFitStream}
                       onBrowse={handleBrowse}
                       onDevTools={handleDevTools}
                       onMouseDown={handleDragStart}
@@ -1173,6 +1192,7 @@ function GridControls({
   isListening,
   isBackgroundListening,
   isBlurred,
+  isContain,
   isSwapping,
   showDebug,
   role,
@@ -1182,6 +1202,7 @@ function GridControls({
   onReloadView,
   onSwapView,
   onRotateView,
+  onFitView,
   onBrowse,
   onDevTools,
   onMouseDown,
@@ -1193,6 +1214,7 @@ function GridControls({
   isListening: boolean
   isBackgroundListening: boolean
   isBlurred: boolean
+  isContain: boolean
   isSwapping: boolean
   showDebug: boolean
   role: StreamwallRole | null
@@ -1205,6 +1227,7 @@ function GridControls({
   onReloadView: (idx: number) => void
   onSwapView: (idx: number) => void
   onRotateView: (streamId: string) => void
+  onFitView: (streamId: string) => void
   onBrowse: (streamId: string) => void
   onDevTools: (idx: number) => void
   onMouseDown: JSX.MouseEventHandler<HTMLDivElement>
@@ -1238,6 +1261,10 @@ function GridControls({
   const handleRotateClick = useCallback(
     () => onRotateView(streamId),
     [streamId, onRotateView],
+  )
+  const handleFitClick = useCallback(
+    () => onFitView(streamId),
+    [streamId, onFitView],
   )
   const handleBrowseClick = useCallback(
     () => onBrowse(streamId),
@@ -1288,6 +1315,15 @@ function GridControls({
               {roleCan(role, 'rotate-stream') && (
                 <StyledSmallButton onClick={handleRotateClick} tabIndex={1}>
                   <FaRedoAlt />
+                </StyledSmallButton>
+              )}
+              {roleCan(role, 'set-stream-fit') && (
+                <StyledSmallButton
+                  isActive={isContain}
+                  onClick={handleFitClick}
+                  tabIndex={1}
+                >
+                  <FaCompressArrowsAlt />
                 </StyledSmallButton>
               )}
             </>

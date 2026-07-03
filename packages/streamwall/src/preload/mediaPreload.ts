@@ -97,6 +97,26 @@ class RotationController {
   }
 }
 
+// Controls whether the video fills its space (object-fit: cover, the default) or
+// is contained without cropping (object-fit: contain). Uses an inline !important
+// style rather than a CSS class because RotationController owns the video's
+// className, and a class here would be clobbered by rotation changes.
+class FitController {
+  video: HTMLVideoElement
+
+  constructor(video: HTMLVideoElement) {
+    this.video = video
+  }
+
+  set(fit: ContentDisplayOptions['fit']) {
+    if (fit === 'contain') {
+      this.video.style.setProperty('object-fit', 'contain', 'important')
+    } else {
+      this.video.style.removeProperty('object-fit')
+    }
+  }
+}
+
 class SnapshotController {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
@@ -288,6 +308,7 @@ async function main() {
   const snapshotController = new SnapshotController()
 
   let rotationController: RotationController | undefined
+  let fitController: FitController | undefined
   async function acquireMedia(elementTimeout: number) {
     let snapshotInterval: number | undefined
 
@@ -298,6 +319,7 @@ async function main() {
 
     if (content.kind === 'video' && media instanceof HTMLVideoElement) {
       rotationController = new RotationController(media)
+      fitController = new FitController(media)
       snapshotInterval = window.setInterval(() => {
         snapshotController.snapshotVideo(media)
       }, 1000)
@@ -337,6 +359,9 @@ async function main() {
   function updateOptions(options: ContentDisplayOptions) {
     if (rotationController) {
       rotationController.setCustom(options.rotation)
+    }
+    if (fitController) {
+      fitController.set(options.fit)
     }
   }
   ipcRenderer.on('options', (ev, options) => updateOptions(options))
