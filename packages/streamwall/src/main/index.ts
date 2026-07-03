@@ -1,6 +1,6 @@
 import TOML from '@iarna/toml'
 import * as Sentry from '@sentry/electron/main'
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, globalShortcut } from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
@@ -24,6 +24,7 @@ import {
   watchDataFile,
 } from './data'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
+import { setupQuitShortcut } from './quitShortcut'
 import { loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -278,6 +279,14 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }
   const streamWindow = new StreamWindow(streamWindowConfig)
   const controlWindow = new ControlWindow()
+
+  // Provide a keyboard shortcut to quit. Without it there is no way to exit
+  // when the stream window runs frameless (no title bar / close button).
+  setupQuitShortcut({
+    app,
+    globalShortcut,
+    getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
+  })
 
   let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
