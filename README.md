@@ -17,6 +17,8 @@ Streamwall makes it easy to compose multiple livestreams into a mosaic, with sou
 
 Under the hood, think of Streamwall as a specialized web browser for mosaicing video streams. It uses [Electron](https://www.electronjs.org) to create a grid of web browser views, loading the specified webpages into them. Once the page loads, Streamwall finds the `<video>` tag and reformats the page so that the video fills the space. This works for a wide variety of web pages without specialized scrapers.
 
+Because reformatting hides the page's own controls, each view has an **interact** button (cog icon) in its overlay controls. It opens the stream's original page in a separate, interactive window — for example to lower a feed's video quality/bitrate using the site's native player controls. The window shares the view's isolated session, so changes the site persists (such as a chosen quality) carry over; when you close it, the corresponding view reloads to pick them up.
+
 
 ## Configuration
 
