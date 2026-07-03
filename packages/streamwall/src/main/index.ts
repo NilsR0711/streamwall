@@ -12,6 +12,8 @@ import {
   ControlCommand,
   StreamwallState,
   clampGridDimension,
+  isCommandAllowedFromUplink,
+  isSecureControlEndpoint,
   remapGridAssignments,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
@@ -35,6 +37,20 @@ import TwitchBot from './TwitchBot'
 
 const SENTRY_DSN =
   'https://e630a21dcf854d1a9eb2a7a8584cbd0b@o459879.ingest.sentry.io/5459505'
+
+/**
+ * WebSocket that enforces TLS certificate validation on wss:// connections.
+ * Together with the wss:// requirement on the control endpoint, this
+ * authenticates the control server to the desktop and prevents a
+ * man-in-the-middle from impersonating it. `rejectUnauthorized` defaults to
+ * true in `ws`, but we set it explicitly so the guarantee cannot be silently
+ * lost to a future change.
+ */
+class SecureWebSocket extends WebSocket {
+  constructor(url: string, protocols?: string | string[]) {
+    super(url, protocols, { rejectUnauthorized: true })
+  }
+}
 
 export interface StreamwallConfig {
   help: boolean
@@ -361,8 +377,23 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   updateViewsFromStateDoc()
   viewsState.observeDeep(updateViewsFromStateDoc)
 
-  const onCommand = async (msg: ControlCommand) => {
+  const onCommand = async (
+    msg: ControlCommand,
+    source: 'local' | 'uplink' = 'local',
+  ) => {
     console.debug('Received message:', msg)
+
+    // The remote control-server uplink is untrusted: re-validate every command
+    // against the uplink allowlist so a compromised or man-in-the-middled
+    // server cannot drive code execution (browse/dev-tools) on the desktop.
+    if (source === 'uplink') {
+      const type = (msg as { type?: unknown } | null)?.type
+      if (typeof type !== 'string' || !isCommandAllowedFromUplink(type)) {
+        console.warn('Rejecting disallowed command from control uplink:', type)
+        return
+      }
+    }
+
     if (msg.type === 'set-listening-view') {
       console.debug('Setting listening view:', msg.viewIdx)
       streamWindow.setListeningView(msg.viewIdx)
@@ -503,17 +534,25 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   // Control -> main
   controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
-  controlWindow.on('command', (command) => onCommand(command))
+  controlWindow.on('command', (command) => onCommand(command, 'local'))
 
   // TODO: Hide on macOS, allow reopening from dock
   streamWindow.on('close', () => {
     process.exit(0)
   })
 
-  if (argv.control.endpoint) {
+  if (
+    argv.control.endpoint &&
+    !isSecureControlEndpoint(argv.control.endpoint)
+  ) {
+    console.error(
+      `Refusing to connect to insecure control endpoint "${argv.control.endpoint}". ` +
+        'The control connection must use wss:// (or ws:// to a loopback host).',
+    )
+  } else if (argv.control.endpoint) {
     console.debug('Connecting to control server...')
     const ws = new ReconnectingWebSocket(argv.control.endpoint, [], {
-      WebSocket,
+      WebSocket: SecureWebSocket,
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 100 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.25,
@@ -530,16 +569,18 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
         Y.applyUpdate(stateDoc, new Uint8Array(ev.data))
-      } else {
-        let msg
-        try {
-          msg = JSON.parse(ev.data)
-        } catch (err) {
-          console.warn('Failed to parse control WebSocket message:', err)
-        }
-
-        onCommand(msg)
+        return
       }
+
+      let msg
+      try {
+        msg = JSON.parse(ev.data)
+      } catch (err) {
+        console.warn('Failed to parse control WebSocket message:', err)
+        return
+      }
+
+      onCommand(msg, 'uplink')
     })
     stateEmitter.on('state', () => {
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
