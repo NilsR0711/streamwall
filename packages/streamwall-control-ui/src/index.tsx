@@ -843,12 +843,16 @@ export function ControlUI({
                 <h2>Custom Streams</h2>
                 <div>
                   {/*
-                    Include an empty object at the end to create an extra input for a new custom stream.
-                    We need it to be part of the array (rather than JSX below) for DOM diffing to match the key and retain focus.
+                    Key each row by its stream link (a stable identity) rather
+                    than the array index. The list renders from the shared state
+                    store, which can reorder while an input is focused (e.g.
+                    another operator adds or removes a custom stream). With index
+                    keys, the focused input would rebind to a different stream
+                    and the text being typed would appear to jump rows.
                   */}
-                  {customStreams.map(({ link, label, kind }, idx) => (
+                  {customStreams.map(({ link, label, kind }) => (
                     <CustomStreamInput
-                      key={idx}
+                      key={link}
                       link={link}
                       label={label}
                       kind={kind}
