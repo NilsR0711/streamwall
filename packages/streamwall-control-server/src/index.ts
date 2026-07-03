@@ -1,4 +1,6 @@
 import fastifyCookie from '@fastify/cookie'
+import fastifyHelmet from '@fastify/helmet'
+import fastifyRateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import Fastify from 'fastify'
@@ -18,6 +20,7 @@ import {
   type StreamwallRole,
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
+import { TokenBucket } from './rateLimiter.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export const SESSION_COOKIE_NAME = 's'
@@ -26,6 +29,102 @@ export const SESSION_COOKIE_NAME = 's'
 // one year — so sessions stay long-lived while remaining bounded.
 export const SESSION_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
 const STREAMWALL_PING_TIMEOUT_MS = 5 * 1000
+
+const DEFAULT_GLOBAL_RATE_LIMIT_MAX = 100
+const DEFAULT_AUTH_RATE_LIMIT_MAX = 10
+const DEFAULT_RATE_LIMIT_WINDOW = '1 minute'
+
+// Inbound WebSocket message limits, applied per connection as a token bucket.
+// Defaults are generous: normal collaborative editing bursts (e.g. dragging a
+// tile) stay well under them, while a flood empties the bucket and the socket
+// is closed so the client reconnects and cleanly resyncs.
+const DEFAULT_WS_MSG_RATE = 100
+const DEFAULT_WS_MSG_BURST = 1000
+
+/** Parses a positive numeric env value, falling back when unset or invalid. */
+function parsePositiveNumber(value: string | undefined, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+interface RateLimitConfig {
+  globalMax: number
+  authMax: number
+  timeWindow: string
+}
+
+/**
+ * Reads the per-IP rate limit configuration from the environment. Read lazily
+ * (per `initApp` call) rather than at module load so overrides apply cleanly.
+ */
+function getRateLimitConfig(): RateLimitConfig {
+  return {
+    globalMax: parsePositiveNumber(
+      process.env.STREAMWALL_RATE_LIMIT_MAX,
+      DEFAULT_GLOBAL_RATE_LIMIT_MAX,
+    ),
+    authMax: parsePositiveNumber(
+      process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX,
+      DEFAULT_AUTH_RATE_LIMIT_MAX,
+    ),
+    timeWindow:
+      process.env.STREAMWALL_RATE_LIMIT_WINDOW ?? DEFAULT_RATE_LIMIT_WINDOW,
+  }
+}
+
+interface WsMessageLimitConfig {
+  capacity: number
+  refillPerSec: number
+}
+
+/** Reads the inbound WebSocket message rate configuration from the env. */
+function getWsMessageLimitConfig(): WsMessageLimitConfig {
+  return {
+    capacity: parsePositiveNumber(
+      process.env.STREAMWALL_WS_MSG_BURST,
+      DEFAULT_WS_MSG_BURST,
+    ),
+    refillPerSec: parsePositiveNumber(
+      process.env.STREAMWALL_WS_MSG_RATE,
+      DEFAULT_WS_MSG_RATE,
+    ),
+  }
+}
+
+/**
+ * Wraps a socket with a per-connection inbound message rate limiter. Returns a
+ * guard to invoke for each received message: it returns true when the message
+ * may be processed, or closes the socket (once) and returns false when the
+ * connection has exceeded its message budget.
+ */
+function createWsMessageGuard(
+  ws: WebSocket,
+  config: WsMessageLimitConfig,
+  label: string,
+): () => boolean {
+  const bucket = new TokenBucket({
+    capacity: config.capacity,
+    refillPerSec: config.refillPerSec,
+  })
+  let closed = false
+  return () => {
+    if (closed) {
+      return false
+    }
+    if (bucket.tryConsume()) {
+      return true
+    }
+    closed = true
+    console.warn(`WebSocket message rate limit exceeded, closing ${label}`)
+    try {
+      ws.send(JSON.stringify({ error: 'rate limit exceeded' }))
+    } catch {
+      // The socket is being closed anyway; ignore send failures.
+    }
+    ws.close(1008, 'rate limit exceeded')
+    return false
+  }
+}
 
 interface Client {
   clientId: string
@@ -40,7 +139,7 @@ interface StreamwallConnection {
   stateDoc: Y.Doc
 }
 
-interface AppOptions {
+export interface AppOptions {
   baseURL: string
   clientStaticPath: string
 }
@@ -105,6 +204,38 @@ export async function initApp({
   const app = Fastify()
 
   await app.register(fastifyCookie)
+
+  // Security headers. The CSP is kept in sync with the control client, which
+  // relies on inline styles and same-origin resources (including the ws:// /
+  // wss:// state-sync sockets). `upgrade-insecure-requests` is only emitted
+  // when actually served over TLS, otherwise it would rewrite the plain-http
+  // WebSocket uplink to wss:// and break it.
+  const cspDirectives: Record<string, Iterable<string> | null> = {
+    'style-src': ["'self'", "'unsafe-inline'"],
+    'connect-src': ["'self'"],
+  }
+  if (!isSecure) {
+    cspDirectives['upgrade-insecure-requests'] = null
+  }
+  await app.register(fastifyHelmet, {
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: cspDirectives,
+    },
+  })
+
+  // Per-IP rate limiting. Auth-bearing routes run an expensive scrypt
+  // derivation per request, so they get a much stricter budget than the
+  // global default to blunt scrypt-amplification DoS and credential stuffing.
+  const rateLimitConfig = getRateLimitConfig()
+  await app.register(fastifyRateLimit, {
+    global: true,
+    max: rateLimitConfig.globalMax,
+    timeWindow: rateLimitConfig.timeWindow,
+  })
+
+  const wsMessageLimitConfig = getWsMessageLimitConfig()
+
   await app.register(fastifyWebsocket, {
     errorHandler: (err) => {
       console.warn('Error handling socket request', err)
@@ -113,6 +244,14 @@ export async function initApp({
 
   app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
     '/invite/:id',
+    {
+      config: {
+        rateLimit: {
+          max: rateLimitConfig.authMax,
+          timeWindow: rateLimitConfig.timeWindow,
+        },
+      },
+    },
     async (request, reply) => {
       const { id } = request.params
       const { token } = request.query
@@ -216,7 +355,16 @@ export async function initApp({
 
       console.log('Streamwall connecting from', request.ip, tokenInfo)
 
+      const allowMessage = createWsMessageGuard(
+        ws,
+        wsMessageLimitConfig,
+        `streamwall connection from ${request.ip}`,
+      )
+
       handleMessage((rawData) => {
+        if (!allowMessage()) {
+          return
+        }
         if (rawData instanceof ArrayBuffer) {
           Y.applyUpdate(stateDoc, new Uint8Array(rawData))
           return
@@ -361,7 +509,16 @@ export async function initApp({
         client.identity,
       )
 
+      const allowMessage = createWsMessageGuard(
+        ws,
+        wsMessageLimitConfig,
+        `client ${clientId} from ${request.ip}`,
+      )
+
       handleMessage(async (rawData) => {
+        if (!allowMessage()) {
+          return
+        }
         let msg: ControlCommandMessage
         const respond = (responseData: any) => {
           if (ws.readyState !== WebSocket.OPEN) {
