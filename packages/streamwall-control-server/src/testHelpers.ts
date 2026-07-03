@@ -2,12 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
+import type { Auth } from './auth.ts'
 import { initApp } from './index.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export interface TestApp {
   app: FastifyInstance
   db: StorageDB
+  auth: Auth
   baseURL: string
   cleanup: () => Promise<void>
 }
@@ -28,12 +30,16 @@ export async function createTestApp(
 
   const db = await loadStorage(dbPath)
   const baseURL = opts.baseURL ?? 'http://localhost:3000'
-  const { app } = await initApp({ baseURL, clientStaticPath: staticDir, db })
+  const { app, auth } = await initApp({
+    baseURL,
+    clientStaticPath: staticDir,
+    db,
+  })
 
   const cleanup = async () => {
     await app.close()
     rmSync(dir, { recursive: true, force: true })
   }
 
-  return { app, db, baseURL, cleanup }
+  return { app, db, auth, baseURL, cleanup }
 }

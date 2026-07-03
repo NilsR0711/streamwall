@@ -1,4 +1,5 @@
 export * from './colors.ts'
+export * from './control.ts'
 export * from './geometry.ts'
 export * from './grid.ts'
 export * from './roles.ts'

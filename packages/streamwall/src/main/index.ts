@@ -8,7 +8,11 @@ import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
-import { StreamwallState, resolveGridDimensions } from 'streamwall-shared'
+import {
+  resolveControlConnection,
+  resolveGridDimensions,
+  StreamwallState,
+} from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
@@ -61,6 +65,7 @@ export interface StreamwallConfig {
   }
   control: {
     endpoint: string
+    token: string | null
   }
   twitch: {
     channel: string | null
@@ -184,9 +189,15 @@ function parseArgs(): StreamwallConfig {
         describe: 'Streamdelay API key',
         default: null,
       })
-      .group(['control'], 'Remote Control')
+      .group(['control.endpoint', 'control.token'], 'Remote Control')
       .option('control.endpoint', {
-        describe: 'URL of control server endpoint',
+        describe:
+          'WebSocket URL of the control server uplink (e.g. wss://host/streamwall/ws)',
+        default: null,
+      })
+      .option('control.token', {
+        describe:
+          'Control server uplink token in "<tokenId>:<secret>" form (sent as an Authorization header)',
         default: null,
       })
       .group(
@@ -486,10 +497,29 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     process.exit(0)
   })
 
-  if (argv.control.endpoint) {
+  const control = resolveControlConnection({
+    endpoint: argv.control.endpoint,
+    token: argv.control.token,
+  })
+  if (control) {
+    if (control.legacy) {
+      console.warn(
+        'control.endpoint embeds its token in the URL. This is deprecated: the ' +
+          'secret leaks into logs, history, and Referer headers. Use a plain ' +
+          'ws(s)://host/streamwall/ws endpoint and set control.token instead.',
+      )
+    }
     console.debug('Connecting to control server...')
-    const ws = new ReconnectingWebSocket(argv.control.endpoint, [], {
-      WebSocket,
+    const authorization = `Bearer ${control.credential}`
+    // ReconnectingWebSocket reconstructs the socket on every reconnect, so the
+    // Authorization header is injected via a subclass bound to the credential.
+    class AuthenticatedWebSocket extends WebSocket {
+      constructor(url: string, protocols?: string | string[]) {
+        super(url, protocols, { headers: { Authorization: authorization } })
+      }
+    }
+    const ws = new ReconnectingWebSocket(control.endpoint, [], {
+      WebSocket: AuthenticatedWebSocket,
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 100 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.25,

@@ -24,16 +24,15 @@
 #rows = 2
 
 [control]
-# Address to serve control server from
-address = "http://localhost:80"
+# Connect this Streamwall instance to a control server as an uplink.
+# The control server prints both values once, on first run.
 
-# Override hostname and port
-#hostname = "localhost"
-#port = 80
+# WebSocket URL of the control server uplink (no token in the URL).
+#endpoint = "wss://control.example.com/streamwall/ws"
 
-# Username and password
-username = "streamwall"
-password = "please-change-this"
+# Uplink token in "<tokenId>:<secret>" form. Sent as an Authorization header,
+# never in the URL, so it stays out of access logs, history, and Referer.
+#token = "tokenId:secret"
 
 [data]
 # Interval to refresh polled datasources

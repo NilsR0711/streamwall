@@ -13,6 +13,7 @@ import {
   type ControlCommandMessage,
   type ControlUpdateMessage,
   inviteLink,
+  parseBearerCredential,
   roleCan,
   stateDiff,
   type StreamwallRole,
@@ -148,23 +149,26 @@ export async function initApp({
     },
   )
 
-  app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
-    '/streamwall/:id/ws',
+  app.get(
+    '/streamwall/ws',
     { websocket: true },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'
       const handleMessage = queueWebSocketMessages(ws)
 
-      const { id } = request.params
-      const { token } = request.query
-
-      if (!token || typeof token !== 'string') {
+      // The uplink authenticates with an Authorization: Bearer header so the
+      // secret never appears in the URL (and thus never in access logs).
+      const credential = parseBearerCredential(request.headers.authorization)
+      if (!credential) {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()
         return
       }
 
-      const tokenInfo = await auth.validateToken(id, token)
+      const tokenInfo = await auth.validateToken(
+        credential.tokenId,
+        credential.secret,
+      )
       if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()
@@ -458,6 +462,10 @@ export async function initApp({
   return { app, db, auth }
 }
 
+function isEnvFlag(value: string | undefined): boolean {
+  return value === '1' || value?.toLowerCase() === 'true'
+}
+
 export async function initialInviteCodes({
   db,
   auth,
@@ -467,17 +475,37 @@ export async function initialInviteCodes({
   auth: Auth
   baseURL: string
 }) {
-  // Create a token for streamwall uplink (if not existing):
+  const wsBase = baseURL.replace(/^http/, 'ws')
+
+  // Streamwall uplink token: created once, its secret shown once. Only a hash
+  // reference is persisted, so the secret can never be reprinted on restart.
   let streamwallToken = db.data.streamwallToken
+  if (
+    isEnvFlag(process.env.STREAMWALL_CONTROL_NEW_UPLINK_TOKEN) &&
+    streamwallToken
+  ) {
+    auth.deleteToken(streamwallToken.tokenId)
+    streamwallToken = null
+  }
   if (!streamwallToken) {
-    streamwallToken = await auth.createToken({
+    const created = await auth.createToken({
       kind: 'streamwall',
       role: 'admin',
       name: 'Streamwall',
     })
-    db.update((data) => {
-      data.streamwallToken = streamwallToken
+    await db.update((data) => {
+      data.streamwallToken = { tokenId: created.tokenId }
     })
+    console.log('🔌 Streamwall uplink token created — configure the app once:')
+    console.log(`     control.endpoint = ${wsBase}/streamwall/ws`)
+    console.log(`     control.token    = ${created.tokenId}:${created.secret}`)
+    console.log(
+      '     (shown only now; set STREAMWALL_CONTROL_NEW_UPLINK_TOKEN=1 to mint a new one)',
+    )
+  } else {
+    console.log(
+      `🔌 Streamwall uplink endpoint: ${wsBase}/streamwall/ws (token already configured)`,
+    )
   }
 
   // Invalidate any existing admin invites and create a new one:
@@ -492,10 +520,6 @@ export async function initialInviteCodes({
     name: 'Server admin',
   })
 
-  console.log(
-    '🔌 Streamwall endpoint:',
-    `${baseURL.replace(/^http/, 'ws')}/streamwall/${streamwallToken.tokenId}/ws?token=${streamwallToken.secret}`,
-  )
   console.log(
     '🔑 Admin invite:',
     inviteLink({
