@@ -99,6 +99,32 @@ describe('validateConfig', () => {
     expect(() => validateConfig(config)).toThrow(ConfigError)
   })
 
+  test('rejects a grid dimension above the supported maximum', () => {
+    // The grid caps must match the WS command schema (GRID_MAX = 8) so a
+    // configured wall can always be targeted and resized by remote commands.
+    const config = baseConfig()
+    config.grid.cols = 10
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+    try {
+      validateConfig(config)
+    } catch (err) {
+      expect((err as Error).message).toContain('cols')
+    }
+  })
+
+  test('rejects a grid dimension below the supported minimum', () => {
+    const config = baseConfig()
+    config.grid.rows = 0
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('accepts grid dimensions at the maximum', () => {
+    const config = baseConfig()
+    config.grid.cols = 8
+    config.grid.rows = 8
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
   test('rejects a non-string window color', () => {
     const config = baseConfig()
     ;(config.window as Record<string, unknown>)['background-color'] = 123

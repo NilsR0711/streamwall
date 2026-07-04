@@ -1,4 +1,5 @@
 import TOML from '@iarna/toml'
+import { GRID_MAX, GRID_MIN } from 'streamwall-shared'
 import { z } from 'zod'
 
 /**
@@ -29,6 +30,9 @@ export function parseConfigToml(text: string, source: string): TOML.JsonMap {
 
 const positiveInt = z.number().int().positive()
 const nonNegativeNumber = z.number().nonnegative()
+// Kept in lockstep with the WS command schema's grid bounds so a configured
+// wall can always be targeted and resized by remote control commands.
+const gridDimension = z.number().int().min(GRID_MIN).max(GRID_MAX)
 
 /**
  * Shape of the resolved Streamwall configuration (config file + CLI flags after
@@ -38,8 +42,8 @@ const nonNegativeNumber = z.number().nonnegative()
 const streamwallConfigSchema = z.object({
   help: z.boolean().optional(),
   grid: z.object({
-    cols: positiveInt,
-    rows: positiveInt,
+    cols: gridDimension,
+    rows: gridDimension,
   }),
   window: z.object({
     x: z.number().int().optional(),

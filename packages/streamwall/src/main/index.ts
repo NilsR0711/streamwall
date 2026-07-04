@@ -272,7 +272,11 @@ function parseArgs(): StreamwallConfig {
     // https://github.com/yargs/yargs/issues/2137
     .parseSync(process.argv) as unknown as StreamwallConfig
 
-  validateConfig(argv)
+  // Skip validation when the user only asked for --help, so an invalid config
+  // can never block the help text from being shown.
+  if (!argv.help) {
+    validateConfig(argv)
+  }
   return argv
 }
 
