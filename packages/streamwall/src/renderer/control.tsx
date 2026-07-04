@@ -9,7 +9,11 @@ import {
   useStreamwallState,
   useYDoc,
 } from 'streamwall-control-ui'
-import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import {
+  ControlCommand,
+  StreamwallState,
+  validateStreamwallStateShape,
+} from 'streamwall-shared'
 import * as Y from 'yjs'
 import { StreamwallControlGlobal } from '../preload/controlPreload'
 
@@ -28,8 +32,12 @@ function useStreamwallIPCConnection(): StreamwallConnection {
   const appState = useStreamwallState(streamwallState)
 
   useEffect(() => {
-    // TODO: improve typing (Zod?)
     function handleState(state: StreamwallState) {
+      const check = validateStreamwallStateShape(state)
+      if (!check.success) {
+        console.warn('Ignoring malformed state from main process:', check.error)
+        return
+      }
       setStreamwallState(state)
     }
     return window.streamwallControl.onState(handleState)

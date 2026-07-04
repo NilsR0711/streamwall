@@ -43,12 +43,15 @@ import {
   idxInBox,
   inviteLink,
   type LocalStreamData,
+  parseInvitableRole,
+  parseInviteResponse,
   roleCan,
   type StreamData,
   type StreamDelayStatus,
   type StreamwallRole,
   type StreamwallState,
   type StreamWindowConfig,
+  verifyCollabState,
   type ViewState,
 } from 'streamwall-shared'
 import { createGlobalStyle, styled } from 'styled-components'
@@ -405,7 +408,12 @@ export function useYDoc<T>(keys: string[]): {
       const valueCopy = Object.fromEntries(
         keys.map((k) => [k, doc.getMap(k).toJSON()]),
       )
-      // TODO: validate using zod
+      if ('views' in valueCopy) {
+        const shape = verifyCollabState((valueCopy as { views: unknown }).views)
+        if (!shape.valid) {
+          console.warn('Collab document failed shape validation:', shape.error)
+        }
+      }
       setDocValue(valueCopy as T)
     }
     updateDocValue()
@@ -901,7 +909,12 @@ export function ControlUI({
           role,
         },
         (msg) => {
-          setNewInvite(msg as Invite) // TODO: validate w/ Zod
+          const parsed = parseInviteResponse(msg)
+          if (parsed.success) {
+            setNewInvite(parsed.invite)
+          } else {
+            console.warn('Ignoring malformed invite response:', parsed.error)
+          }
         },
       )
     },
@@ -2345,7 +2358,10 @@ function CreateInviteInput({
       ev.preventDefault()
       setInviteName('')
       setInviteRole('operator')
-      onCreateInvite({ name: inviteName, role: inviteRole as StreamwallRole }) // TODO: validate
+      onCreateInvite({
+        name: inviteName,
+        role: parseInvitableRole(inviteRole) ?? 'operator',
+      })
     },
     [onCreateInvite, inviteName, inviteRole],
   )
