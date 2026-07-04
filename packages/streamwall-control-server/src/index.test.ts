@@ -16,8 +16,9 @@ function inMemoryDb(): Low<StoredData> {
 
 /**
  * Build an isolated control-server app backed by in-memory storage, mint a
- * fresh invite token and redeem it via `GET /invite/:id`. Returns the raw
- * `Set-Cookie` header produced for the resulting session cookie.
+ * fresh invite token and redeem it via `POST /invite/:id` (the secret travels
+ * in the body, never the URL). Returns the raw `Set-Cookie` header produced for
+ * the resulting session cookie.
  */
 async function redeemInvite(baseURL: string) {
   const { app, auth } = await initApp({
@@ -34,8 +35,10 @@ async function redeemInvite(baseURL: string) {
   })
 
   const response = await app.inject({
-    method: 'GET',
-    url: `/invite/${tokenId}?token=${secret}`,
+    method: 'POST',
+    url: `/invite/${tokenId}`,
+    headers: { 'content-type': 'application/json' },
+    payload: { token: secret },
   })
 
   const rawSetCookie = response.headers['set-cookie']
@@ -89,8 +92,10 @@ describe('session cookie security attributes', () => {
     after(() => app.close())
 
     const response = await app.inject({
-      method: 'GET',
-      url: '/invite/does-not-exist?token=bogus',
+      method: 'POST',
+      url: '/invite/does-not-exist',
+      headers: { 'content-type': 'application/json' },
+      payload: { token: 'bogus' },
     })
 
     assert.equal(response.statusCode, 403)

@@ -41,6 +41,54 @@ const DEFAULT_RATE_LIMIT_WINDOW = '1 minute'
 const DEFAULT_WS_MSG_RATE = 100
 const DEFAULT_WS_MSG_BURST = 1000
 
+// Served at `/invite/:id`. It carries no secret and no inline script (so it
+// satisfies the strict `script-src 'self'` CSP); the loaded script reads the
+// invite secret from the URL fragment and POSTs it to redeem the invite.
+const INVITE_EXCHANGE_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Streamwall — joining…</title>
+  </head>
+  <body>
+    <p>Signing you in…</p>
+    <script src="/invite-exchange.js"></script>
+  </body>
+</html>
+`
+
+// Reads the invite secret from `location.hash` (which the browser never sends
+// to the server), scrubs it from the address bar, and exchanges it for a
+// session cookie via POST. On success it navigates to the app.
+const INVITE_EXCHANGE_SCRIPT = `(function () {
+  var status = document.querySelector('p')
+  var token = new URLSearchParams(window.location.hash.slice(1)).get('token')
+  window.history.replaceState(null, '', window.location.pathname)
+  if (!token) {
+    if (status) status.textContent = 'This invite link is missing its token.'
+    return
+  }
+  fetch(window.location.pathname, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: token }),
+  })
+    .then(function (res) {
+      if (res.ok) {
+        window.location.replace('/')
+      } else if (status) {
+        status.textContent = 'This invite is invalid or has expired.'
+      }
+    })
+    .catch(function () {
+      if (status) {
+        status.textContent = 'Could not reach the server. Please try again.'
+      }
+    })
+})()
+`
+
 /** Parses a positive numeric env value, falling back when unset or invalid. */
 function parsePositiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value)
@@ -256,7 +304,27 @@ export async function initApp({
     },
   })
 
-  app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
+  // The invite page never receives the secret — it lives in the URL fragment,
+  // which the browser does not send — so this bare GET only serves the exchange
+  // page and needs no auth rate limit.
+  app.get<{ Params: { id: string } }>(
+    '/invite/:id',
+    async (_request, reply) => {
+      return reply.type('text/html').send(INVITE_EXCHANGE_HTML)
+    },
+  )
+
+  app.get('/invite-exchange.js', async (_request, reply) => {
+    return reply
+      .type('application/javascript')
+      .header('cache-control', 'no-store')
+      .send(INVITE_EXCHANGE_SCRIPT)
+  })
+
+  // Redeems an invite. The secret arrives in the request body (not the URL),
+  // and this route runs the expensive scrypt verification, so it carries the
+  // strict auth rate limit.
+  app.post<{ Params: { id: string }; Body: { token?: string } }>(
     '/invite/:id',
     {
       config: {
@@ -268,7 +336,7 @@ export async function initApp({
     },
     async (request, reply) => {
       const { id } = request.params
-      const { token } = request.query
+      const token = request.body?.token
 
       if (!token || typeof token !== 'string') {
         return reply.code(403).send()
@@ -298,7 +366,7 @@ export async function initApp({
       )
 
       await auth.deleteToken(tokenInfo.tokenId)
-      return reply.redirect('/')
+      return reply.code(204).send()
     },
   )
 

@@ -9,7 +9,12 @@ test('rate-limits the invite auth route with a strict per-route budget', async (
 
   const codes: number[] = []
   for (let i = 0; i < 5; i++) {
-    const res = await app.inject({ method: 'GET', url: '/invite/x?token=y' })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invite/x',
+      headers: { 'content-type': 'application/json' },
+      payload: { token: 'y' },
+    })
     codes.push(res.statusCode)
   }
 
@@ -49,7 +54,12 @@ test('the auth route budget is stricter than the global budget', async () => {
 
   const inviteCodes: number[] = []
   for (let i = 0; i < 4; i++) {
-    const res = await app.inject({ method: 'GET', url: '/invite/x?token=y' })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invite/x',
+      headers: { 'content-type': 'application/json' },
+      payload: { token: 'y' },
+    })
     inviteCodes.push(res.statusCode)
   }
 
