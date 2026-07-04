@@ -42,6 +42,25 @@ Streamwall can load stream data from both JSON APIs and TOML files. Data sources
 npm start -- --data.json-url="https://your-site/api/streams.json" --data.toml-file="./streams.toml"
 ```
 
+## Security: overlay and background streams
+
+Streams added with the `overlay` or `background` kind are loaded as live web
+pages layered over the whole wall, inside sandboxed `<iframe>`s. Anyone with
+control access can point these tiles at an arbitrary URL, so treat their
+contents as untrusted.
+
+These frames run with `sandbox="allow-scripts"` only. Scripts are allowed so
+widget-style overlays (scoreboards, alerts, players) still work, but the page
+runs in an opaque origin: it cannot escape its sandbox, reach Streamwall's
+internal APIs, or read the app's cookies and storage. Top-level navigation,
+popups, forms and downloads stay blocked.
+
+`allow-same-origin` is intentionally not granted — combined with `allow-scripts`
+it would let a page remove its own sandbox attribute and defeat the protection.
+As a result, overlay/background pages have no access to their own origin's
+cookies or local storage; widgets that depend on same-origin persistence are not
+supported by design.
+
 ## Hotkeys
 
 The following hotkeys are available with the "control" webpage focused:
