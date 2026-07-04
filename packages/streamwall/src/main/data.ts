@@ -3,8 +3,8 @@ import { Repeater } from '@repeaterjs/repeater'
 import { watch } from 'chokidar'
 import { EventEmitter, once } from 'events'
 import { promises as fsPromises } from 'fs'
-import { isArray } from 'lodash-es'
 import fetch from 'node-fetch'
+import { parseStreamList } from 'streamwall-shared'
 import { promisify } from 'util'
 import {
   StreamData,
@@ -23,7 +23,14 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
     let data: StreamDataContent[] = []
     try {
       const resp = await fetch(url)
-      data = (await resp.json()) as StreamDataContent[]
+      const { streams, errors } = parseStreamList(await resp.json())
+      if (errors.length) {
+        console.warn(
+          `ignored ${errors.length} invalid stream(s) from ${url}:`,
+          errors.join('; '),
+        )
+      }
+      data = streams
     } catch (err) {
       console.warn('error loading stream data', err)
     }
@@ -43,18 +50,24 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
 export async function* watchDataFile(path: string): DataSource {
   const watcher = watch(path)
   while (true) {
-    let data
+    let data: ReturnType<typeof TOML.parse> | undefined
     try {
       const text = await fsPromises.readFile(path)
       data = TOML.parse(text.toString())
     } catch (err) {
       console.warn('error reading data file', err)
     }
-    if (data && isArray(data.streams)) {
-      // TODO: type validate with Zod
-      yield data.streams as unknown as StreamList
-    } else {
+    if (data === undefined || data.streams === undefined) {
       yield []
+    } else {
+      const { streams, errors } = parseStreamList(data.streams)
+      if (errors.length) {
+        console.warn(
+          `ignored ${errors.length} invalid stream(s) in ${path}:`,
+          errors.join('; '),
+        )
+      }
+      yield streams
     }
     await once(watcher, 'change')
   }

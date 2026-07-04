@@ -9,12 +9,18 @@ import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
 import {
+  ConfigValidationError,
   ControlCommand,
+  StreamwallConfig,
   StreamwallState,
   clampGridDimension,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
+  isWithinByteLimit,
+  MAX_YJS_UPDATE_BYTES,
+  parseControlCommandMessage,
   remapGridAssignments,
+  validateConfig,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -52,50 +58,20 @@ class SecureWebSocket extends WebSocket {
   }
 }
 
-export interface StreamwallConfig {
-  help: boolean
-  grid: {
-    cols: number
-    rows: number
-  }
-  window: {
-    x?: number
-    y?: number
-    width: number
-    height: number
-    frameless: boolean
-    'background-color': string
-    'active-color': string
-  }
-  data: {
-    interval: number
-    'json-url': string[]
-    'toml-file': string[]
-  }
-  streamdelay: {
-    endpoint: string
-    key: string | null
-  }
-  control: {
-    endpoint: string
-  }
-  twitch: {
-    channel: string | null
-    username: string | null
-    token: string | null
-    color: string
-    announce: {
-      template: string
-      interval: number
-      delay: number
-    }
-    vote: {
-      template: string
-      interval: number
-    }
-  }
-  telemetry: {
-    sentry: boolean
+// The config type and its validation schema live in the shared package so the
+// desktop app and any tooling agree on a single definition.
+export type { StreamwallConfig }
+
+/** Parse TOML, rethrowing with a message that names the offending file. */
+function parseTomlConfig(
+  text: string,
+  sourcePath: string,
+): Record<string, unknown> {
+  try {
+    return TOML.parse(text) as Record<string, unknown>
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`Failed to parse config file "${sourcePath}": ${detail}`)
   }
 }
 
@@ -113,11 +89,11 @@ function parseArgs(): StreamwallConfig {
     }
   }
 
-  return (
+  const parsed = (
     yargs()
-      .config(configText ? TOML.parse(configText) : {})
+      .config(configText ? parseTomlConfig(configText, configPath) : {})
       .config('config', (configPath) => {
-        return TOML.parse(fs.readFileSync(configPath, 'utf-8'))
+        return parseTomlConfig(fs.readFileSync(configPath, 'utf-8'), configPath)
       })
       .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
       .option('grid.cols', {
@@ -264,8 +240,10 @@ function parseArgs(): StreamwallConfig {
       })
       .help()
       // https://github.com/yargs/yargs/issues/2137
-      .parseSync(process.argv) as unknown as StreamwallConfig
+      .parseSync(process.argv)
   )
+
+  return validateConfig(parsed)
 }
 
 async function main(argv: ReturnType<typeof parseArgs>) {
@@ -571,19 +549,36 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     })
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
+        if (!isWithinByteLimit(ev.data, MAX_YJS_UPDATE_BYTES)) {
+          console.warn(
+            'Ignoring oversized state update from control server:',
+            ev.data.byteLength,
+            'bytes',
+          )
+          return
+        }
         Y.applyUpdate(stateDoc, new Uint8Array(ev.data))
         return
       }
 
-      let msg
+      let parsedRaw: unknown
       try {
-        msg = JSON.parse(ev.data)
+        parsedRaw = JSON.parse(ev.data)
       } catch (err) {
         console.warn('Failed to parse control WebSocket message:', err)
         return
       }
 
-      onCommand(msg, 'uplink')
+      const parsed = parseControlCommandMessage(parsedRaw)
+      if (!parsed.success) {
+        console.warn(
+          'Ignoring invalid control command from server:',
+          parsed.error,
+        )
+        return
+      }
+
+      onCommand(parsed.message, 'uplink')
     })
     stateEmitter.on('state', () => {
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
@@ -646,7 +641,21 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
 function init() {
   console.debug('Parsing command line arguments...')
-  const argv = parseArgs()
+  let argv: StreamwallConfig
+  try {
+    argv = parseArgs()
+  } catch (err) {
+    if (err instanceof ConfigValidationError) {
+      console.error(`Invalid Streamwall configuration:\n  ${err.message}`)
+    } else {
+      console.error(
+        'Failed to load Streamwall configuration:',
+        err instanceof Error ? err.message : err,
+      )
+    }
+    app.exit(1)
+    return
+  }
   if (argv.help) {
     return
   }
