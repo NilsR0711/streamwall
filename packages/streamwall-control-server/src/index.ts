@@ -677,9 +677,14 @@ export async function initApp({
               clientId,
             )
           ) {
+            // The client already applied this edit to its local doc. Dropping
+            // it server-side would leave the operator UI out of sync with the
+            // shared doc, so close the socket (like a rate-limit violation) to
+            // force a clean reconnect and resync.
             console.warn(
-              `Rejected invalid state doc update from client ${clientId}`,
+              `Rejected invalid state doc update from client ${clientId}, closing to force resync`,
             )
+            ws.close(1008, 'invalid state update')
           }
           return
         }

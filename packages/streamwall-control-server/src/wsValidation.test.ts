@@ -225,7 +225,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000) {
   }
 }
 
-test('does not broadcast a shape-violating doc update to the uplink', async () => {
+test('rejects a shape-violating doc update and closes the client to resync', async () => {
   const { clientWs, streamwallWs } = await connectStreamwallAndClient()
 
   // Replay the binary Yjs frames the uplink receives into a local doc so we
@@ -242,24 +242,18 @@ test('does not broadcast a shape-violating doc update to the uplink', async () =
     }
   })
 
+  const closed = once(clientWs, 'close', { signal: AbortSignal.timeout(3000) })
+
   // Malicious: introduces an unexpected top-level container.
   const evil = new Y.Doc()
   evil.getMap('evil').set('x', 'y')
   clientWs.send(Y.encodeStateAsUpdate(evil))
 
-  // Valid: assigns a stream to grid cell 0.
-  const good = new Y.Doc()
-  const cell = new Y.Map<string>()
-  cell.set('streamId', 'goodstream')
-  good.getMap('views').set('0', cell)
-  clientWs.send(Y.encodeStateAsUpdate(good))
-
-  await waitUntil(
-    () =>
-      uplinkDoc.getMap<Y.Map<string>>('views').get('0')?.get('streamId') ===
-      'goodstream',
-  )
-
+  // The client applied the edit locally; the server rejects it, so it must be
+  // closed (like a rate-limit violation) to force a clean resync rather than
+  // leaving the operator UI showing an assignment the shared doc never got.
+  const [code] = await closed
+  assert.equal(code, 1008, 'the client is closed to force a resync')
   assert.equal(
     uplinkDoc.share.has('evil'),
     false,
