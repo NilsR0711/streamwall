@@ -13,6 +13,40 @@ function normalizeHostname(hostname: string): string {
   return hostname
 }
 
+export interface ParsedControlEndpoint {
+  /** The endpoint URL to open, with any `token` query parameter removed. */
+  url: string
+  /** The `Authorization` header value to send, or null when no token was set. */
+  authorization: string | null
+}
+
+/**
+ * Splits a control-server endpoint into the URL to connect to and an
+ * `Authorization` header carrying the token.
+ *
+ * The uplink secret used to travel in the `?token=` query string, where it
+ * leaked into server and proxy access logs. Moving it into a Bearer token
+ * keeps it out of the request line while leaving the rest of the URL intact.
+ * A malformed endpoint is returned unchanged with no header so callers can
+ * apply their own validation (see {@link isSecureControlEndpoint}).
+ */
+export function parseControlEndpoint(endpoint: string): ParsedControlEndpoint {
+  let url: URL
+  try {
+    url = new URL(endpoint)
+  } catch {
+    return { url: endpoint, authorization: null }
+  }
+
+  const token = url.searchParams.get('token')
+  if (!token) {
+    return { url: endpoint, authorization: null }
+  }
+
+  url.searchParams.delete('token')
+  return { url: url.toString(), authorization: `Bearer ${token}` }
+}
+
 /**
  * Returns whether a control-server endpoint is safe for the Streamwall desktop
  * to connect to.

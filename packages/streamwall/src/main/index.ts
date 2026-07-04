@@ -13,6 +13,7 @@ import {
   StreamwallState,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
+  parseControlEndpoint,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -38,16 +39,27 @@ const SENTRY_DSN =
   'https://e630a21dcf854d1a9eb2a7a8584cbd0b@o459879.ingest.sentry.io/5459505'
 
 /**
- * WebSocket that enforces TLS certificate validation on wss:// connections.
- * Together with the wss:// requirement on the control endpoint, this
- * authenticates the control server to the desktop and prevents a
- * man-in-the-middle from impersonating it. `rejectUnauthorized` defaults to
- * true in `ws`, but we set it explicitly so the guarantee cannot be silently
- * lost to a future change.
+ * Builds a WebSocket subclass for the control uplink.
+ *
+ * It enforces TLS certificate validation on wss:// connections: together with
+ * the wss:// requirement on the control endpoint, this authenticates the
+ * control server to the desktop and prevents a man-in-the-middle from
+ * impersonating it. `rejectUnauthorized` defaults to true in `ws`, but we set
+ * it explicitly so the guarantee cannot be silently lost to a future change.
+ *
+ * It also injects the uplink credential as an `Authorization` header rather
+ * than a URL query parameter, keeping the secret out of server and proxy
+ * access logs. `reconnecting-websocket` does not forward constructor options,
+ * so the header is baked into the subclass here.
  */
-class SecureWebSocket extends WebSocket {
-  constructor(url: string, protocols?: string | string[]) {
-    super(url, protocols, { rejectUnauthorized: true })
+function makeControlWebSocket(authorization: string | null) {
+  return class ControlWebSocket extends WebSocket {
+    constructor(url: string, protocols?: string | string[]) {
+      super(url, protocols, {
+        rejectUnauthorized: true,
+        headers: authorization ? { authorization } : undefined,
+      })
+    }
   }
 }
 
@@ -537,8 +549,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     )
   } else if (argv.control.endpoint) {
     console.debug('Connecting to control server...')
-    const ws = new ReconnectingWebSocket(argv.control.endpoint, [], {
-      WebSocket: SecureWebSocket,
+    // Move the uplink secret out of the URL query string and into an
+    // Authorization header so it never reaches server or proxy access logs.
+    const { url: controlURL, authorization } = parseControlEndpoint(
+      argv.control.endpoint,
+    )
+    const ws = new ReconnectingWebSocket(controlURL, [], {
+      WebSocket: makeControlWebSocket(authorization),
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 100 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.25,

@@ -20,9 +20,9 @@ async function startStreamwallSocket(env: Record<string, string>) {
     name: 'test',
   })
 
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/streamwall/${tokenId}/ws?token=${secret}`,
-  )
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/streamwall/${tokenId}/ws`, {
+    headers: { authorization: `Bearer ${secret}` },
+  })
   await once(ws, 'open')
 
   return { app, ws }

@@ -47,6 +47,20 @@ function parsePositiveNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+/**
+ * Extracts a Bearer token from an `Authorization` header. Uplink credentials
+ * travel in this header rather than the URL query string so the secret never
+ * lands in server or proxy access logs. The scheme name is matched
+ * case-insensitively per RFC 7235.
+ */
+function bearerToken(authorization: string | undefined): string | null {
+  if (!authorization) {
+    return null
+  }
+  const match = /^Bearer[ ]+(.+)$/i.exec(authorization)
+  return match ? match[1] : null
+}
+
 interface RateLimitConfig {
   globalMax: number
   authMax: number
@@ -288,7 +302,7 @@ export async function initApp({
     },
   )
 
-  app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
+  app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
     { websocket: true },
     async (ws, request) => {
@@ -296,9 +310,9 @@ export async function initApp({
       const handleMessage = queueWebSocketMessages(ws)
 
       const { id } = request.params
-      const { token } = request.query
+      const token = bearerToken(request.headers.authorization)
 
-      if (!token || typeof token !== 'string') {
+      if (!token) {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()
         return
