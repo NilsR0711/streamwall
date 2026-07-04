@@ -1,4 +1,3 @@
-import TOML from '@iarna/toml'
 import * as Sentry from '@sentry/electron/main'
 import { BrowserWindow, app, session } from 'electron'
 import started from 'electron-squirrel-startup'
@@ -20,6 +19,7 @@ import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
 import { ensureValidURL } from '../util'
+import { ConfigError, parseConfigToml, validateConfig } from './config'
 import ControlWindow from './ControlWindow'
 import {
   LocalStreamData,
@@ -124,159 +124,156 @@ function parseArgs(): StreamwallConfig {
     }
   }
 
-  return (
-    yargs()
-      .config(configText ? TOML.parse(configText) : {})
-      .config('config', (configPath) => {
-        return TOML.parse(fs.readFileSync(configPath, 'utf-8'))
-      })
-      .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
-      .option('grid.cols', {
-        number: true,
-        default: 3,
-      })
-      .option('grid.rows', {
-        number: true,
-        default: 3,
-      })
-      .group(
-        [
-          'window.width',
-          'window.height',
-          'window.x',
-          'window.y',
-          'window.frameless',
-          'window.background-color',
-          'window.active-color',
-        ],
-        'Window settings',
-      )
-      .option('window.x', {
-        number: true,
-      })
-      .option('window.y', {
-        number: true,
-      })
-      .option('window.width', {
-        number: true,
-        default: 1920,
-      })
-      .option('window.height', {
-        number: true,
-        default: 1080,
-      })
-      .option('window.frameless', {
-        boolean: true,
-        default: false,
-      })
-      .option('window.background-color', {
-        describe: 'Background color of wall (useful for chroma-keying)',
-        default: '#000',
-      })
-      .option('window.active-color', {
-        describe: 'Active (highlight) color of wall',
-        default: '#fff',
-      })
-      .group(
-        ['data.interval', 'data.json-url', 'data.toml-file'],
-        'Datasources',
-      )
-      .option('data.interval', {
-        describe: 'Interval (in seconds) for refreshing polled data sources',
-        number: true,
-        default: 30,
-      })
-      .option('data.json-url', {
-        describe: 'Fetch streams from the specified URL(s)',
-        array: true,
-        string: true,
-        default: [],
-      })
-      .option('data.toml-file', {
-        describe: 'Fetch streams from the specified file(s)',
-        normalize: true,
-        array: true,
-        default: [],
-      })
-      .group(['streamdelay.endpoint', 'streamdelay.key'], 'Streamdelay')
-      .option('streamdelay.endpoint', {
-        describe: 'URL of Streamdelay endpoint',
-        default: 'http://localhost:8404',
-      })
-      .option('streamdelay.key', {
-        describe: 'Streamdelay API key',
-        default: null,
-      })
-      .group(['control'], 'Remote Control')
-      .option('control.endpoint', {
-        describe: 'URL of control server endpoint',
-        default: null,
-      })
-      .group(
-        [
-          'twitch.channel',
-          'twitch.username',
-          'twitch.token',
-          'twitch.color',
-          'twitch.announce.template',
-          'twitch.announce.interval',
-          'twitch.vote.template',
-          'twitch.vote.interval',
-        ],
-        'Twitch Chat',
-      )
-      .option('twitch.channel', {
-        describe: 'Name of Twitch channel',
-        default: null,
-      })
-      .option('twitch.username', {
-        describe: 'Username of Twitch bot account',
-        default: null,
-      })
-      .option('twitch.token', {
-        describe: 'Password of Twitch bot account',
-        default: null,
-      })
-      .option('twitch.color', {
-        describe: 'Color of Twitch bot username',
-        default: '#ff0000',
-      })
-      .option('twitch.announce.template', {
-        describe: 'Message template for stream announcements',
-        default:
-          'SingsMic <%- stream.source %> <%- stream.city && stream.state ? `(${stream.city} ${stream.state})` : `` %> <%- stream.link %>',
-      })
-      .option('twitch.announce.interval', {
-        describe:
-          'Minimum time interval (in seconds) between re-announcing the same stream',
-        number: true,
-        default: 60,
-      })
-      .option('twitch.announce.delay', {
-        describe: 'Time to dwell on a stream before its details are announced',
-        number: true,
-        default: 30,
-      })
-      .option('twitch.vote.template', {
-        describe: 'Message template for vote result announcements',
-        default:
-          'Switching to #<%- selectedIdx %> (with <%- voteCount %> votes)',
-      })
-      .option('twitch.vote.interval', {
-        describe: 'Time interval (in seconds) between votes (0 to disable)',
-        number: true,
-        default: 0,
-      })
-      .group(['telemetry.sentry'], 'Telemetry')
-      .option('telemetry.sentry', {
-        describe: 'Enable error reporting to Sentry',
-        boolean: true,
-        default: true,
-      })
-      .help()
-      // https://github.com/yargs/yargs/issues/2137
-      .parseSync(process.argv) as unknown as StreamwallConfig
-  )
+  const argv = yargs()
+    .config(configText ? parseConfigToml(configText, configPath) : {})
+    .config('config', (configFilePath) =>
+      parseConfigToml(fs.readFileSync(configFilePath, 'utf-8'), configFilePath),
+    )
+    .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
+    .option('grid.cols', {
+      number: true,
+      default: 3,
+    })
+    .option('grid.rows', {
+      number: true,
+      default: 3,
+    })
+    .group(
+      [
+        'window.width',
+        'window.height',
+        'window.x',
+        'window.y',
+        'window.frameless',
+        'window.background-color',
+        'window.active-color',
+      ],
+      'Window settings',
+    )
+    .option('window.x', {
+      number: true,
+    })
+    .option('window.y', {
+      number: true,
+    })
+    .option('window.width', {
+      number: true,
+      default: 1920,
+    })
+    .option('window.height', {
+      number: true,
+      default: 1080,
+    })
+    .option('window.frameless', {
+      boolean: true,
+      default: false,
+    })
+    .option('window.background-color', {
+      describe: 'Background color of wall (useful for chroma-keying)',
+      default: '#000',
+    })
+    .option('window.active-color', {
+      describe: 'Active (highlight) color of wall',
+      default: '#fff',
+    })
+    .group(['data.interval', 'data.json-url', 'data.toml-file'], 'Datasources')
+    .option('data.interval', {
+      describe: 'Interval (in seconds) for refreshing polled data sources',
+      number: true,
+      default: 30,
+    })
+    .option('data.json-url', {
+      describe: 'Fetch streams from the specified URL(s)',
+      array: true,
+      string: true,
+      default: [],
+    })
+    .option('data.toml-file', {
+      describe: 'Fetch streams from the specified file(s)',
+      normalize: true,
+      array: true,
+      default: [],
+    })
+    .group(['streamdelay.endpoint', 'streamdelay.key'], 'Streamdelay')
+    .option('streamdelay.endpoint', {
+      describe: 'URL of Streamdelay endpoint',
+      default: 'http://localhost:8404',
+    })
+    .option('streamdelay.key', {
+      describe: 'Streamdelay API key',
+      default: null,
+    })
+    .group(['control'], 'Remote Control')
+    .option('control.endpoint', {
+      describe: 'URL of control server endpoint',
+      default: null,
+    })
+    .group(
+      [
+        'twitch.channel',
+        'twitch.username',
+        'twitch.token',
+        'twitch.color',
+        'twitch.announce.template',
+        'twitch.announce.interval',
+        'twitch.vote.template',
+        'twitch.vote.interval',
+      ],
+      'Twitch Chat',
+    )
+    .option('twitch.channel', {
+      describe: 'Name of Twitch channel',
+      default: null,
+    })
+    .option('twitch.username', {
+      describe: 'Username of Twitch bot account',
+      default: null,
+    })
+    .option('twitch.token', {
+      describe: 'Password of Twitch bot account',
+      default: null,
+    })
+    .option('twitch.color', {
+      describe: 'Color of Twitch bot username',
+      default: '#ff0000',
+    })
+    .option('twitch.announce.template', {
+      describe: 'Message template for stream announcements',
+      default:
+        'SingsMic <%- stream.source %> <%- stream.city && stream.state ? `(${stream.city} ${stream.state})` : `` %> <%- stream.link %>',
+    })
+    .option('twitch.announce.interval', {
+      describe:
+        'Minimum time interval (in seconds) between re-announcing the same stream',
+      number: true,
+      default: 60,
+    })
+    .option('twitch.announce.delay', {
+      describe: 'Time to dwell on a stream before its details are announced',
+      number: true,
+      default: 30,
+    })
+    .option('twitch.vote.template', {
+      describe: 'Message template for vote result announcements',
+      default: 'Switching to #<%- selectedIdx %> (with <%- voteCount %> votes)',
+    })
+    .option('twitch.vote.interval', {
+      describe: 'Time interval (in seconds) between votes (0 to disable)',
+      number: true,
+      default: 0,
+    })
+    .group(['telemetry.sentry'], 'Telemetry')
+    .option('telemetry.sentry', {
+      describe: 'Enable error reporting to Sentry',
+      boolean: true,
+      default: true,
+    })
+    .help()
+    // https://github.com/yargs/yargs/issues/2137
+    .parseSync(process.argv) as unknown as StreamwallConfig
+
+  validateConfig(argv)
+  return argv
 }
 
 async function main(argv: ReturnType<typeof parseArgs>) {
@@ -646,7 +643,17 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
 function init() {
   console.debug('Parsing command line arguments...')
-  const argv = parseArgs()
+  let argv: ReturnType<typeof parseArgs>
+  try {
+    argv = parseArgs()
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      // Surface the offending file/key/line cleanly instead of a stack trace.
+      console.error(err.message)
+      process.exit(1)
+    }
+    throw err
+  }
   if (argv.help) {
     return
   }
