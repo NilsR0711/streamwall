@@ -8,9 +8,12 @@ export interface StoredData {
     salt: string | null
     tokens: AuthToken[]
   }
+  // Only the uplink token's *id* is persisted. Its secret is never stored in
+  // clear: the token is verified against the scrypt hash held in `auth.tokens`
+  // (like every other token), and the plaintext secret is revealed only once,
+  // at creation time.
   streamwallToken: null | {
     tokenId: string
-    secret: string
   }
 }
 
