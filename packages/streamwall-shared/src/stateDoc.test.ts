@@ -50,6 +50,26 @@ describe('isValidStateDocShape', () => {
     expect(isValidStateDocShape(doc)).toBe(false)
   })
 
+  test('rejects a view key beyond the addressable grid range', () => {
+    // Keys must stay within the same bound the control commands use, so an
+    // operator cannot accumulate phantom cells beyond MAX_VIEW_IDX.
+    const doc = makeDoc((d) => {
+      const cell = new Y.Map<string | undefined>()
+      cell.set('streamId', 'abc')
+      d.getMap('views').set('999999', cell)
+    })
+    expect(isValidStateDocShape(doc)).toBe(false)
+  })
+
+  test('accepts a view key at the maximum addressable index', () => {
+    const doc = makeDoc((d) => {
+      const cell = new Y.Map<string | undefined>()
+      cell.set('streamId', 'abc')
+      d.getMap('views').set('63', cell)
+    })
+    expect(isValidStateDocShape(doc)).toBe(true)
+  })
+
   test('rejects a view cell that is not a map', () => {
     const doc = makeDoc((d) => {
       d.getMap('views').set('0', 'not-a-map' as unknown as Y.Map<string>)

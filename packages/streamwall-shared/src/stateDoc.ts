@@ -1,9 +1,11 @@
 import * as Y from 'yjs'
+import { MAX_VIEW_IDX } from './schemas.ts'
 
 /**
  * The shared Yjs "state doc" has a deliberately narrow shape: a single
- * top-level `views` map keyed by integer strings, each holding a nested map
- * whose only key is a `streamId` string (or `undefined` for an empty cell).
+ * top-level `views` map keyed by integer strings within the addressable grid
+ * range, each holding a nested map whose only key is a `streamId` string (or
+ * `undefined` for an empty cell).
  *
  * Clients push raw binary Yjs updates into this doc, so after applying an
  * untrusted update we verify it still matches that shape. Anything else — an
@@ -29,7 +31,9 @@ export function isValidStateDocShape(doc: Y.Doc): boolean {
   }
 
   for (const [key, cell] of views) {
-    if (!/^\d+$/.test(key)) {
+    // Keys are integer strings within the same range the control commands
+    // target, so an operator cannot accumulate phantom cells beyond the grid.
+    if (!/^\d+$/.test(key) || Number(key) > MAX_VIEW_IDX) {
       return false
     }
     if (!(cell instanceof Y.Map)) {

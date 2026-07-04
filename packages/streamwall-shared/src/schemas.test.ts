@@ -113,6 +113,12 @@ describe('localStreamDataSchema', () => {
       localStreamDataSchema.safeParse({ link: 'x', kind: 'video' }).success,
     ).toBe(true)
   })
+
+  test('rejects an empty link', () => {
+    expect(
+      localStreamDataSchema.safeParse({ link: '', kind: 'video' }).success,
+    ).toBe(false)
+  })
 })
 
 describe('controlCommandMessageSchema', () => {
@@ -253,6 +259,39 @@ describe('controlCommandMessageSchema', () => {
         type: 'update-custom-stream',
         url: 'x',
         data: { link: 'x', kind: 'not-a-kind' },
+      }).success,
+    ).toBe(false)
+  })
+
+  test('rejects an update-custom-stream with an empty data link', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'update-custom-stream',
+        url: 'x',
+        data: { link: '', kind: 'video' },
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts create-invite with a known role', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'create-invite',
+        role: 'operator',
+        name: 'x',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects create-invite with an unknown role', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'create-invite',
+        role: 'superuser',
+        name: 'x',
       }).success,
     ).toBe(false)
   })

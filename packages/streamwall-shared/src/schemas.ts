@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { GRID_MAX, GRID_MIN } from './geometry.ts'
+import { validRoles } from './roles.ts'
 
 /**
  * Runtime schemas for every piece of external, untrusted input that crosses a
@@ -77,7 +78,7 @@ export type StreamDataInput = z.infer<typeof streamDataInputSchema>
  * this carries a resolved `kind`, matching the shared `LocalStreamData` type.
  */
 export const localStreamDataSchema = z.object({
-  link: z.string(),
+  link: z.string().min(1),
   kind: contentKindSchema,
   ...streamMetaFields,
 })
@@ -167,7 +168,7 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('create-invite'),
-    role: z.string(),
+    role: z.enum(validRoles),
     name: z.string(),
   }),
   z.object({
