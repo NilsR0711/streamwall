@@ -3,8 +3,8 @@ import { Repeater } from '@repeaterjs/repeater'
 import { watch } from 'chokidar'
 import { EventEmitter, once } from 'events'
 import { promises as fsPromises } from 'fs'
-import { isArray } from 'lodash-es'
 import fetch from 'node-fetch'
+import { parseStreamList } from 'streamwall-shared'
 import { promisify } from 'util'
 import {
   StreamData,
@@ -18,12 +18,16 @@ type DataSource = AsyncGenerator<StreamDataContent[]>
 
 export async function* pollDataURL(url: string, intervalSecs: number) {
   const refreshInterval = intervalSecs * 1000
-  let lastData = []
+  let lastData: StreamDataContent[] = []
   while (true) {
     let data: StreamDataContent[] = []
     try {
       const resp = await fetch(url)
-      data = (await resp.json()) as StreamDataContent[]
+      const { streams, errors } = parseStreamList(await resp.json())
+      if (errors.length) {
+        console.warn(`ignoring ${errors.length} invalid stream(s) from ${url}`)
+      }
+      data = streams as StreamDataContent[]
     } catch (err) {
       console.warn('error loading stream data', err)
     }
@@ -42,21 +46,24 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
 
 export async function* watchDataFile(path: string): DataSource {
   const watcher = watch(path)
-  while (true) {
-    let data
-    try {
-      const text = await fsPromises.readFile(path)
-      data = TOML.parse(text.toString())
-    } catch (err) {
-      console.warn('error reading data file', err)
+  try {
+    while (true) {
+      let data
+      try {
+        const text = await fsPromises.readFile(path)
+        data = TOML.parse(text.toString())
+      } catch (err) {
+        console.warn('error reading data file', err)
+      }
+      const { streams, errors } = parseStreamList(data?.streams)
+      if (errors.length) {
+        console.warn(`ignoring ${errors.length} invalid stream(s) in ${path}`)
+      }
+      yield streams as StreamDataContent[]
+      await once(watcher, 'change')
     }
-    if (data && isArray(data.streams)) {
-      // TODO: type validate with Zod
-      yield data.streams as unknown as StreamList
-    } else {
-      yield []
-    }
-    await once(watcher, 'change')
+  } finally {
+    await watcher.close()
   }
 }
 

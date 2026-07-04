@@ -12,15 +12,20 @@ import * as Y from 'yjs'
 import path from 'node:path'
 import {
   type AuthTokenInfo,
-  type ControlCommandMessage,
-  type ControlUpdateMessage,
+  controlCommandMessageSchema,
+  controlStateMessageSchema,
   inviteLink,
   roleCan,
   stateDiff,
   type StreamwallRole,
+  type StreamwallState,
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
+import {
+  applyValidatedDocUpdate,
+  type DocUpdateLimits,
+} from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export const SESSION_COOKIE_NAME = 's'
@@ -89,6 +94,13 @@ const INVITE_EXCHANGE_SCRIPT = `(function () {
 })()
 `
 
+// Bounds on inbound binary Yjs updates from untrusted clients. The shared state
+// doc only holds a grid of view assignments, so these are generous headroom
+// rather than tight fits — enough to block a single oversized update, or one
+// that balloons the doc, from corrupting shared state or exhausting memory.
+const DEFAULT_WS_UPDATE_MAX_BYTES = 512 * 1024
+const DEFAULT_WS_DOC_GROWTH_MAX_BYTES = 1024 * 1024
+
 /** Parses a positive numeric env value, falling back when unset or invalid. */
 function parsePositiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value)
@@ -149,6 +161,20 @@ function getWsMessageLimitConfig(): WsMessageLimitConfig {
     refillPerSec: parsePositiveNumber(
       process.env.STREAMWALL_WS_MSG_RATE,
       DEFAULT_WS_MSG_RATE,
+    ),
+  }
+}
+
+/** Reads the binary Yjs update size limits from the environment. */
+function getDocUpdateLimits(): DocUpdateLimits {
+  return {
+    maxUpdateBytes: parsePositiveNumber(
+      process.env.STREAMWALL_WS_UPDATE_MAX_BYTES,
+      DEFAULT_WS_UPDATE_MAX_BYTES,
+    ),
+    maxDocGrowthBytes: parsePositiveNumber(
+      process.env.STREAMWALL_WS_DOC_GROWTH_MAX_BYTES,
+      DEFAULT_WS_DOC_GROWTH_MAX_BYTES,
     ),
   }
 }
@@ -297,6 +323,7 @@ export async function initApp({
   })
 
   const wsMessageLimitConfig = getWsMessageLimitConfig()
+  const docUpdateLimits = getDocUpdateLimits()
 
   await app.register(fastifyWebsocket, {
     errorHandler: (err) => {
@@ -448,50 +475,64 @@ export async function initApp({
           return
         }
         if (rawData instanceof ArrayBuffer) {
+          // The uplink is the trusted authority for the shared doc and streams
+          // the full state snapshot on connect, so it bypasses the size/shape
+          // guard applied to untrusted client updates (which would otherwise
+          // reject a legitimately large snapshot and silently break sync).
           Y.applyUpdate(stateDoc, new Uint8Array(rawData))
           return
         }
 
-        let msg: ControlUpdateMessage
-
+        let raw: unknown
         try {
-          msg = JSON.parse(rawData.toString())
+          raw = JSON.parse(rawData.toString())
         } catch (err) {
           console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
           return
         }
 
-        try {
-          if (msg.type === 'state') {
-            if (clientState === null) {
-              clientState = new StateWrapper(msg.state)
-              clientState.update({ auth: auth.getState() })
-              currentStreamwallConn = {
-                ws,
-                clientState,
-                stateDoc,
-              }
+        // The desktop only ever sends `state` messages over this channel.
+        // Validate structurally so a malformed payload can never wrap the
+        // shared StateWrapper around garbage (which crashed clients on view()).
+        const parsed = controlStateMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          console.warn(
+            'Rejected invalid Streamwall state message:',
+            parsed.error.issues[0]?.message,
+          )
+          return
+        }
+        const state = parsed.data.state as unknown as StreamwallState
 
-              console.log('Streamwall connected from', request.ip, tokenInfo)
-            } else {
-              clientState.update(msg.state)
+        try {
+          if (clientState === null) {
+            clientState = new StateWrapper(state)
+            clientState.update({ auth: auth.getState() })
+            currentStreamwallConn = {
+              ws,
+              clientState,
+              stateDoc,
             }
 
-            for (const client of clients.values()) {
-              try {
-                if (client.ws.readyState !== WebSocket.OPEN) {
-                  continue
-                }
-                const stateView = clientState.view(client.identity.role)
-                const delta = stateDiff.diff(client.lastStateSent, stateView)
-                if (!delta) {
-                  continue
-                }
-                client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
-                client.lastStateSent = stateView
-              } catch (err) {
-                console.error('failed to send client state delta', client)
+            console.log('Streamwall connected from', request.ip, tokenInfo)
+          } else {
+            clientState.update(state)
+          }
+
+          for (const client of clients.values()) {
+            try {
+              if (client.ws.readyState !== WebSocket.OPEN) {
+                continue
               }
+              const stateView = clientState.view(client.identity.role)
+              const delta = stateDiff.diff(client.lastStateSent, stateView)
+              if (!delta) {
+                continue
+              }
+              client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
+              client.lastStateSent = stateView
+            } catch (err) {
+              console.error('failed to send client state delta', client)
             }
           }
         } catch (err) {
@@ -601,7 +642,7 @@ export async function initApp({
         if (!allowMessage()) {
           return
         }
-        let msg: ControlCommandMessage
+        let messageId: number | undefined
         const respond = (responseData: any) => {
           if (ws.readyState !== WebSocket.OPEN) {
             return
@@ -610,7 +651,7 @@ export async function initApp({
             JSON.stringify({
               ...responseData,
               response: true,
-              id: msg && msg.id,
+              id: messageId,
             }),
           )
         }
@@ -628,20 +669,58 @@ export async function initApp({
             respond({ error: 'unauthorized' })
             return
           }
-          Y.applyUpdate(
-            streamwallConn.stateDoc,
-            new Uint8Array(rawData),
-            clientId,
-          )
+          if (
+            !applyValidatedDocUpdate(
+              streamwallConn.stateDoc,
+              new Uint8Array(rawData),
+              docUpdateLimits,
+              clientId,
+            )
+          ) {
+            // The client already applied this edit to its local doc. Dropping
+            // it server-side would leave the operator UI out of sync with the
+            // shared doc, so close the socket (like a rate-limit violation) to
+            // force a clean reconnect and resync.
+            console.warn(
+              `Rejected invalid state doc update from client ${clientId}, closing to force resync`,
+            )
+            ws.close(1008, 'invalid state update')
+          }
           return
         }
 
+        let raw: unknown
         try {
-          msg = JSON.parse(rawData.toString())
+          raw = JSON.parse(rawData.toString())
         } catch (err) {
           console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
           return
         }
+
+        // Preserve the client-supplied id (when present) so an error response
+        // can still be correlated even if the message is otherwise invalid.
+        if (
+          typeof raw === 'object' &&
+          raw !== null &&
+          typeof (raw as { id?: unknown }).id === 'number'
+        ) {
+          messageId = (raw as { id: number }).id
+        }
+
+        // Every command is validated against the shared schema before it is
+        // authorized or dispatched: an admin passes every roleCan check, so
+        // this is the only barrier stopping a malformed or unknown command
+        // from being forwarded to — and executed on — the desktop.
+        const parsed = controlCommandMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          console.warn(
+            `Rejected invalid control message from client ${clientId}:`,
+            parsed.error.issues[0]?.message,
+          )
+          respond({ error: 'invalid message' })
+          return
+        }
+        const msg = parsed.data
 
         try {
           if (!roleCan(identity.role, msg.type)) {
