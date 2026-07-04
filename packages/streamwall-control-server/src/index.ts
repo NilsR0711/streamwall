@@ -12,12 +12,18 @@ import * as Y from 'yjs'
 import path from 'node:path'
 import {
   type AuthTokenInfo,
-  type ControlCommandMessage,
-  type ControlUpdateMessage,
+  byteLength,
   inviteLink,
+  isWithinByteLimit,
+  MAX_WS_TEXT_MESSAGE_BYTES,
+  MAX_YJS_DOC_BYTES,
+  MAX_YJS_UPDATE_BYTES,
+  parseControlCommandMessage,
+  parseControlUpdateMessage,
   roleCan,
   stateDiff,
-  type StreamwallRole,
+  type StreamwallState,
+  verifyCollabState,
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
@@ -186,6 +192,57 @@ function queueWebSocketMessages(ws: WebSocket) {
   return setMessageHandler
 }
 
+/**
+ * Apply an incoming binary Yjs update after bounding its size, then verify the
+ * resulting document shape and total size. Oversized or unparseable updates are
+ * rejected (returning `false`); shape/size anomalies are logged so corruption is
+ * visible without tearing down the shared document. This bounds a single-message
+ * memory footprint, complementing the per-connection message-rate limiter.
+ */
+function applyBoundedYjsUpdate(
+  doc: Y.Doc,
+  rawData: ArrayBuffer,
+  context: string,
+  origin?: string,
+): boolean {
+  if (!isWithinByteLimit(rawData, MAX_YJS_UPDATE_BYTES)) {
+    console.warn(
+      `Rejecting oversized Yjs update from ${context}:`,
+      rawData.byteLength,
+      'bytes',
+    )
+    return false
+  }
+
+  try {
+    if (origin === undefined) {
+      Y.applyUpdate(doc, new Uint8Array(rawData))
+    } else {
+      Y.applyUpdate(doc, new Uint8Array(rawData), origin)
+    }
+  } catch (err) {
+    console.warn(`Failed to apply Yjs update from ${context}:`, err)
+    return false
+  }
+
+  const shape = verifyCollabState(doc.getMap('views').toJSON())
+  if (!shape.valid) {
+    console.warn(
+      `Collab document failed shape validation after update from ${context}:`,
+      shape.error,
+    )
+  }
+
+  const docSize = Y.encodeStateAsUpdate(doc).byteLength
+  if (docSize > MAX_YJS_DOC_BYTES) {
+    console.warn(
+      `Collab document exceeds size limit (${docSize} > ${MAX_YJS_DOC_BYTES} bytes)`,
+    )
+  }
+
+  return true
+}
+
 export async function initApp({
   baseURL,
   clientStaticPath,
@@ -237,6 +294,9 @@ export async function initApp({
   const wsMessageLimitConfig = getWsMessageLimitConfig()
 
   await app.register(fastifyWebsocket, {
+    // Coarse protocol-level backstop against a single oversized frame; the
+    // per-connection rate limiter bounds message frequency, not size.
+    options: { maxPayload: MAX_YJS_DOC_BYTES },
     errorHandler: (err) => {
       console.warn('Error handling socket request', err)
     },
@@ -366,50 +426,63 @@ export async function initApp({
           return
         }
         if (rawData instanceof ArrayBuffer) {
-          Y.applyUpdate(stateDoc, new Uint8Array(rawData))
+          applyBoundedYjsUpdate(stateDoc, rawData, 'Streamwall')
           return
         }
 
-        let msg: ControlUpdateMessage
+        const text = typeof rawData === 'string' ? rawData : rawData.toString()
 
+        let parsedRaw: unknown
         try {
-          msg = JSON.parse(rawData.toString())
+          parsedRaw = JSON.parse(text)
         } catch (err) {
-          console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
+          console.warn(
+            'Received unexpected ws data: ',
+            byteLength(text),
+            'bytes',
+          )
           return
         }
 
-        try {
-          if (msg.type === 'state') {
-            if (clientState === null) {
-              clientState = new StateWrapper(msg.state)
-              clientState.update({ auth: auth.getState() })
-              currentStreamwallConn = {
-                ws,
-                clientState,
-                stateDoc,
-              }
+        const parsed = parseControlUpdateMessage(parsedRaw)
+        if (!parsed.success) {
+          console.warn(
+            'Rejecting invalid state message from Streamwall:',
+            parsed.error,
+          )
+          return
+        }
+        const state = parsed.message.state as unknown as StreamwallState
 
-              console.log('Streamwall connected from', request.ip, tokenInfo)
-            } else {
-              clientState.update(msg.state)
+        try {
+          if (clientState === null) {
+            clientState = new StateWrapper(state)
+            clientState.update({ auth: auth.getState() })
+            currentStreamwallConn = {
+              ws,
+              clientState,
+              stateDoc,
             }
 
-            for (const client of clients.values()) {
-              try {
-                if (client.ws.readyState !== WebSocket.OPEN) {
-                  continue
-                }
-                const stateView = clientState.view(client.identity.role)
-                const delta = stateDiff.diff(client.lastStateSent, stateView)
-                if (!delta) {
-                  continue
-                }
-                client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
-                client.lastStateSent = stateView
-              } catch (err) {
-                console.error('failed to send client state delta', client)
+            console.log('Streamwall connected from', request.ip, tokenInfo)
+          } else {
+            clientState.update(state)
+          }
+
+          for (const client of clients.values()) {
+            try {
+              if (client.ws.readyState !== WebSocket.OPEN) {
+                continue
               }
+              const stateView = clientState.view(client.identity.role)
+              const delta = stateDiff.diff(client.lastStateSent, stateView)
+              if (!delta) {
+                continue
+              }
+              client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
+              client.lastStateSent = stateView
+            } catch (err) {
+              console.error('failed to send client state delta', client)
             }
           }
         } catch (err) {
@@ -519,7 +592,7 @@ export async function initApp({
         if (!allowMessage()) {
           return
         }
-        let msg: ControlCommandMessage
+        let requestId: number | undefined
         const respond = (responseData: any) => {
           if (ws.readyState !== WebSocket.OPEN) {
             return
@@ -528,7 +601,7 @@ export async function initApp({
             JSON.stringify({
               ...responseData,
               response: true,
-              id: msg && msg.id,
+              id: requestId,
             }),
           )
         }
@@ -546,20 +619,56 @@ export async function initApp({
             respond({ error: 'unauthorized' })
             return
           }
-          Y.applyUpdate(
+          applyBoundedYjsUpdate(
             streamwallConn.stateDoc,
-            new Uint8Array(rawData),
+            rawData,
+            `client "${identity.name}"`,
             clientId,
           )
           return
         }
 
-        try {
-          msg = JSON.parse(rawData.toString())
-        } catch (err) {
-          console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
+        const text = typeof rawData === 'string' ? rawData : rawData.toString()
+        if (!isWithinByteLimit(text, MAX_WS_TEXT_MESSAGE_BYTES)) {
+          console.warn(
+            `Rejecting oversized control message from "${identity.name}":`,
+            byteLength(text),
+            'bytes',
+          )
           return
         }
+
+        let parsedRaw: unknown
+        try {
+          parsedRaw = JSON.parse(text)
+        } catch (err) {
+          console.warn(
+            'Received unexpected ws data: ',
+            byteLength(text),
+            'bytes',
+          )
+          return
+        }
+
+        // Preserve the request id (if any) so validation failures still get a
+        // correlated response the client can resolve.
+        if (
+          parsedRaw !== null &&
+          typeof parsedRaw === 'object' &&
+          typeof (parsedRaw as { id?: unknown }).id === 'number'
+        ) {
+          requestId = (parsedRaw as { id: number }).id
+        }
+
+        const parsed = parseControlCommandMessage(parsedRaw)
+        if (!parsed.success) {
+          console.warn(
+            `Rejecting invalid control message from "${identity.name}": ${parsed.error}`,
+          )
+          respond({ error: 'invalid message' })
+          return
+        }
+        const msg = parsed.message
 
         try {
           if (!roleCan(identity.role, msg.type)) {
@@ -574,7 +683,7 @@ export async function initApp({
             console.debug('Creating invite for role:', msg.role)
             const { tokenId, secret } = await auth.createToken({
               kind: 'invite',
-              role: msg.role as StreamwallRole,
+              role: msg.role,
               name: msg.name,
             })
             respond({ name: msg.name, secret, tokenId })
