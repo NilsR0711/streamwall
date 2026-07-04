@@ -11,10 +11,8 @@ import 'source-map-support/register'
 import {
   ControlCommand,
   StreamwallState,
-  clampGridDimension,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
-  remapGridAssignments,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -30,6 +28,7 @@ import {
   pollDataURL,
   watchDataFile,
 } from './data'
+import { applyGridResize } from './gridResize'
 import { loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -457,41 +456,25 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       console.debug('Setting stream running:', msg.isStreamRunning)
       streamdelayClient.setStreamRunning(msg.isStreamRunning)
     } else if (msg.type === 'set-grid-size') {
-      const cols = clampGridDimension(msg.cols)
-      const rows = clampGridDimension(msg.rows)
-      const oldCols = streamWindowConfig.cols
-
-      // Read current assignments keyed by old cell index.
-      const oldAssignments = new Map<number, string | undefined>()
-      for (const [key, viewData] of viewsState) {
-        oldAssignments.set(Number(key), viewData.get('streamId'))
-      }
-
-      // Remap by (x, y) into the new grid, then rebuild the views map.
-      const newAssignments = remapGridAssignments(
-        oldCols,
-        cols,
-        rows,
-        oldAssignments,
+      applyGridResize(
+        {
+          viewsState,
+          transact: (fn) => stateDoc.transact(fn),
+          getCols: () => streamWindowConfig.cols,
+          setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
+        },
+        msg.cols,
+        msg.rows,
       )
-      stateDoc.transact(() => {
-        for (const key of [...viewsState.keys()]) {
-          viewsState.delete(key)
-        }
-        for (const [idx, streamId] of newAssignments) {
-          const data = new Y.Map<string | undefined>()
-          data.set('streamId', streamId)
-          viewsState.set(String(idx), data)
-        }
-      })
 
       // streamWindow.config, streamWindowConfig and clientState.config are the
       // same shared object, and setGridSize mutates it in place. Broadcast that
       // shared object via updateState({}) rather than detaching a copy, so a
       // later window resize keeps the overlay/control grid in sync with the wall
-      // (issue #14).
-      streamWindow.setGridSize(cols, rows)
-      updateViewsFromStateDoc()
+      // (issue #14). The wall itself was already re-laid-out by the stateDoc
+      // observer during applyGridResize's transact — now that the config holds
+      // the new dimensions (issue #15) — so no explicit updateViewsFromStateDoc()
+      // call is needed here.
       updateState({})
     }
   }
