@@ -12,12 +12,13 @@ import * as Y from 'yjs'
 import path from 'node:path'
 import {
   type AuthTokenInfo,
-  type ControlCommandMessage,
-  type ControlUpdateMessage,
+  controlCommandMessageSchema,
+  controlStateMessageSchema,
   inviteLink,
   roleCan,
   stateDiff,
   type StreamwallRole,
+  type StreamwallState,
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
@@ -452,46 +453,56 @@ export async function initApp({
           return
         }
 
-        let msg: ControlUpdateMessage
-
+        let raw: unknown
         try {
-          msg = JSON.parse(rawData.toString())
+          raw = JSON.parse(rawData.toString())
         } catch (err) {
           console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
           return
         }
 
-        try {
-          if (msg.type === 'state') {
-            if (clientState === null) {
-              clientState = new StateWrapper(msg.state)
-              clientState.update({ auth: auth.getState() })
-              currentStreamwallConn = {
-                ws,
-                clientState,
-                stateDoc,
-              }
+        // The desktop only ever sends `state` messages over this channel.
+        // Validate structurally so a malformed payload can never wrap the
+        // shared StateWrapper around garbage (which crashed clients on view()).
+        const parsed = controlStateMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          console.warn(
+            'Rejected invalid Streamwall state message:',
+            parsed.error.issues[0]?.message,
+          )
+          return
+        }
+        const state = parsed.data.state as unknown as StreamwallState
 
-              console.log('Streamwall connected from', request.ip, tokenInfo)
-            } else {
-              clientState.update(msg.state)
+        try {
+          if (clientState === null) {
+            clientState = new StateWrapper(state)
+            clientState.update({ auth: auth.getState() })
+            currentStreamwallConn = {
+              ws,
+              clientState,
+              stateDoc,
             }
 
-            for (const client of clients.values()) {
-              try {
-                if (client.ws.readyState !== WebSocket.OPEN) {
-                  continue
-                }
-                const stateView = clientState.view(client.identity.role)
-                const delta = stateDiff.diff(client.lastStateSent, stateView)
-                if (!delta) {
-                  continue
-                }
-                client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
-                client.lastStateSent = stateView
-              } catch (err) {
-                console.error('failed to send client state delta', client)
+            console.log('Streamwall connected from', request.ip, tokenInfo)
+          } else {
+            clientState.update(state)
+          }
+
+          for (const client of clients.values()) {
+            try {
+              if (client.ws.readyState !== WebSocket.OPEN) {
+                continue
               }
+              const stateView = clientState.view(client.identity.role)
+              const delta = stateDiff.diff(client.lastStateSent, stateView)
+              if (!delta) {
+                continue
+              }
+              client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
+              client.lastStateSent = stateView
+            } catch (err) {
+              console.error('failed to send client state delta', client)
             }
           }
         } catch (err) {
@@ -601,7 +612,7 @@ export async function initApp({
         if (!allowMessage()) {
           return
         }
-        let msg: ControlCommandMessage
+        let messageId: number | undefined
         const respond = (responseData: any) => {
           if (ws.readyState !== WebSocket.OPEN) {
             return
@@ -610,7 +621,7 @@ export async function initApp({
             JSON.stringify({
               ...responseData,
               response: true,
-              id: msg && msg.id,
+              id: messageId,
             }),
           )
         }
@@ -636,12 +647,38 @@ export async function initApp({
           return
         }
 
+        let raw: unknown
         try {
-          msg = JSON.parse(rawData.toString())
+          raw = JSON.parse(rawData.toString())
         } catch (err) {
           console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
           return
         }
+
+        // Preserve the client-supplied id (when present) so an error response
+        // can still be correlated even if the message is otherwise invalid.
+        if (
+          typeof raw === 'object' &&
+          raw !== null &&
+          typeof (raw as { id?: unknown }).id === 'number'
+        ) {
+          messageId = (raw as { id: number }).id
+        }
+
+        // Every command is validated against the shared schema before it is
+        // authorized or dispatched: an admin passes every roleCan check, so
+        // this is the only barrier stopping a malformed or unknown command
+        // from being forwarded to — and executed on — the desktop.
+        const parsed = controlCommandMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          console.warn(
+            `Rejected invalid control message from client ${clientId}:`,
+            parsed.error.issues[0]?.message,
+          )
+          respond({ error: 'invalid message' })
+          return
+        }
+        const msg = parsed.data
 
         try {
           if (!roleCan(identity.role, msg.type)) {
