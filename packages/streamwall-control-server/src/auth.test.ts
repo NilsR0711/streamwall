@@ -157,3 +157,23 @@ test('validateToken accepts a legacy token hashed with the shared salt and no pe
     name: 'legacy',
   })
 })
+
+test('validateToken rejects a token revoked while its hash is being computed', async () => {
+  const auth = new Auth()
+  const { tokenId, secret } = await auth.createToken({
+    kind: 'session',
+    role: 'admin',
+    name: 'race',
+  })
+
+  // Kick off validation, then revoke the token before the (async) scrypt hash
+  // resolves. validateToken reads the token record before awaiting the hash;
+  // without a post-hash freshness check it would authenticate the already
+  // revoked secret against its stale snapshot.
+  const pending = auth.validateToken(tokenId, secret)
+  auth.deleteToken(tokenId)
+
+  const info = await pending
+
+  assert.equal(info, null)
+})

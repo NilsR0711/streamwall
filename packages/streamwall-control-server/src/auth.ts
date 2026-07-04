@@ -175,7 +175,12 @@ export class Auth extends EventEmitter<AuthEvents> {
     const salt = tokenData?.salt ?? this.salt
     const providedTokenHash = await hashTokenRaw(secret, salt)
 
-    if (!tokenData) {
+    // Re-read the record after the (async) hash: `deleteToken` may have revoked
+    // it while scrypt was running. Authenticating against the stale snapshot
+    // would let an already revoked secret succeed. Reference equality also
+    // rejects the case where the id was deleted and later reused for a new
+    // token (whose hash was computed under a different salt).
+    if (!tokenData || this.tokensById.get(id) !== tokenData) {
       return null
     }
 
