@@ -22,6 +22,10 @@ import {
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
+import {
+  applyValidatedDocUpdate,
+  type DocUpdateLimits,
+} from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 
 export const SESSION_COOKIE_NAME = 's'
@@ -90,6 +94,13 @@ const INVITE_EXCHANGE_SCRIPT = `(function () {
 })()
 `
 
+// Bounds on inbound binary Yjs updates. The shared state doc only holds a grid
+// of view assignments, so these are generous headroom rather than tight fits —
+// enough to block a single oversized update or an unbounded-growth flood that
+// would corrupt shared state or exhaust memory/storage across all clients.
+const DEFAULT_WS_UPDATE_MAX_BYTES = 512 * 1024
+const DEFAULT_STATE_DOC_MAX_BYTES = 4 * 1024 * 1024
+
 /** Parses a positive numeric env value, falling back when unset or invalid. */
 function parsePositiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value)
@@ -150,6 +161,20 @@ function getWsMessageLimitConfig(): WsMessageLimitConfig {
     refillPerSec: parsePositiveNumber(
       process.env.STREAMWALL_WS_MSG_RATE,
       DEFAULT_WS_MSG_RATE,
+    ),
+  }
+}
+
+/** Reads the binary Yjs update size limits from the environment. */
+function getDocUpdateLimits(): DocUpdateLimits {
+  return {
+    maxUpdateBytes: parsePositiveNumber(
+      process.env.STREAMWALL_WS_UPDATE_MAX_BYTES,
+      DEFAULT_WS_UPDATE_MAX_BYTES,
+    ),
+    maxDocBytes: parsePositiveNumber(
+      process.env.STREAMWALL_STATE_DOC_MAX_BYTES,
+      DEFAULT_STATE_DOC_MAX_BYTES,
     ),
   }
 }
@@ -298,6 +323,7 @@ export async function initApp({
   })
 
   const wsMessageLimitConfig = getWsMessageLimitConfig()
+  const docUpdateLimits = getDocUpdateLimits()
 
   await app.register(fastifyWebsocket, {
     errorHandler: (err) => {
@@ -449,7 +475,15 @@ export async function initApp({
           return
         }
         if (rawData instanceof ArrayBuffer) {
-          Y.applyUpdate(stateDoc, new Uint8Array(rawData))
+          if (
+            !applyValidatedDocUpdate(
+              stateDoc,
+              new Uint8Array(rawData),
+              docUpdateLimits,
+            )
+          ) {
+            console.warn('Rejected invalid Streamwall state doc update')
+          }
           return
         }
 
@@ -639,11 +673,18 @@ export async function initApp({
             respond({ error: 'unauthorized' })
             return
           }
-          Y.applyUpdate(
-            streamwallConn.stateDoc,
-            new Uint8Array(rawData),
-            clientId,
-          )
+          if (
+            !applyValidatedDocUpdate(
+              streamwallConn.stateDoc,
+              new Uint8Array(rawData),
+              docUpdateLimits,
+              clientId,
+            )
+          ) {
+            console.warn(
+              `Rejected invalid state doc update from client ${clientId}`,
+            )
+          }
           return
         }
 

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
+import * as Y from 'yjs'
 import { buildTestApp } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
@@ -199,4 +200,57 @@ test('rejects a state message with no payload instead of wiring a broken connect
 
   const response = await client.waitFor((m) => typeof m.error === 'string')
   assert.equal(response.error, 'streamwall disconnected')
+})
+
+/** Polls `predicate` until it holds, or rejects after `timeoutMs`. */
+async function waitUntil(predicate: () => boolean, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error('timed out waiting for condition')
+    }
+    await delay(20)
+  }
+}
+
+test('does not broadcast a shape-violating doc update to the uplink', async () => {
+  const { clientWs, streamwallWs } = await connectStreamwallAndClient()
+
+  // Replay the binary Yjs frames the uplink receives into a local doc so we
+  // can inspect exactly what was broadcast to the desktop.
+  const uplinkDoc = new Y.Doc()
+  streamwallWs.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      return
+    }
+    try {
+      Y.applyUpdate(uplinkDoc, new Uint8Array(data as Buffer))
+    } catch {
+      // ignore malformed frames
+    }
+  })
+
+  // Malicious: introduces an unexpected top-level container.
+  const evil = new Y.Doc()
+  evil.getMap('evil').set('x', 'y')
+  clientWs.send(Y.encodeStateAsUpdate(evil))
+
+  // Valid: assigns a stream to grid cell 0.
+  const good = new Y.Doc()
+  const cell = new Y.Map<string>()
+  cell.set('streamId', 'goodstream')
+  good.getMap('views').set('0', cell)
+  clientWs.send(Y.encodeStateAsUpdate(good))
+
+  await waitUntil(
+    () =>
+      uplinkDoc.getMap<Y.Map<string>>('views').get('0')?.get('streamId') ===
+      'goodstream',
+  )
+
+  assert.equal(
+    uplinkDoc.share.has('evil'),
+    false,
+    'a shape-violating update must never be broadcast to the uplink',
+  )
 })
