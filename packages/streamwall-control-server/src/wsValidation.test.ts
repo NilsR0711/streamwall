@@ -9,6 +9,11 @@ import { buildTestApp } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
 
+// A per-test override of the update cap must not leak into other test files.
+after(() => {
+  delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
+})
+
 const VALID_STATE = {
   identity: { role: 'admin' },
   config: {
@@ -94,12 +99,19 @@ async function connectStreamwallAndClient({
     unknown
   >,
   role = 'admin' as const,
+  wsUpdateMaxBytes,
 }: {
   stateMessage?: Record<string, unknown>
   role?: 'admin' | 'operator' | 'monitor'
+  wsUpdateMaxBytes?: number
 } = {}) {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
   process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
+  if (wsUpdateMaxBytes !== undefined) {
+    process.env.STREAMWALL_WS_UPDATE_MAX_BYTES = String(wsUpdateMaxBytes)
+  } else {
+    delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
+  }
 
   const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
   after(() => app.close())
@@ -252,5 +264,38 @@ test('does not broadcast a shape-violating doc update to the uplink', async () =
     uplinkDoc.share.has('evil'),
     false,
     'a shape-violating update must never be broadcast to the uplink',
+  )
+})
+
+test('applies a Streamwall uplink doc update regardless of the per-update size cap', async () => {
+  // The desktop uplink is the trusted authority for the shared doc: it sends
+  // the full state snapshot on connect, which can exceed the cap meant for
+  // untrusted clients. Uplink updates must not be dropped by that cap.
+  const { streamwallWs, clientWs } = await connectStreamwallAndClient({
+    wsUpdateMaxBytes: 10,
+  })
+
+  const clientDoc = new Y.Doc()
+  clientWs.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      return
+    }
+    try {
+      Y.applyUpdate(clientDoc, new Uint8Array(data as Buffer))
+    } catch {
+      // ignore malformed frames
+    }
+  })
+
+  const update = new Y.Doc()
+  const cell = new Y.Map<string>()
+  cell.set('streamId', 'fromuplink')
+  update.getMap('views').set('0', cell)
+  streamwallWs.send(Y.encodeStateAsUpdate(update))
+
+  await waitUntil(
+    () =>
+      clientDoc.getMap<Y.Map<string>>('views').get('0')?.get('streamId') ===
+      'fromuplink',
   )
 })

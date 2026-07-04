@@ -475,15 +475,11 @@ export async function initApp({
           return
         }
         if (rawData instanceof ArrayBuffer) {
-          if (
-            !applyValidatedDocUpdate(
-              stateDoc,
-              new Uint8Array(rawData),
-              docUpdateLimits,
-            )
-          ) {
-            console.warn('Rejected invalid Streamwall state doc update')
-          }
+          // The uplink is the trusted authority for the shared doc and streams
+          // the full state snapshot on connect, so it bypasses the size/shape
+          // guard applied to untrusted client updates (which would otherwise
+          // reject a legitimately large snapshot and silently break sync).
+          Y.applyUpdate(stateDoc, new Uint8Array(rawData))
           return
         }
 
