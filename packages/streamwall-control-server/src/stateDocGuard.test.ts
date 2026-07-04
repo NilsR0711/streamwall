@@ -3,7 +3,7 @@ import { describe, test } from 'node:test'
 import * as Y from 'yjs'
 import { applyValidatedDocUpdate } from './stateDocGuard.ts'
 
-const LIMITS = { maxUpdateBytes: 64 * 1024, maxDocBytes: 1024 * 1024 }
+const LIMITS = { maxUpdateBytes: 64 * 1024, maxDocGrowthBytes: 1024 * 1024 }
 
 /** Encodes a full-state update from a fresh doc mutated by `mutate`. */
 function updateFrom(mutate: (doc: Y.Doc) => void): Uint8Array {
@@ -41,7 +41,7 @@ describe('applyValidatedDocUpdate', () => {
     const applied = applyValidatedDocUpdate(
       target,
       updateFrom((d) => setCell(d, 0, 'abc')),
-      { maxUpdateBytes: 1, maxDocBytes: 1024 * 1024 },
+      { maxUpdateBytes: 1, maxDocGrowthBytes: 1024 * 1024 },
     )
     assert.equal(applied, false)
     assert.equal(target.getMap('views').size, 0)
@@ -74,15 +74,41 @@ describe('applyValidatedDocUpdate', () => {
     assert.equal(applied, false)
   })
 
-  test('rejects an update that would grow the doc beyond the size cap', () => {
+  test('rejects an update that grows the doc beyond the growth cap', () => {
     const target = new Y.Doc()
     const applied = applyValidatedDocUpdate(
       target,
       updateFrom((d) => setCell(d, 0, 'x'.repeat(1000))),
-      { maxUpdateBytes: 64 * 1024, maxDocBytes: 100 },
+      { maxUpdateBytes: 64 * 1024, maxDocGrowthBytes: 100 },
     )
     assert.equal(applied, false)
     assert.equal(target.getMap('views').size, 0)
+  })
+
+  test('allows a small edit even when the live doc is already large', () => {
+    // The absolute doc size is set by the trusted uplink, so a small operator
+    // edit must not be dropped just because the doc has grown large — only the
+    // per-update growth is bounded.
+    const target = new Y.Doc()
+    for (let i = 0; i < 200; i++) {
+      applyValidatedDocUpdate(
+        target,
+        updateFrom((d) => setCell(d, i, `s${i}`)),
+        {
+          maxUpdateBytes: 64 * 1024,
+          maxDocGrowthBytes: 64 * 1024,
+        },
+      )
+    }
+    const liveBytes = Y.encodeStateAsUpdate(target).byteLength
+
+    // A tiny edit whose growth is far below the cap, on an already-large doc.
+    const applied = applyValidatedDocUpdate(
+      target,
+      updateFrom((d) => setCell(d, 0, 'changed')),
+      { maxUpdateBytes: 64 * 1024, maxDocGrowthBytes: liveBytes },
+    )
+    assert.equal(applied, true)
   })
 
   test('rejects malformed update bytes', () => {

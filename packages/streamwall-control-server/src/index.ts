@@ -94,12 +94,12 @@ const INVITE_EXCHANGE_SCRIPT = `(function () {
 })()
 `
 
-// Bounds on inbound binary Yjs updates. The shared state doc only holds a grid
-// of view assignments, so these are generous headroom rather than tight fits —
-// enough to block a single oversized update or an unbounded-growth flood that
-// would corrupt shared state or exhaust memory/storage across all clients.
+// Bounds on inbound binary Yjs updates from untrusted clients. The shared state
+// doc only holds a grid of view assignments, so these are generous headroom
+// rather than tight fits — enough to block a single oversized update, or one
+// that balloons the doc, from corrupting shared state or exhausting memory.
 const DEFAULT_WS_UPDATE_MAX_BYTES = 512 * 1024
-const DEFAULT_STATE_DOC_MAX_BYTES = 4 * 1024 * 1024
+const DEFAULT_WS_DOC_GROWTH_MAX_BYTES = 1024 * 1024
 
 /** Parses a positive numeric env value, falling back when unset or invalid. */
 function parsePositiveNumber(value: string | undefined, fallback: number) {
@@ -172,9 +172,9 @@ function getDocUpdateLimits(): DocUpdateLimits {
       process.env.STREAMWALL_WS_UPDATE_MAX_BYTES,
       DEFAULT_WS_UPDATE_MAX_BYTES,
     ),
-    maxDocBytes: parsePositiveNumber(
-      process.env.STREAMWALL_STATE_DOC_MAX_BYTES,
-      DEFAULT_STATE_DOC_MAX_BYTES,
+    maxDocGrowthBytes: parsePositiveNumber(
+      process.env.STREAMWALL_WS_DOC_GROWTH_MAX_BYTES,
+      DEFAULT_WS_DOC_GROWTH_MAX_BYTES,
     ),
   }
 }
