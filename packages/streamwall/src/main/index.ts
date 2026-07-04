@@ -393,11 +393,6 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       overlayStreamData.update(msg.url, {
         rotation: msg.rotation,
       })
-    } else if (msg.type === 'set-stream-fit') {
-      console.debug('Setting stream fit:', msg.url, msg.fit)
-      overlayStreamData.update(msg.url, {
-        fit: msg.fit,
-      })
     } else if (msg.type === 'update-custom-stream') {
       console.debug('Updating custom stream:', msg.url)
       localStreamData.update(msg.url, msg.data)
