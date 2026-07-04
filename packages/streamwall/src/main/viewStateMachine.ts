@@ -15,6 +15,11 @@ import { Actor, assign, fromPromise, setup } from 'xstate'
 import { ensureValidURL } from '../util'
 import { loadHTML } from './loadHTML'
 
+// Safety net for the whole loading phase (navigate -> waitForInit -> waitForVideo).
+// Longer than the media preload's own acquisition timeouts (~20s) so that slow but
+// healthy streams are not cut off; only trips when the renderer never responds at all.
+const LOADING_TIMEOUT = 45 * 1000
+
 const viewStateMachine = setup({
   types: {
     input: {} as {
@@ -165,7 +170,12 @@ const viewStateMachine = setup({
         if (/\.m3u8?$/.test(content.url)) {
           loadHTML(wc, 'playHLS', { query: { src: content.url } })
         } else {
-          wc.loadURL(content.url)
+          // Do NOT await: the preload sends VIEW_INIT before loadURL resolves
+          // (did-finish-load), so awaiting here would strand that event and hang
+          // the view in waitForInit. Load failures are surfaced via the
+          // webContents 'did-fail-load' listener in StreamWindow; swallow the
+          // rejection so it isn't an unhandled promise rejection.
+          wc.loadURL(content.url).catch(() => {})
         }
       },
     ),
@@ -246,6 +256,17 @@ const viewStateMachine = setup({
       states: {
         loading: {
           initial: 'navigate',
+          // If the whole loading phase stalls (e.g. the renderer never sends
+          // VIEW_INIT/VIEW_LOADED), fail the view instead of hanging forever.
+          after: {
+            [LOADING_TIMEOUT]: {
+              target: '#view.displaying.error',
+              actions: {
+                type: 'logError',
+                params: { error: 'Timed out waiting for view to load' },
+              },
+            },
+          },
           states: {
             navigate: {
               invoke: {

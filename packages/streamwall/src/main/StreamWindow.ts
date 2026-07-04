@@ -197,6 +197,24 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
     actor.start()
 
+    // Surface main-frame load failures (e.g. ERR_NAME_NOT_RESOLVED) as view
+    // errors so the state machine leaves the loading state instead of hanging.
+    // loadPage intentionally does not await loadURL — awaiting would delay the
+    // navigate->waitForInit transition past the preload's early VIEW_INIT and
+    // hang every view — so failures are reported here instead.
+    view.webContents.on(
+      'did-fail-load',
+      (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+        // -3 is ERR_ABORTED: superseded navigation or self-reload, not a failure.
+        if (isMainFrame && errorCode !== -3) {
+          actor.send({
+            type: 'VIEW_ERROR',
+            error: new Error(`Failed to load (${errorCode}): ${errorDescription}`),
+          })
+        }
+      },
+    )
+
     return actor
   }
 
