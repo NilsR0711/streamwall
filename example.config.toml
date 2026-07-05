@@ -66,7 +66,7 @@ json-url = []
 #production = true
 
 # Email address to use when registering SSL certificate with Let's Encrypt
-#email = "hi@streamwall.io"
+#email = "you@example.com"
 
 # Directory to store certificate
 #dir = "../streamwall-cert"

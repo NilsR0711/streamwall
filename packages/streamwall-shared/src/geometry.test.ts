@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { idxToCoords } from './geometry.ts'
 import {
   clampGridDimension,
   GRID_MAX,
   GRID_MIN,
+  idxToCoords,
   remapGridAssignments,
 } from './geometry.ts'
 

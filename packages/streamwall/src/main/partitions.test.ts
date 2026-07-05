@@ -61,7 +61,10 @@ test('allocateViewPartition returns a unique ephemeral partition on every call',
   for (let i = 0; i < 100; i++) {
     const partition = allocateViewPartition()
     assert.ok(partition.startsWith('view-'), 'view partitions are prefixed')
-    assert.ok(!partition.startsWith('persist:'), 'view partitions are ephemeral')
+    assert.ok(
+      !partition.startsWith('persist:'),
+      'view partitions are ephemeral',
+    )
     assert.ok(!seen.has(partition), `partition ${partition} must be unique`)
     seen.add(partition)
   }

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # npm dependencies across the workspace (single root lockfile).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      production-dependencies:
+        dependency-type: production
+      development-dependencies:
+        dependency-type: development
+
+  # Keep GitHub Actions pinned-SHAs current (paired with SHA pinning in workflows).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

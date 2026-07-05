@@ -15,7 +15,7 @@ const defaultData: StreamwallStoredData = {
 export type StorageDB = Low<StreamwallStoredData>
 
 export async function loadStorage(dbPath: string) {
-  let db: StorageDB | undefined = undefined
+  let db: StorageDB
 
   try {
     db = await JSONFilePreset<StreamwallStoredData>(dbPath, defaultData)

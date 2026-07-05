@@ -59,8 +59,8 @@ export function boxesFromViewContentMap(
       spaces.push(cols * maxY + x)
     }
 
-    let cx = x
-    let cy = y
+    let cx: number
+    let cy: number
     scan: for (cx = x + 1; cx < cols; cx++) {
       for (cy = y; cy < maxY; cy++) {
         if (!isPosContent(cx, cy, content)) {

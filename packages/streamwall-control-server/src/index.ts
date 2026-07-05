@@ -217,7 +217,7 @@ function createWsMessageGuard(
 interface Client {
   clientId: string
   ws: WebSocket
-  lastStateSent: any
+  lastStateSent: unknown
   identity: AuthTokenInfo
 }
 
@@ -643,7 +643,7 @@ export async function initApp({
           return
         }
         let messageId: number | undefined
-        const respond = (responseData: any) => {
+        const respond = (responseData: Record<string, unknown>) => {
           if (ws.readyState !== WebSocket.OPEN) {
             return
           }

@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    // baseUrl + moduleResolution:node are flagged as deprecated under TS 6 but
+    // are still required here; silence until module resolution is modernized.
+    "ignoreDeprecations": "6.0",
     "target": "ES2024",
     "module": "commonjs",
     "allowJs": true,

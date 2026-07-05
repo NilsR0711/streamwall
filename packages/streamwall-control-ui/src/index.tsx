@@ -1,12 +1,12 @@
 import '@fontsource/noto-sans'
 // Design system fonts (bundled so they work under the strict app CSP).
-import '@fontsource/saira-stencil-one'
 import '@fontsource/ibm-plex-sans/400.css'
 import '@fontsource/ibm-plex-sans/500.css'
 import '@fontsource/ibm-plex-sans/600.css'
 import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
 import '@fontsource/oswald/600.css'
+import '@fontsource/saira-stencil-one'
 import Color from 'color'
 import { orderBy, range, truncate } from 'lodash-es'
 import { DateTime } from 'luxon'
@@ -314,7 +314,14 @@ export function ThemeToggle() {
       key: 'system' as const,
       label: 'System',
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <rect x="2" y="3" width="20" height="14" rx="2" />
           <path d="M8 21h8M12 17v4" />
         </svg>
@@ -324,7 +331,14 @@ export function ThemeToggle() {
       key: 'light' as const,
       label: 'Hell',
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
         </svg>
@@ -334,7 +348,14 @@ export function ThemeToggle() {
       key: 'dark' as const,
       label: 'Dunkel',
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
       ),
@@ -1070,9 +1091,11 @@ export function ControlUI({
                       moveStart != null &&
                       moveTargetIdx != null &&
                       moveStart.idx !== moveTargetIdx &&
-                      (stateIdxMap.get(moveTargetIdx)?.spaces ?? [
-                        moveTargetIdx,
-                      ]).includes(idx)
+                      (
+                        stateIdxMap.get(moveTargetIdx)?.spaces ?? [
+                          moveTargetIdx,
+                        ]
+                      ).includes(idx)
                     const isResizeHighlight =
                       resize != null &&
                       cols != null &&
@@ -1160,7 +1183,7 @@ export function ControlUI({
 
                   const { streamId } = sharedState?.views[pos.spaces[0]] ?? {}
                   const data = streams.find((d) => d._id === streamId)
-                  if (streamId == null || !data == null) {
+                  if (streamId == null || data == null) {
                     return null
                   }
 

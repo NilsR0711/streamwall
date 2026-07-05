@@ -21,29 +21,104 @@ import {
 import { type StreamData, type StreamwallState } from 'streamwall-shared'
 import * as Y from 'yjs'
 
-const s = (o: Partial<StreamData> & { _id: string; link: string }): StreamData => ({
+const s = (
+  o: Partial<StreamData> & { _id: string; link: string },
+): StreamData => ({
   _dataSource: 'demo',
   kind: 'video',
   ...o,
 })
 
 const demoStreams: StreamData[] = [
-  s({ _id: 'wok', link: 'https://twitch.tv/woke', label: 'PDX Live', city: 'Portland', state: 'OR', source: 'woke.net', status: 'Live' }),
-  s({ _id: 'oma', link: 'https://youtube.com/watch?v=oma', label: 'Capitol Hill', city: 'Seattle', state: 'WA', source: 'Omari Salisbury', status: 'Live' }),
-  s({ _id: 'uni', link: 'https://facebook.com/unicornriot/v/1', label: 'South MPLS', city: 'Minneapolis', state: 'MN', source: 'Unicorn Riot', status: 'Live' }),
-  s({ _id: 'dcw', link: 'https://twitch.tv/dcprotest', label: 'Capitol', city: 'Washington', state: 'DC', source: 'DC Watch', status: 'Live' }),
-  s({ _id: 'chi', link: 'https://kick.com/chicago', label: 'The Loop', city: 'Chicago', state: 'IL', source: 'CHI Stream', status: 'Live' }),
-  s({ _id: 'zom', link: 'https://html5zombo.com', label: 'Zombo', source: 'zombo.com', kind: 'web' }),
-  s({ _id: 'nyc', link: 'https://twitch.tv/nyclive', label: 'Manhattan', city: 'New York', state: 'NY', source: 'NYC Live' }),
-  s({ _id: 'lad', link: 'https://youtube.com/watch?v=lad', label: 'DTLA', city: 'Los Angeles', state: 'CA', source: 'LA Direct' }),
-  s({ _id: 'oak', link: 'https://youtube.com/watch?v=oak', label: 'Bay Bridge', city: 'Oakland', state: 'CA', source: 'Oakland Now' }),
+  s({
+    _id: 'wok',
+    link: 'https://twitch.tv/woke',
+    label: 'PDX Live',
+    city: 'Portland',
+    state: 'OR',
+    source: 'woke.net',
+    status: 'Live',
+  }),
+  s({
+    _id: 'oma',
+    link: 'https://youtube.com/watch?v=oma',
+    label: 'Capitol Hill',
+    city: 'Seattle',
+    state: 'WA',
+    source: 'Omari Salisbury',
+    status: 'Live',
+  }),
+  s({
+    _id: 'uni',
+    link: 'https://facebook.com/unicornriot/v/1',
+    label: 'South MPLS',
+    city: 'Minneapolis',
+    state: 'MN',
+    source: 'Unicorn Riot',
+    status: 'Live',
+  }),
+  s({
+    _id: 'dcw',
+    link: 'https://twitch.tv/dcprotest',
+    label: 'Capitol',
+    city: 'Washington',
+    state: 'DC',
+    source: 'DC Watch',
+    status: 'Live',
+  }),
+  s({
+    _id: 'chi',
+    link: 'https://kick.com/chicago',
+    label: 'The Loop',
+    city: 'Chicago',
+    state: 'IL',
+    source: 'CHI Stream',
+    status: 'Live',
+  }),
+  s({
+    _id: 'zom',
+    link: 'https://html5zombo.com',
+    label: 'Zombo',
+    source: 'zombo.com',
+    kind: 'web',
+  }),
+  s({
+    _id: 'nyc',
+    link: 'https://twitch.tv/nyclive',
+    label: 'Manhattan',
+    city: 'New York',
+    state: 'NY',
+    source: 'NYC Live',
+  }),
+  s({
+    _id: 'lad',
+    link: 'https://youtube.com/watch?v=lad',
+    label: 'DTLA',
+    city: 'Los Angeles',
+    state: 'CA',
+    source: 'LA Direct',
+  }),
+  s({
+    _id: 'oak',
+    link: 'https://youtube.com/watch?v=oak',
+    label: 'Bay Bridge',
+    city: 'Oakland',
+    state: 'CA',
+    source: 'Oakland Now',
+  }),
 ]
 
 // Which stream sits in which grid cell (drives the wall preview + inputs).
 const placement: Record<string, string | undefined> = {
-  '0': 'wok', '1': 'oma', '2': 'uni',
-  '3': 'nyc', '4': 'dcw', '5': undefined,
-  '6': 'lad', '7': undefined, '8': undefined,
+  '0': 'wok',
+  '1': 'oma',
+  '2': 'uni',
+  '3': 'nyc',
+  '4': 'dcw',
+  '5': undefined,
+  '6': 'lad',
+  '7': undefined,
+  '8': undefined,
 }
 
 // Synthesize "running" views so the grid preview shows the placed streams.
@@ -91,7 +166,9 @@ const demoState: StreamwallState = {
 }
 
 function useMockConnection(): StreamwallConnection {
-  const { docValue: sharedState, doc: stateDoc } = useYDoc<CollabData>(['views'])
+  const { docValue: sharedState, doc: stateDoc } = useYDoc<CollabData>([
+    'views',
+  ])
   const appState = useStreamwallState(demoState)
 
   useEffect(() => {

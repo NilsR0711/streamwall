@@ -93,6 +93,7 @@ export async function ensureValidURL(
   } catch (err) {
     throw new Error(
       `rejecting URL with unresolvable host '${urlStr}': ${String(err)}`,
+      { cause: err },
     )
   }
   if (addresses.length === 0) {

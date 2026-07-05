@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "tsx ./src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test --test-force-exit --test-timeout=20000 \"src/**/*.test.ts\""
   },
-  "repository": "github:streamwall/streamwall",
-  "author": "Max Goodhart <c@chromakode.com>",
+  "repository": "github:NilsR0711/streamwall",
+  "author": "Nils Reeh <info@nilsreeh.de>",
   "license": "MIT",
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

@@ -151,7 +151,7 @@ function VersionFooter() {
   }, [])
   return (
     <VersionText isShowing={isShowing}>
-      <strong>streamwall.io</strong> {packageInfo.version}
+      <strong>streamwall</strong> {packageInfo.version}
     </VersionText>
   )
 }
