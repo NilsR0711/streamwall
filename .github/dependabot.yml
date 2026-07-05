@@ -20,3 +20,9 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # Bundle all action updates into one PR so multi-step actions (e.g. CodeQL
+    # init + analyze) always move together and never mismatch versions.
+    groups:
+      github-actions:
+        patterns:
+          - '*'
