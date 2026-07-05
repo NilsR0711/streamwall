@@ -227,7 +227,9 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         if (isMainFrame && errorCode !== -3) {
           actor.send({
             type: 'VIEW_ERROR',
-            error: new Error(`Failed to load (${errorCode}): ${errorDescription}`),
+            error: new Error(
+              `Failed to load (${errorCode}): ${errorDescription}`,
+            ),
           })
         }
       },

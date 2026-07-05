@@ -1,12 +1,7 @@
 export const validRoles = ['local', 'admin', 'operator', 'monitor'] as const
 export const validRolesSet = new Set(validRoles)
 
-const adminActions = [
-  'dev-tools',
-  'browse',
-  'create-invite',
-  'delete-token',
-] as const
+type AdminAction = 'dev-tools' | 'browse' | 'create-invite' | 'delete-token'
 
 const operatorActions = [
   'set-listening-view',
@@ -26,7 +21,7 @@ const monitorActions = ['set-view-blurred', 'set-stream-censored'] as const
 
 export type StreamwallRole = (typeof validRoles)[number]
 export type StreamwallAction =
-  | (typeof adminActions)[number]
+  | AdminAction
   | (typeof operatorActions)[number]
   | (typeof monitorActions)[number]
 

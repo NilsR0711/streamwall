@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // baseUrl + moduleResolution:node are flagged as deprecated under TS 6 but
+    // are still required by the Electron/CommonJS build; silence until the
+    // module-resolution modernization is done separately.
+    "ignoreDeprecations": "6.0",
     "target": "ES2024",
     "module": "commonjs",
     "allowJs": true,
