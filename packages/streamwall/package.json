@@ -39,7 +39,7 @@
     "vitest": "^3.2.6"
   },
   "keywords": [],
-  "author": "Max Goodhart <c@chromakode.com>",
+  "author": "Nils Reeh <info@nilsreeh.de>",
   "license": "MIT",
   "dependencies": {
     "@iarna/toml": "^2.2.5",

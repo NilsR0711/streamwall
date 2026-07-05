@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "repository": "github:NilsR0711/streamwall",
-  "author": "Max Goodhart <c@chromakode.com>",
+  "author": "Nils Reeh <info@nilsreeh.de>",
   "license": "MIT",
   "dependencies": {
     "jsondiffpatch": "^0.7.6",
