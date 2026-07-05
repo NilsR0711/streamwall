@@ -1,16 +1,8 @@
 # Streamwall
 
-:construction: Streamwall v2.0 is a work-in-progress :construction:
-
-Goals for the v2 branch:
-
-- TypeScript
-- Use Electron Forge to distribute packaged releases
-- Split out control server; refactor for local-only use without a webserver
-
----
-
 Streamwall makes it easy to compose multiple livestreams into a mosaic, with source attributions and audio control.
+
+It's a cross-platform desktop app built with Electron and TypeScript. Streams are arranged in a grid you can rearrange on the fly, audio is switchable per tile, and the whole wall runs locally with an optional control server for remote operation.
 
 
 ## How it works
