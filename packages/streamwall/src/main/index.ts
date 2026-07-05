@@ -121,7 +121,7 @@ function parseArgs(): StreamwallConfig {
   try {
     configText = fs.readFileSync(configPath, 'utf-8')
   } catch (err) {
-    if (err.code !== 'ENOENT') {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw err
     }
   }

@@ -27,5 +27,8 @@
     "@types/lodash-es": "^4.17.12",
     "@types/luxon": "^3.7.2",
     "typescript": "^6.0.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
