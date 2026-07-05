@@ -7,7 +7,7 @@
   "scripts": {
     "build": "vite build"
   },
-  "repository": "github:streamwall/streamwall",
+  "repository": "github:NilsR0711/streamwall",
   "author": "Max Goodhart <c@chromakode.com>",
   "license": "MIT",
   "dependencies": {

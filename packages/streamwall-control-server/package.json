@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test --test-force-exit --test-timeout=20000 \"src/**/*.test.ts\""
   },
-  "repository": "github:streamwall/streamwall",
+  "repository": "github:NilsR0711/streamwall",
   "author": "Max Goodhart <c@chromakode.com>",
   "license": "MIT",
   "dependencies": {
