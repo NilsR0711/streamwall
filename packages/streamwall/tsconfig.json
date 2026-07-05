@@ -18,11 +18,15 @@
       "react": ["./node_modules/preact/compat/"],
       "react-dom": ["./node_modules/preact/compat/"]
     },
-    "lib": ["DOM.iterable"],
+    "lib": ["ES2024", "DOM", "DOM.iterable"],
     "baseUrl": ".",
     "outDir": "dist",
     "moduleResolution": "node",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // tsc here only type-checks (Vite/Electron Forge does the build), so allow
+    // the .ts import extensions the shared package requires.
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

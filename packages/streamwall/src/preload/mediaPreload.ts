@@ -75,7 +75,7 @@ const pageReady = new Promise((resolve) =>
 
 class RotationController {
   video: HTMLVideoElement
-  siteRotation: number
+  siteRotation = 0
   customRotation: number
 
   constructor(video: HTMLVideoElement) {
@@ -99,7 +99,7 @@ class RotationController {
 
 class SnapshotController {
   canvas: HTMLCanvasElement
-  ctx: CanvasRenderingContext2D
+  ctx!: CanvasRenderingContext2D
   latestSnapshotURL: string | null = null
 
   constructor() {

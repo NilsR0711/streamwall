@@ -22,13 +22,13 @@ type TwitchBotConfig = StreamwallConfig['twitch'] & {
 export default class TwitchBot extends EventEmitter {
   config: TwitchBotConfig
   announceTemplate: ejs.TemplateFunction
-  voteTemplate: ejs.TemplateFunction
+  voteTemplate!: ejs.TemplateFunction
   client: ChatClient
   streams: StreamList
   listeningURL: string | null
   dwellTimeout: NodeJS.Timeout | undefined
   announceTimeouts: Map<string, NodeJS.Timeout>
-  votes: Map<number, number>
+  votes!: Map<number, number>
 
   constructor(config: TwitchBotConfig) {
     super()

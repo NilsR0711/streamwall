@@ -19,7 +19,6 @@ import {
   useState,
 } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { type IconBaseProps } from 'react-icons'
 import {
   FaExchangeAlt,
   FaRedoAlt,
@@ -1477,12 +1476,23 @@ function StreamDelayBox({
 
 function OrientationIndicator({
   orientation,
-  ...props
-}: { orientation: 'V' | 'H' | null | undefined } & IconBaseProps) {
+  className,
+}: {
+  orientation: 'V' | 'H' | null | undefined
+  className?: string
+}) {
   if (orientation === 'V') {
-    return <MdOutlineStayCurrentPortrait {...props} />
+    return (
+      <span className={className}>
+        <MdOutlineStayCurrentPortrait />
+      </span>
+    )
   } else if (orientation === 'H') {
-    return <MdOutlineStayCurrentLandscape {...props} />
+    return (
+      <span className={className}>
+        <MdOutlineStayCurrentLandscape />
+      </span>
+    )
   } else {
     return null
   }

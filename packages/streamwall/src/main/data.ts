@@ -14,7 +14,7 @@ import {
 
 const sleep = promisify(setTimeout)
 
-type DataSource = AsyncGenerator<StreamDataContent[]>
+type DataSource = AsyncIterableIterator<StreamDataContent[]>
 
 export async function* pollDataURL(url: string, intervalSecs: number) {
   const refreshInterval = intervalSecs * 1000
@@ -135,7 +135,7 @@ export class LocalStreamData extends EventEmitter<LocalStreamDataEvents> {
     this.emit('update', [...this.dataByURL.values()])
   }
 
-  gen(): AsyncGenerator<StreamDataContent[]> {
+  gen(): AsyncIterableIterator<StreamDataContent[]> {
     return new Repeater(async (push, stop) => {
       await push([...this.dataByURL.values()])
       this.on('update', push)
