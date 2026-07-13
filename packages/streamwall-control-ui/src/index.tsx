@@ -1135,7 +1135,6 @@ export function ControlUI({
                       ).includes(idx)
                     const isResizeHighlight =
                       resize != null &&
-                      cols != null &&
                       hoveringIdx != null &&
                       idxInBox(cols, resize.anchorIdx, hoveringIdx, idx)
                     const isHighlighted = isMoveHighlight || isResizeHighlight
@@ -1160,57 +1159,49 @@ export function ControlUI({
                   }),
                 )}
               </StyledGridInputs>
-              {cols != null && rows != null && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {views.map(({ state }) => {
-                    const { pos } = state.context
-                    if (pos == null) {
-                      return null
-                    }
-                    const anchorIdx = Math.min(...pos.spaces)
-                    return (
-                      <div
-                        key={`rh-${anchorIdx}`}
-                        style={{
-                          position: 'absolute',
-                          left: `${(100 * pos.x) / windowWidth}%`,
-                          top: `${(100 * pos.y) / windowHeight}%`,
-                          width: `${(100 * pos.width) / windowWidth}%`,
-                          height: `${(100 * pos.height) / windowHeight}%`,
-                          pointerEvents: 'none',
-                        }}
-                      >
-                        <StyledResizeHandles>
-                          <div
-                            className="handle e"
-                            onMouseDown={(ev) =>
-                              handleResizeStart(anchorIdx, ev)
-                            }
-                          />
-                          <div
-                            className="handle s"
-                            onMouseDown={(ev) =>
-                              handleResizeStart(anchorIdx, ev)
-                            }
-                          />
-                          <div
-                            className="handle se"
-                            onMouseDown={(ev) =>
-                              handleResizeStart(anchorIdx, ev)
-                            }
-                          />
-                        </StyledResizeHandles>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: 'none',
+                }}
+              >
+                {views.map(({ state }) => {
+                  const { pos } = state.context
+                  if (pos == null) {
+                    return null
+                  }
+                  const anchorIdx = Math.min(...pos.spaces)
+                  return (
+                    <div
+                      key={`rh-${anchorIdx}`}
+                      style={{
+                        position: 'absolute',
+                        left: `${(100 * pos.x) / windowWidth}%`,
+                        top: `${(100 * pos.y) / windowHeight}%`,
+                        width: `${(100 * pos.width) / windowWidth}%`,
+                        height: `${(100 * pos.height) / windowHeight}%`,
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <StyledResizeHandles>
+                        <div
+                          className="handle e"
+                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                        />
+                        <div
+                          className="handle s"
+                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                        />
+                        <div
+                          className="handle se"
+                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                        />
+                      </StyledResizeHandles>
+                    </div>
+                  )
+                })}
+              </div>
               <StyledGridPreview>
                 {views.map(({ state, isListening }) => {
                   const { pos } = state.context

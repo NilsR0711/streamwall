@@ -16,6 +16,10 @@
     "packages/streamwall-control-server",
     "packages/streamwall-control-ui"
   ],
+  "overrides": {
+    "tar": "^7.5.16",
+    "tmp": "^0.2.6"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.7.0",
