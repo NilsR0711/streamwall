@@ -13,14 +13,30 @@ Under the hood, think of Streamwall as a specialized web browser for mosaicing v
 Streamwall has a growing number of configuration options. To get a summary run:
 
 ```
-npm start -- --help
+npm run start:app -- --help
 ```
 
-For long-term installations, it's recommended to put your options into a configuration file. To use a config file, run:
+For long-term installations, it's recommended to put your options into a
+configuration file. Development runs use the root `start:app` script:
 
 ```
-npm start -- --config="../streamwall.toml"
+npm run start:app -- --config="../streamwall.toml"
 ```
+
+Packaged app builds also auto-load `config.toml` from Electron's user data
+directory before applying any `--config` file or CLI flags:
+
+| OS      | Default user data config path                          |
+| ------- | ------------------------------------------------------ |
+| macOS   | `~/Library/Application Support/Streamwall/config.toml` |
+| Windows | `%APPDATA%\\Streamwall\\config.toml`                   |
+| Linux   | `~/.config/Streamwall/config.toml`                     |
+
+Configuration precedence is:
+
+1. user data `config.toml`
+2. `--config` file
+3. CLI flags
 
 See `example.config.toml` for an example.
 
@@ -29,7 +45,7 @@ See `example.config.toml` for an example.
 Streamwall can load stream data from both JSON APIs and TOML files. Data sources can be specified in a config file (see `example.config.toml` for an example) or the command line:
 
 ```
-npm start -- --data.json-url="https://your-site/api/streams.json" --data.toml-file="./streams.toml"
+npm run start:app -- --data.json-url="https://your-site/api/streams.json" --data.toml-file="./streams.toml"
 ```
 
 ## Security: overlay and background streams
