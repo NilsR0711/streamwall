@@ -58,6 +58,7 @@ import * as Y from 'yjs'
 
 import { isPrimaryButton, resolveMoveTarget } from './gestures'
 import './index.css'
+import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
 
 export interface ViewInfo {
   state: ViewState
@@ -749,11 +750,10 @@ export function ControlUI({
 
   const handleSetView = useCallback(
     (idx: number, streamId: string) => {
-      const stream = streams.find((d) => d._id === streamId)
       stateDoc
         .getMap<Y.Map<string | undefined>>('views')
         .get(String(idx))
-        ?.set('streamId', stream ? streamId : '')
+        ?.set('streamId', resolveWriteStreamId(streams, streamId))
     },
     [stateDoc, streams],
   )
@@ -880,20 +880,17 @@ export function ControlUI({
         console.warn('Unable to copy stream id to clipboard:', err)
       }
 
-      if (focusedInputIdx !== undefined) {
-        handleSetView(focusedInputIdx, streamId)
+      const targetIdx = resolveTargetViewIdx({
+        views: sharedState.views,
+        cellCount: cols * rows,
+        focusedInputIdx,
+      })
+      if (targetIdx === undefined) {
         return
       }
-
-      const availableIdx = range(cols * rows).find(
-        (i) => !sharedState.views[i].streamId,
-      )
-      if (availableIdx === undefined) {
-        return
-      }
-      handleSetView(availableIdx, streamId)
+      handleSetView(targetIdx, streamId)
     },
-    [cols, rows, sharedState, focusedInputIdx],
+    [cols, rows, sharedState, focusedInputIdx, handleSetView],
   )
 
   const handleChangeCustomStream = useCallback(
