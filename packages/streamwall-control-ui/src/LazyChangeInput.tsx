@@ -27,7 +27,7 @@ export function LazyChangeInput({
       onChange(editingValue)
     }
     setEditingValue(undefined)
-  }, [editingValue])
+  }, [editingValue, isEager, onChange])
 
   const handleKeyDown = useCallback<JSX.KeyboardEventHandler<HTMLInputElement>>(
     (ev) => {
@@ -35,7 +35,7 @@ export function LazyChangeInput({
         handleBlur()
       }
     },
-    [],
+    [handleBlur],
   )
 
   const handleChange = useCallback<JSX.InputEventHandler<HTMLInputElement>>(
