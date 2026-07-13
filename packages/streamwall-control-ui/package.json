@@ -26,9 +26,12 @@
     "@preact/preset-vite": "^2.10.5",
     "@types/lodash-es": "^4.17.12",
     "@types/luxon": "^3.7.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   }
 }

@@ -53,6 +53,8 @@ import {
 import { createGlobalStyle, styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
+
+import { isPrimaryButton, resolveMoveTarget } from './gestures'
 import './index.css'
 
 export interface ViewInfo {
@@ -642,7 +644,9 @@ export function ControlUI({
     },
     [setHoveringIdx, cols, rows],
   )
-  const DRAG_THRESHOLD_PX = 5
+  // Clear the hovered cell when the pointer leaves the grid so a gesture
+  // released off-grid can't commit against a stale cell.
+  const clearHoveringIdx = useCallback(() => setHoveringIdx(undefined), [])
   const [moveStart, setMoveStart] = useState<
     { idx: number; x: number; y: number } | undefined
   >()
@@ -650,7 +654,7 @@ export function ControlUI({
 
   const handleGridMouseDown = useCallback(
     (ev: MouseEvent) => {
-      if (hoveringIdx == null) {
+      if (!isPrimaryButton(ev.button) || hoveringIdx == null) {
         return
       }
       if (swapStartIdx !== undefined) {
@@ -675,16 +679,14 @@ export function ControlUI({
       if (moveStart == null) {
         return
       }
-      const moved = Math.hypot(
-        ev.clientX - moveStart.x,
-        ev.clientY - moveStart.y,
+      const targetIdx = resolveMoveTarget(
+        moveStart,
+        hoveringIdx,
+        ev.clientX,
+        ev.clientY,
       )
-      if (
-        moved > DRAG_THRESHOLD_PX &&
-        hoveringIdx != null &&
-        hoveringIdx !== moveStart.idx
-      ) {
-        swapBoxes(moveStart.idx, hoveringIdx)
+      if (targetIdx != null) {
+        swapBoxes(moveStart.idx, targetIdx)
       }
       setMoveStart(undefined)
     }
@@ -698,6 +700,9 @@ export function ControlUI({
 
   const handleResizeStart = useCallback(
     (anchorIdx: number, ev: MouseEvent) => {
+      if (!isPrimaryButton(ev.button)) {
+        return
+      }
       ev.preventDefault()
       ev.stopPropagation()
       const streamId = sharedState?.views?.[anchorIdx]?.streamId ?? undefined
@@ -711,6 +716,9 @@ export function ControlUI({
 
   useLayoutEffect(() => {
     function endResize() {
+      // A resize only commits while the pointer is over the grid; released
+      // off-grid `hoveringIdx` is cleared (mouseleave), so this aborts instead
+      // of snapping to a stale cell.
       if (
         resize == null ||
         cols == null ||
@@ -992,6 +1000,18 @@ export function ControlUI({
     },
     [handleSwapView, focusedInputIdx],
   )
+  // Escape cancels an in-progress drag-move or resize without committing. The
+  // window mouseup listeners are no-ops once these are cleared.
+  useHotkeys(
+    `escape`,
+    () => {
+      setMoveStart(undefined)
+      setResize(undefined)
+    },
+    // Also fire while a grid input is focused during a gesture.
+    { enableOnFormTags: true },
+    [setMoveStart, setResize],
+  )
 
   const wallStreamIds = useMemo(
     () =>
@@ -1078,6 +1098,7 @@ export function ControlUI({
             <StyledGridContainer
               className="grid"
               onMouseMove={updateHoveringIdx}
+              onMouseLeave={clearHoveringIdx}
               windowWidth={windowWidth}
               windowHeight={windowHeight}
             >
