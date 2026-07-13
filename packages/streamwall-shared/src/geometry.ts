@@ -132,6 +132,58 @@ export function clampGridDimension(n: number): number {
 }
 
 /**
+ * Parses raw grid-dimension input from a text field. Unlike
+ * {@link clampGridDimension}, this does *not* silently clamp: an empty field,
+ * non-numeric text, `NaN`, or a value outside [GRID_MIN, GRID_MAX] all return
+ * `null` so the caller can ignore the intermediate keystroke instead of
+ * collapsing the grid. Fractional input that rounds into range is accepted.
+ */
+export function parseGridDimensionInput(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (trimmed === '') {
+    return null
+  }
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  const rounded = Math.round(parsed)
+  if (rounded < GRID_MIN || rounded > GRID_MAX) {
+    return null
+  }
+  return rounded
+}
+
+/**
+ * Reports whether resizing the grid would permanently drop any non-empty cell.
+ * Mirrors the (x, y)-preserving drop rule of {@link remapGridAssignments}: a
+ * cell survives only if its coordinates still fall within the new grid.
+ *
+ * @param oldCols Column count of the current grid (needed to read (x, y)).
+ * @param newCols Column count of the target grid.
+ * @param newRows Row count of the target grid.
+ * @param assignments Map of current cell index -> streamId (undefined/'' = empty).
+ */
+export function gridWouldDropAssignments(
+  oldCols: number,
+  newCols: number,
+  newRows: number,
+  assignments: Map<number, string | undefined>,
+): boolean {
+  for (const [oldIdx, streamId] of assignments) {
+    if (streamId === undefined || streamId === '') {
+      continue
+    }
+    const x = oldIdx % oldCols
+    const y = Math.floor(oldIdx / oldCols)
+    if (x >= newCols || y >= newRows) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
  * Remaps grid cell assignments when the grid dimensions change. Each non-empty
  * assignment is preserved at the same (x, y) position if that position still
  * exists in the new grid; assignments that fall outside the new grid are

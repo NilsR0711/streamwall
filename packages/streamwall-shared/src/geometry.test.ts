@@ -3,7 +3,9 @@ import {
   clampGridDimension,
   GRID_MAX,
   GRID_MIN,
+  gridWouldDropAssignments,
   idxToCoords,
+  parseGridDimensionInput,
   remapGridAssignments,
 } from './geometry.ts'
 
@@ -71,5 +73,56 @@ describe('remapGridAssignments', () => {
     const result = remapGridAssignments(2, 2, 1, old)
     expect(result.get(0)).toBeUndefined()
     expect(result.get(1)).toBe('a')
+  })
+})
+
+describe('parseGridDimensionInput', () => {
+  it('parses a valid in-range integer', () => {
+    expect(parseGridDimensionInput('6')).toBe(6)
+  })
+  it('accepts the inclusive bounds', () => {
+    expect(parseGridDimensionInput(String(GRID_MIN))).toBe(GRID_MIN)
+    expect(parseGridDimensionInput(String(GRID_MAX))).toBe(GRID_MAX)
+  })
+  it('ignores an empty or whitespace-only field', () => {
+    expect(parseGridDimensionInput('')).toBeNull()
+    expect(parseGridDimensionInput('   ')).toBeNull()
+  })
+  it('ignores non-numeric and NaN input', () => {
+    expect(parseGridDimensionInput('abc')).toBeNull()
+    expect(parseGridDimensionInput('NaN')).toBeNull()
+  })
+  it('ignores values below the minimum', () => {
+    expect(parseGridDimensionInput(String(GRID_MIN - 1))).toBeNull()
+  })
+  it('ignores values above the maximum', () => {
+    expect(parseGridDimensionInput(String(GRID_MAX + 1))).toBeNull()
+  })
+  it('rounds fractional input that lands in range', () => {
+    expect(parseGridDimensionInput('3.4')).toBe(3)
+  })
+})
+
+describe('gridWouldDropAssignments', () => {
+  it('returns true when a non-empty cell falls outside the shrunk grid', () => {
+    // 4x4: 'a' at (3,3)=idx15 is dropped when shrinking to 2x2
+    const assignments = new Map<number, string | undefined>([[15, 'a']])
+    expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(true)
+  })
+  it('returns false when every non-empty cell survives', () => {
+    // 4x4: 'a' at (0,0)=idx0 survives a shrink to 2x2
+    const assignments = new Map<number, string | undefined>([[0, 'a']])
+    expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(false)
+  })
+  it('ignores empty and empty-string cells that would be dropped', () => {
+    const assignments = new Map<number, string | undefined>([
+      [15, ''],
+      [14, undefined],
+    ])
+    expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(false)
+  })
+  it('returns false when the grid grows', () => {
+    const assignments = new Map<number, string | undefined>([[3, 'a']])
+    expect(gridWouldDropAssignments(2, 4, 4, assignments)).toBe(false)
   })
 })
