@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { scrypt as scryptCb } from 'node:crypto'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
-import { type AuthToken, Auth, rand62 } from './auth.ts'
+import { type AuthToken, Auth, rand62, uniqueRand62 } from './auth.ts'
 
 const scrypt = promisify(scryptCb)
 
@@ -17,6 +17,53 @@ const base62 = baseX(
 async function legacyStoredHash(secret: string, salt: string): Promise<string> {
   return base62.encode((await scrypt(secret, salt, 24)) as Buffer)
 }
+
+test('rand62 emits only base62 characters within the expected length bound', () => {
+  const len = 24
+  // Encoding `len` random bytes in base62 never exceeds this many characters
+  // (leading zero bytes only shorten the output), so the bound documents the
+  // token-secret width without being flaky.
+  const maxLen = Math.ceil((len * Math.log(256)) / Math.log(62)) + 1
+  const samples = new Set<string>()
+
+  for (let i = 0; i < 200; i++) {
+    const value = rand62(len)
+    assert.match(value, /^[0-9A-Za-z]+$/)
+    assert.ok(
+      value.length >= 1 && value.length <= maxLen,
+      `unexpected length ${value.length} (bound ${maxLen})`,
+    )
+    samples.add(value)
+  }
+
+  // 24 random bytes make a repeat within 200 draws effectively impossible.
+  assert.equal(samples.size, 200)
+})
+
+test('uniqueRand62 regenerates until it finds a value absent from the map', () => {
+  const seen: string[] = []
+  let remainingCollisions = 2
+  // A minimal Map stand-in whose `has` reports the first two candidates as
+  // already taken, forcing the regeneration loop to run before it settles.
+  const collidingMap = {
+    has(value: string) {
+      seen.push(value)
+      if (remainingCollisions > 0) {
+        remainingCollisions--
+        return true
+      }
+      return false
+    },
+  } as unknown as Map<string, unknown>
+
+  const value = uniqueRand62(8, collidingMap)
+
+  // Two forced collisions → three candidates generated; the last is returned.
+  assert.equal(seen.length, 3)
+  assert.equal(value, seen[2])
+  assert.equal(new Set(seen).size, 3, 'each retry should draw a fresh value')
+  assert.match(value, /^[0-9A-Za-z]+$/)
+})
 
 test('validateToken accepts the correct id and secret', async () => {
   const auth = new Auth()
@@ -174,6 +221,59 @@ test('validateToken rejects a token revoked while its hash is being computed', a
   auth.deleteToken(tokenId)
 
   const info = await pending
+
+  assert.equal(info, null)
+})
+
+test('createToken rejects an unknown role and stores nothing', async () => {
+  const auth = new Auth()
+
+  await assert.rejects(
+    auth.createToken({
+      kind: 'session',
+      role: 'superuser' as any,
+      name: 'mallory',
+    }),
+    /invalid role/,
+  )
+
+  assert.equal(auth.tokensById.size, 0)
+})
+
+test('deleteToken revokes a token and is a no-op for unknown ids', async () => {
+  const auth = new Auth()
+  const { tokenId, secret } = await auth.createToken({
+    kind: 'session',
+    role: 'operator',
+    name: 'erin',
+  })
+
+  // Deleting an unknown id must neither throw nor disturb existing tokens.
+  auth.deleteToken('never-existed')
+  assert.equal(auth.tokensById.size, 1)
+
+  auth.deleteToken(tokenId)
+
+  assert.equal(await auth.validateToken(tokenId, secret), null)
+  assert.equal(auth.getStoredData().tokens.length, 0)
+})
+
+test('validateToken returns null (never throws) when the stored hash is not valid base62', async () => {
+  // '-' and '!' are outside the base62 alphabet, so decoding the stored hash
+  // throws inside validateToken. Malformed persisted data must fail closed
+  // (return null) rather than propagate the error to the auth path.
+  const auth = new Auth()
+  const tokenId = 'malformed'
+  auth.tokensById.set(tokenId, {
+    tokenId,
+    tokenHash: 'not-valid-base62!',
+    salt: rand62(24),
+    kind: 'session',
+    role: 'admin',
+    name: 'malformed',
+  })
+
+  const info = await auth.validateToken(tokenId, 'any-secret')
 
   assert.equal(info, null)
 })
