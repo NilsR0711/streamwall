@@ -38,10 +38,12 @@ import {
   type ControlCommand,
   GRID_MAX,
   GRID_MIN,
+  gridWouldDropAssignments,
   idColor,
   idxInBox,
   inviteLink,
   type LocalStreamData,
+  parseGridDimensionInput,
   roleCan,
   type StreamData,
   type StreamDelayStatus,
@@ -760,13 +762,31 @@ export function ControlUI({
 
   const handleSetGridSize = useCallback(
     (nextCols: number, nextRows: number) => {
+      const targetCols = clampGridDimension(nextCols)
+      const targetRows = clampGridDimension(nextRows)
+      // Shrinking the grid permanently drops any placement whose (x, y) no
+      // longer fits. Warn before that happens so it is never silent.
+      if (cols != null && sharedState) {
+        const assignments = new Map<number, string | undefined>()
+        for (const [idx, view] of Object.entries(sharedState.views)) {
+          assignments.set(Number(idx), view.streamId)
+        }
+        if (
+          gridWouldDropAssignments(cols, targetCols, targetRows, assignments) &&
+          !window.confirm(
+            'Das neue Raster ist kleiner und entfernt belegte Kacheln dauerhaft. Fortfahren?',
+          )
+        ) {
+          return
+        }
+      }
       send({
         type: 'set-grid-size',
-        cols: clampGridDimension(nextCols),
-        rows: clampGridDimension(nextRows),
+        cols: targetCols,
+        rows: targetRows,
       })
     },
-    [send],
+    [send, cols, sharedState],
   )
 
   const handleSetBackgroundListening = useCallback(
@@ -1697,6 +1717,44 @@ function GridSizeControls({
   onSetGridSize: (cols: number, rows: number) => void
 }) {
   const disabled = !roleCan(role, 'mutate-state-doc')
+
+  // The inputs hold a local draft while the user types so that transient
+  // states (an empty or out-of-range field) never reach the grid. The change
+  // is committed only on blur/Enter, and only when it parses to a valid,
+  // in-range dimension — otherwise the field reverts to the authoritative
+  // value. This prevents a cleared field (NaN) from collapsing the wall.
+  const [colsDraft, setColsDraft] = useState(String(cols))
+  const [rowsDraft, setRowsDraft] = useState(String(rows))
+  useEffect(() => setColsDraft(String(cols)), [cols])
+  useEffect(() => setRowsDraft(String(rows)), [rows])
+
+  const commitCols = useCallback(
+    (raw: string) => {
+      const parsed = parseGridDimensionInput(raw)
+      if (parsed !== null && parsed !== cols) {
+        onSetGridSize(parsed, rows)
+      }
+      setColsDraft(String(cols))
+    },
+    [cols, rows, onSetGridSize],
+  )
+  const commitRows = useCallback(
+    (raw: string) => {
+      const parsed = parseGridDimensionInput(raw)
+      if (parsed !== null && parsed !== rows) {
+        onSetGridSize(cols, parsed)
+      }
+      setRowsDraft(String(rows))
+    },
+    [cols, rows, onSetGridSize],
+  )
+
+  const commitOnEnter: JSX.KeyboardEventHandler<HTMLInputElement> = (ev) => {
+    if (ev.key === 'Enter') {
+      ev.currentTarget.blur()
+    }
+  }
+
   return (
     <StyledGridSizeControls>
       {GRID_PRESETS.map(([c, r]) => (
@@ -1716,9 +1774,11 @@ function GridSizeControls({
           type="number"
           min={GRID_MIN}
           max={GRID_MAX}
-          value={cols}
+          value={colsDraft}
           disabled={disabled}
-          onChange={(ev) => onSetGridSize(ev.currentTarget.valueAsNumber, rows)}
+          onInput={(ev) => setColsDraft(ev.currentTarget.value)}
+          onBlur={(ev) => commitCols(ev.currentTarget.value)}
+          onKeyDown={commitOnEnter}
         />
       </label>
       <label>
@@ -1727,9 +1787,11 @@ function GridSizeControls({
           type="number"
           min={GRID_MIN}
           max={GRID_MAX}
-          value={rows}
+          value={rowsDraft}
           disabled={disabled}
-          onChange={(ev) => onSetGridSize(cols, ev.currentTarget.valueAsNumber)}
+          onInput={(ev) => setRowsDraft(ev.currentTarget.value)}
+          onBlur={(ev) => commitRows(ev.currentTarget.value)}
+          onKeyDown={commitOnEnter}
         />
       </label>
     </StyledGridSizeControls>
