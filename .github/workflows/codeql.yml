@@ -3,8 +3,24 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'example.config.toml'
+      - 'example.streams.toml'
+      - '.github/dependabot.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'example.config.toml'
+      - 'example.streams.toml'
+      - '.github/dependabot.yml'
   schedule:
     # Weekly scan (Mondays 03:30 UTC) to catch newly disclosed patterns.
     - cron: '30 3 * * 1'
@@ -27,6 +43,8 @@ jobs:
         language: [javascript-typescript]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Initialize CodeQL
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
