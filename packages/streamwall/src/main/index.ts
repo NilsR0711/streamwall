@@ -19,7 +19,12 @@ import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
 import { createSessionHostResolver, ensureValidURL } from '../util'
-import { ConfigError, parseConfigToml, validateConfig } from './config'
+import {
+  ConfigError,
+  findUnknownConfigKeys,
+  parseConfigToml,
+  validateConfig,
+} from './config'
 import ControlWindow from './ControlWindow'
 import {
   LocalStreamData,
@@ -119,6 +124,16 @@ export interface StreamwallConfig {
   }
 }
 
+// Warns (does not throw) about keys in a raw parsed config file that the
+// schema doesn't recognize — typos and stale keys (e.g. the removed
+// `grid.count`) that would otherwise be silently dropped and fall back to
+// defaults with no indication anything was wrong.
+function warnUnknownConfigKeys(raw: unknown, source: string) {
+  for (const key of findUnknownConfigKeys(raw)) {
+    console.warn(`Unknown config key "${key}" in "${source}" is ignored.`)
+  }
+}
+
 function parseArgs(): StreamwallConfig {
   // Load config from user data dir, if it exists
   const configPath = join(app.getPath('userData'), 'config.toml')
@@ -133,11 +148,21 @@ function parseArgs(): StreamwallConfig {
     }
   }
 
+  const homeConfig = configText ? parseConfigToml(configText, configPath) : {}
+  if (configText) {
+    warnUnknownConfigKeys(homeConfig, configPath)
+  }
+
   const argv = yargs()
-    .config(configText ? parseConfigToml(configText, configPath) : {})
-    .config('config', (configFilePath) =>
-      parseConfigToml(fs.readFileSync(configFilePath, 'utf-8'), configFilePath),
-    )
+    .config(homeConfig)
+    .config('config', (configFilePath) => {
+      const config = parseConfigToml(
+        fs.readFileSync(configFilePath, 'utf-8'),
+        configFilePath,
+      )
+      warnUnknownConfigKeys(config, configFilePath)
+      return config
+    })
     .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
     .option('grid.cols', {
       number: true,

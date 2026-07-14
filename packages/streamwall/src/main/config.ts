@@ -105,3 +105,46 @@ export function validateConfig(config: unknown): void {
     )
   }
 }
+
+/**
+ * Recursively finds keys in a raw parsed config object that don't exist in
+ * the schema, returning their dotted paths (e.g. "grid.count"). Meant to run
+ * against the raw TOML tables read from a config file — not the yargs-merged
+ * argv, which carries CLI-only additions (camelCase aliases, `_`, `$0`) that
+ * are never mistakes.
+ *
+ * A key whose schema type isn't an object is treated as a leaf: its value is
+ * never walked into, even if the operator nested a table under it by mistake
+ * (e.g. `[grid.cols]`) — the type check in validateConfig already covers that.
+ */
+export function findUnknownConfigKeys(raw: unknown): string[] {
+  return collectUnknownKeys(raw, streamwallConfigSchema, [])
+}
+
+function collectUnknownKeys(
+  raw: unknown,
+  schema: z.ZodTypeAny,
+  path: string[],
+): string[] {
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    Array.isArray(raw) ||
+    !(schema instanceof z.ZodObject)
+  ) {
+    return []
+  }
+
+  const shape = schema.shape
+  const unknown: string[] = []
+  for (const [key, value] of Object.entries(raw)) {
+    const fieldSchema = shape[key]
+    const keyPath = [...path, key]
+    if (fieldSchema === undefined) {
+      unknown.push(keyPath.join('.'))
+    } else {
+      unknown.push(...collectUnknownKeys(value, fieldSchema, keyPath))
+    }
+  }
+  return unknown
+}
