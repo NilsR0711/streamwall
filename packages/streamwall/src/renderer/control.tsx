@@ -11,7 +11,13 @@ import {
 } from 'streamwall-control-ui'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
 import * as Y from 'yjs'
-import { StreamwallControlGlobal } from '../preload/controlPreload'
+import {
+  FirstRunInfo,
+  StreamwallControlGlobal,
+} from '../preload/controlPreload'
+import { FirstRunHint } from './FirstRunHint'
+
+const DISMISSED_STORAGE_KEY = 'streamwall:first-run-hint-dismissed'
 
 declare global {
   interface Window {
@@ -79,8 +85,39 @@ function useStreamwallIPCConnection(): StreamwallConnection {
   }
 }
 
+/**
+ * Surfaces the first-run hint until the user either has a userData
+ * config.toml or explicitly dismisses it (persisted across restarts, since
+ * a config-less setup - e.g. one driven entirely by CLI flags - is valid and
+ * shouldn't nag every launch).
+ */
+function useFirstRunHint() {
+  const [firstRunInfo, setFirstRunInfo] = useState<FirstRunInfo>()
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(DISMISSED_STORAGE_KEY) === 'true',
+  )
+
+  useEffect(() => {
+    window.streamwallControl.getFirstRunInfo().then(setFirstRunInfo)
+  }, [])
+
+  const dismiss = useCallback(() => {
+    localStorage.setItem(DISMISSED_STORAGE_KEY, 'true')
+    setDismissed(true)
+  }, [])
+
+  return {
+    isVisible: Boolean(
+      firstRunInfo && !firstRunInfo.hasUserConfig && !dismissed,
+    ),
+    configPath: firstRunInfo?.configPath,
+    dismiss,
+  }
+}
+
 function App() {
   const connection = useStreamwallIPCConnection()
+  const firstRunHint = useFirstRunHint()
 
   useHotkeys('ctrl+shift+i', () => {
     window.streamwallControl.openDevTools()
@@ -89,6 +126,13 @@ function App() {
   return (
     <>
       <GlobalStyle />
+      {firstRunHint.isVisible && (
+        <FirstRunHint
+          configPath={firstRunHint.configPath!}
+          onOpenConfigFolder={() => window.streamwallControl.openConfigFolder()}
+          onDismiss={firstRunHint.dismiss}
+        />
+      )}
       <ControlUI connection={connection} />
     </>
   )

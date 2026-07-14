@@ -62,6 +62,10 @@ Configuration precedence is:
 
 See `example.config.toml` for an example.
 
+On first launch, if no user data `config.toml` exists yet, the control
+window shows a dismissible hint with the exact path above. Use **File →
+Open Config Folder** in the app menu at any time to open that directory.
+
 ### Telemetry
 
 Streamwall reports uncaught errors to a Sentry project run by the maintainers
