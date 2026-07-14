@@ -43,6 +43,40 @@ Configuration precedence is:
 
 See `example.config.toml` for an example.
 
+## Remote control server
+
+For multi-operator setups, `streamwall-control-server` lets you control the
+wall from a web browser instead of (or in addition to) the local "control"
+webpage. Build the web client and start the server with:
+
+```
+npm run start:server
+```
+
+On first run it prints two links to the console:
+
+```
+🔌 Streamwall uplink (shown once — save it now): ws://localhost:3000/streamwall/<id>/ws?token=<secret>
+🔑 Admin invite: http://localhost:3000/invite/<id>#token=<secret>
+```
+
+- **Uplink endpoint** connects this app to the server. Pass it via
+  `--control.endpoint` on the command line, or set `endpoint` under
+  `[control]` in your config file (see `example.config.toml`). The endpoint
+  must use `wss://` (or `ws://` to a loopback host) — Streamwall refuses to
+  connect over an insecure remote endpoint.
+- **Admin invite** opens the web control client and signs you in as an admin.
+  From there, admins can create invite links for the other roles.
+
+Three roles are available: **admin** (full control, including managing
+invites), **operator** (control the grid and streams), and **monitor**
+(blur/censor only, read-only otherwise).
+
+See
+[`packages/streamwall-control-server/README.md`](packages/streamwall-control-server/README.md)
+for environment variable configuration (hostname/port, storage location, rate
+limits).
+
 ## Data sources
 
 Streamwall can load stream data from both JSON APIs and TOML files. Data sources can be specified in a config file (see `example.config.toml` for an example) or the command line:
