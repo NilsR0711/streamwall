@@ -60,16 +60,23 @@ function setSrc(src: string | null) {
   window.history.pushState({}, '', url.pathname + url.search)
 }
 
+const reportError = vi.fn()
+
 describe('playHLS', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     lastInstance = undefined
     MockHls.isSupported.mockReturnValue(true)
+    reportError.mockClear()
+    ;(window as unknown as { streamwallMedia: unknown }).streamwallMedia = {
+      reportError,
+    }
   })
 
   afterEach(() => {
     vi.resetModules()
     vi.restoreAllMocks()
+    delete (window as unknown as { streamwallMedia?: unknown }).streamwallMedia
   })
 
   it('does nothing when no src query param is present', async () => {
@@ -86,6 +93,20 @@ describe('playHLS', () => {
 
     expect(lastInstance).toBeUndefined()
     expect(document.querySelector('video')).toBeNull()
+  })
+
+  it('reports a rejected src promptly instead of leaving the tile black', async () => {
+    setSrc('javascript:alert(document.domain)')
+    await import('./playHLS')
+
+    expect(reportError).toHaveBeenCalledWith('src-rejected')
+  })
+
+  it('does not report an error when playback proceeds normally', async () => {
+    setSrc('https://stream.example/live.m3u8')
+    await import('./playHLS')
+
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('appends the video element once the manifest has parsed', async () => {
@@ -217,5 +238,16 @@ describe('playHLS', () => {
 
     expect(lastInstance).toBeUndefined()
     expect(document.querySelector('video')).toBeNull()
+  })
+
+  it('reports HLS as unsupported instead of relying on the load timeout', async () => {
+    const hlsModule = await import('hls.js')
+    vi.spyOn(hlsModule.default, 'isSupported').mockReturnValue(false)
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('')
+
+    setSrc('https://stream.example/live.m3u8')
+    await import('./playHLS')
+
+    expect(reportError).toHaveBeenCalledWith('hls-unsupported')
   })
 })
