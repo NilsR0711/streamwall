@@ -85,6 +85,31 @@ Streamwall can load stream data from both JSON APIs and TOML files. Data sources
 npm run start:app -- --data.json-url="https://your-site/api/streams.json" --data.toml-file="./streams.toml"
 ```
 
+Each entry (a `[[streams]]` table in TOML, or an object in the JSON array) supports the following fields. See `example.streams.toml` for examples.
+
+| Field           | Type                                                                 | Required | Description                                                                                      |
+| --------------- | -------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `link`          | string                                                               | yes      | URL of the stream page. For `overlay` streams, this is the URL loaded in the overlay `<iframe>`. |
+| `kind`          | `"video"` \| `"audio"` \| `"web"` \| `"background"` \| `"overlay"`   | no       | Defaults to `"video"`. See kind reference below.                                                 |
+| `label`         | string                                                               | no       | Short title shown on the wall overlay.                                                           |
+| `labelPosition` | `"top-left"` \| `"top-right"` \| `"bottom-right"` \| `"bottom-left"` | no       | Corner where the label is drawn. Defaults to `"top-left"`.                                       |
+| `source`        | string                                                               | no       | Attribution shown on the wall when `label` is absent.                                            |
+| `notes`         | string                                                               | no       | Free-text notes shown in the control UI (not on the wall overlay).                               |
+| `status`        | string                                                               | no       | Free-text status shown in the control UI.                                                        |
+| `city`          | string                                                               | no       | Shown under the stream label on the wall overlay.                                                |
+| `state`         | string                                                               | no       | Shown alongside `city` on the wall overlay.                                                      |
+| `orientation`   | `"V"` \| `"H"`                                                       | no       | Vertical or horizontal video orientation, used by the control UI.                                |
+| `rotation`      | number (0–360)                                                       | no       | Degrees to rotate the loaded page, e.g. for phone streams held sideways.                         |
+| `addedDate`     | string                                                               | no       | Free-text date, shown in the control UI.                                                         |
+
+### `kind` reference
+
+- `video` (default) — a normal livestream page; Streamwall finds the `<video>` tag and fills the tile with it.
+- `audio` — like `video`, but the tile is treated as audio-only.
+- `web` — an arbitrary webpage, shown as-is without searching for a `<video>` tag.
+- `background` — a webpage loaded behind the grid instead of in a tile.
+- `overlay` — a webpage loaded as a full-screen `<iframe>` layered over the whole wall (e.g. scoreboards, alerts). See [Security: overlay and background streams](#security-overlay-and-background-streams) below.
+
 ## Security: overlay and background streams
 
 Streams added with the `overlay` or `background` kind are loaded as live web
