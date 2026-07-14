@@ -15,17 +15,63 @@ export interface SwapBox {
 }
 
 /**
+ * Translate `spaces` (a box's grid-cell footprint) by the offset from
+ * `fromIdx` to `toIdx`, clamping the offset so the whole footprint's
+ * bounding box stays on-grid — the box moves and clamps as a single rigid
+ * shape rather than distorting or having individual cells clamp
+ * independently.
+ */
+function translateFootprint(
+  cols: number,
+  rows: number,
+  spaces: number[],
+  fromIdx: number,
+  toIdx: number,
+): number[] {
+  const coords = spaces.map((idx) => idxToCoords(cols, idx))
+  const { x: fromX, y: fromY } = idxToCoords(cols, fromIdx)
+  const { x: toX, y: toY } = idxToCoords(cols, toIdx)
+  let dx = toX - fromX
+  let dy = toY - fromY
+
+  const minX = Math.min(...coords.map(({ x }) => x))
+  const maxX = Math.max(...coords.map(({ x }) => x))
+  const minY = Math.min(...coords.map(({ y }) => y))
+  const maxY = Math.max(...coords.map(({ y }) => y))
+
+  if (minX + dx < 0) {
+    dx = -minX
+  } else if (maxX + dx > cols - 1) {
+    dx = cols - 1 - maxX
+  }
+  if (minY + dy < 0) {
+    dy = -minY
+  } else if (maxY + dy > rows - 1) {
+    dy = rows - 1 - maxY
+  }
+
+  return coords.map(({ x, y }) => cols * (y + dy) + (x + dx))
+}
+
+/**
  * Compute the streamId reassignment for swapping the box anchored at
  * `fromIdx` with the box anchored at `toIdx`: every space of one box takes on
  * the other box's streamId, so boxes of unequal size swap correctly. A box
  * missing from `boxes` is treated as a single space at its own index (mirrors
  * dropping onto a grid cell that has no box yet). Returns an empty map — a
  * no-op — when `fromIdx` and `toIdx` name the same box.
+ *
+ * Dropping onto a cell with no box (`toBox` missing) is a move, not a swap:
+ * rather than collapsing the source box down to the single target cell, its
+ * whole footprint is translated to the drop location (clamped to the grid)
+ * so a merged tile keeps its size and shape.
  */
 export function computeSwap(
   boxes: Map<number, SwapBox>,
   fromIdx: number,
   toIdx: number,
+  cols: number,
+  rows: number,
 ): Map<number, string | undefined> {
   if (fromIdx === toIdx) {
     return new Map()
@@ -33,6 +79,24 @@ export function computeSwap(
   const fromBox = boxes.get(fromIdx)
   const toBox = boxes.get(toIdx)
   const assignments = new Map<number, string | undefined>()
+
+  if (fromBox !== undefined && toBox === undefined) {
+    const targetSpaces = translateFootprint(
+      cols,
+      rows,
+      fromBox.spaces,
+      fromIdx,
+      toIdx,
+    )
+    for (const idx of fromBox.spaces) {
+      assignments.set(idx, undefined)
+    }
+    for (const idx of targetSpaces) {
+      assignments.set(idx, fromBox.streamId)
+    }
+    return assignments
+  }
+
   for (const idx of fromBox?.spaces ?? [fromIdx]) {
     assignments.set(idx, toBox?.streamId)
   }
