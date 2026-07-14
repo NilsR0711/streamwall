@@ -439,6 +439,19 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         v.matches({ displaying: 'running' }),
       // Then try view with the same URL that is still loading...
       (v, content) => isEqual(v.context.content, content),
+      // Finally, if no view already shows this content, reuse whichever
+      // running view already occupies the box's space regardless of its
+      // content, so a genuine content change (a playlist advance, a
+      // drag-to-place reassignment) reuses the actor already there via a
+      // DISPLAY event -- letting `running`'s own swap handling take over --
+      // instead of always tearing it down and creating a brand-new one.
+      // Scoped to `running` only: `loading`/`error` have no DISPLAY handler
+      // of their own for changed content, so the event would bubble up to
+      // `displaying`'s handler, whose `contentUnchanged` guard would then
+      // silently drop it and strand the actor on its old content.
+      (v, _content, spaces) =>
+        v.matches({ displaying: 'running' }) &&
+        intersection(v.context.pos?.spaces, spaces).length > 0,
     ]
 
     for (const matcher of matchers) {
