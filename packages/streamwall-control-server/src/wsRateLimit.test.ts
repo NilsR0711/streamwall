@@ -1,26 +1,19 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import type { AddressInfo } from 'node:net'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
-import { buildTestApp } from './testHelpers.ts'
+import { buildTestApp, listenTestApp, mintUplinkToken } from './testHelpers.ts'
 
 async function startStreamwallSocket(env: Record<string, string>) {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '1000'
   Object.assign(process.env, env)
 
   const { app, auth } = await buildTestApp()
-  await app.listen({ port: 0, host: '127.0.0.1' })
-  const { port } = app.server.address() as AddressInfo
+  const port = await listenTestApp(app)
+  const { base, secret } = await mintUplinkToken(auth, port)
 
-  const { tokenId, secret } = await auth.createToken({
-    kind: 'streamwall',
-    role: 'admin',
-    name: 'test',
-  })
-
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/streamwall/${tokenId}/ws`, {
+  const ws = new WebSocket(base, {
     headers: { authorization: `Bearer ${secret}` },
   })
   await once(ws, 'open')

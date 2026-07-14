@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import type { AddressInfo } from 'node:net'
 import { after, test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
-import { buildTestApp } from './testHelpers.ts'
+import {
+  buildTestApp,
+  listenTestApp,
+  messageCollector,
+  mintUplinkToken,
+} from './testHelpers.ts'
 
 /**
  * Boots a listening control app and mints a streamwall uplink token, returning
@@ -14,39 +17,10 @@ import { buildTestApp } from './testHelpers.ts'
 async function startUplinkServer() {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '1000'
   const { app, auth } = await buildTestApp()
-  await app.listen({ port: 0, host: '127.0.0.1' })
+  const port = await listenTestApp(app)
   after(() => app.close())
-  const { port } = app.server.address() as AddressInfo
-
-  const { tokenId, secret } = await auth.createToken({
-    kind: 'streamwall',
-    role: 'admin',
-    name: 'test',
-  })
-
-  const path = `/streamwall/${tokenId}/ws`
-  const base = `ws://127.0.0.1:${port}${path}`
+  const { tokenId, secret, base } = await mintUplinkToken(auth, port)
   return { app, port, tokenId, secret, base }
-}
-
-/**
- * Captures the first app-level message from the moment the socket is created,
- * so an error the server sends immediately on connect is never missed to a
- * listener-attachment race. `next(timeoutMs)` resolves with that message or
- * null if none arrives within the window.
- */
-function messageCollector(ws: WebSocket) {
-  let first: unknown | undefined
-  const received = new Promise<void>((resolve) => {
-    ws.once('message', (data) => {
-      first = JSON.parse(data.toString())
-      resolve()
-    })
-  })
-  return async (timeoutMs: number): Promise<unknown | null> => {
-    await Promise.race([received, delay(timeoutMs)])
-    return first === undefined ? null : first
-  }
 }
 
 // Rejections run an async scrypt verification before the error is sent, so
