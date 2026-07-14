@@ -3,6 +3,7 @@ import { render } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
+  FaExclamationTriangle,
   FaFacebook,
   FaInstagram,
   FaMapMarkerAlt,
@@ -39,10 +40,10 @@ function Overlay({
   streams,
 }: Pick<StreamwallState, 'config' | 'views' | 'streams'>) {
   const { width, height, activeColor } = config
-  const activeViews = views.filter(
-    ({ state }) =>
-      matchesState('displaying', state) &&
-      !matchesState('displaying.error', state),
+  // Keep error views on the wall (instead of leaving a silent black cell) so the
+  // failure and its reason are visible; they are rendered as an error tile below.
+  const activeViews = views.filter(({ state }) =>
+    matchesState('displaying', state),
   )
   const overlays = streams.filter((s) => s.kind === 'overlay')
   return (
@@ -55,6 +56,7 @@ function Overlay({
         }
 
         const data = streams.find((d) => content.url === d.link)
+        const isError = matchesState('displaying.error', state)
         const isListening = matchesState(
           'displaying.running.audio.listening',
           state,
@@ -72,6 +74,7 @@ function Overlay({
           matchesState('displaying.running.playback.stalled', state)
         const hasTitle = data && (data.label || data.source)
         const position = data?.labelPosition ?? 'top-left'
+        const label = data?.label || data?.source
         return (
           <SpaceBorder
             pos={pos}
@@ -79,28 +82,44 @@ function Overlay({
             windowHeight={height}
             activeColor={activeColor}
             isListening={isListening}
+            isError={isError}
           >
-            <FilterCover isBlurred={isBlurred} isDesaturated={isLoading} />
-            {hasTitle && (
-              <StreamTitle
-                position={position}
-                activeColor={activeColor}
-                isListening={isListening}
-              >
-                <StreamIcon url={content.url} />
-                <span>{data.label ? data.label : <>{data.source}</>}</span>
-                {(isListening || isBackgroundListening) && <FaVolumeUp />}
-              </StreamTitle>
+            {isError ? (
+              <ErrorCover>
+                <ErrorIcon>
+                  <FaExclamationTriangle />
+                </ErrorIcon>
+                <ErrorHeading>
+                  <StreamIcon url={content.url} />
+                  <span>{label ?? 'Stream error'}</span>
+                </ErrorHeading>
+                {context.error && <ErrorReason>{context.error}</ErrorReason>}
+              </ErrorCover>
+            ) : (
+              <>
+                <FilterCover isBlurred={isBlurred} isDesaturated={isLoading} />
+                {hasTitle && (
+                  <StreamTitle
+                    position={position}
+                    activeColor={activeColor}
+                    isListening={isListening}
+                  >
+                    <StreamIcon url={content.url} />
+                    <span>{data.label ? data.label : <>{data.source}</>}</span>
+                    {(isListening || isBackgroundListening) && <FaVolumeUp />}
+                  </StreamTitle>
+                )}
+                {data?.city && (
+                  <StreamLocation>
+                    <FaMapMarkerAlt />
+                    <span>
+                      {data.city} {data.state}
+                    </span>
+                  </StreamLocation>
+                )}
+                <LoadingSpinner isVisible={isLoading} />
+              </>
             )}
-            {data?.city && (
-              <StreamLocation>
-                <FaMapMarkerAlt />
-                <span>
-                  {data.city} {data.state}
-                </span>
-              </StreamLocation>
-            )}
-            <LoadingSpinner isVisible={isLoading} />
           </SpaceBorder>
         )
       })}
@@ -198,6 +217,7 @@ const SpaceBorder = styled.div.attrs<{
   windowHeight: number
   activeColor: string
   isListening: boolean
+  isError?: boolean
   borderWidth?: number
 }>(() => ({
   borderWidth: 2,
@@ -209,7 +229,7 @@ const SpaceBorder = styled.div.attrs<{
   top: ${({ pos }) => pos.y}px;
   width: ${({ pos }) => pos.width}px;
   height: ${({ pos }) => pos.height}px;
-  border: 0 solid black;
+  border: 0 solid ${({ isError }) => (isError ? 'red' : 'black')};
   border-left-width: ${({ pos, borderWidth }) =>
     pos.x === 0 ? 0 : borderWidth}px;
   border-right-width: ${({ pos, borderWidth, windowWidth }) =>
@@ -342,6 +362,76 @@ const FilterCover = styled.div<{ isBlurred: boolean; isDesaturated: boolean }>`
     [isBlurred ? 'blur(30px)' : '', isDesaturated ? 'grayscale(75%)' : ''].join(
       ' ',
     )};
+`
+
+const ErrorCover = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  box-sizing: border-box;
+  text-align: center;
+  color: white;
+  background: ${Color('#300').alpha(0.55).toString()};
+  backdrop-filter: blur(4px) grayscale(80%);
+`
+
+const ErrorIcon = styled.div`
+  display: flex;
+  color: #ff5a5a;
+  filter: drop-shadow(0 0 6px black);
+
+  svg {
+    width: 44px;
+    height: 44px;
+  }
+`
+
+const ErrorHeading = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  max-width: 100%;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+  text-shadow: 0 0 4px black;
+
+  span {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+
+  svg {
+    width: 1.1em;
+    height: 1.1em;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 4px black);
+
+    path {
+      fill: white;
+    }
+  }
+`
+
+const ErrorReason = styled.div`
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  opacity: 0.9;
+  text-shadow: 0 0 4px black;
+  overflow-wrap: anywhere;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 `
 
 const VersionText = styled.div<{ isShowing: boolean }>`
