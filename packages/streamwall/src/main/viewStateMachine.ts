@@ -70,6 +70,17 @@ const viewStateMachine = setup({
       win: BrowserWindow
       offscreenWin: BrowserWindow
       retry: RetryConfig
+      // Creates and registers a second, hidden WebContentsView (plus its own
+      // offscreen host window) that a content swap can preload in the
+      // background while the current one keeps displaying. See `next` below.
+      createNextView: () => {
+        view: WebContentsView
+        offscreenWin: BrowserWindow
+      }
+      // Tears down a view + its offscreen host window created by
+      // `createNextView` (or the initial one from input), detaching it from
+      // whichever contentView currently holds it.
+      disposeView: (view: WebContentsView, offscreenWin: BrowserWindow) => void
     },
 
     context: {} as {
@@ -82,6 +93,17 @@ const viewStateMachine = setup({
       options: ContentDisplayOptions | null
       info: ContentViewInfo | null
       retry: RetryConfig
+      createNextView: () => {
+        view: WebContentsView
+        offscreenWin: BrowserWindow
+      }
+      disposeView: (view: WebContentsView, offscreenWin: BrowserWindow) => void
+      // The second WebContentsView being preloaded in the background for a
+      // content swap while `running`, or null when there is none in flight.
+      // Its `content`/`pos` are whatever `context.content`/`context.pos`
+      // already hold (those are assigned as soon as the swap starts), so
+      // this only needs to carry the view/window pair itself.
+      next: { view: WebContentsView; offscreenWin: BrowserWindow } | null
       // Per-tile playback volume, from 0 (silent) to 1 (full). Independent of
       // the mute/listening state: it is the level applied once the tile is
       // unmuted.
@@ -112,6 +134,12 @@ const viewStateMachine = setup({
       | { type: 'VIEW_STALLED' }
       | { type: 'VIEW_INFO'; info: ContentViewInfo }
       | { type: 'VIEW_ERROR'; error: unknown }
+      // The preloading second view's counterparts of VIEW_INIT/VIEW_LOADED/
+      // VIEW_ERROR, routed separately so they can never be confused with an
+      // event about the currently-displayed view.
+      | { type: 'NEXT_VIEW_INIT' }
+      | { type: 'NEXT_VIEW_LOADED' }
+      | { type: 'NEXT_VIEW_ERROR'; error: unknown }
       | { type: 'MUTE' }
       | { type: 'UNMUTE' }
       | { type: 'BACKGROUND' }
@@ -203,6 +231,75 @@ const viewStateMachine = setup({
 
       view.setBounds(pos)
     },
+
+    // Attaches the freshly-created preload view to its own hidden offscreen
+    // window while it loads, mirroring `offscreenView` for the current view.
+    offscreenNextView: ({ context }) => {
+      const { next } = context
+      assert(next)
+      next.offscreenWin.contentView.addChildView(next.view)
+      const { width, height } = next.offscreenWin.getBounds()
+      next.view.setBounds({ x: 0, y: 0, width, height })
+    },
+
+    // Discards a preload in flight (if any): tears down its view/offscreen
+    // window and clears the slot. Safe to call when there is no preload.
+    disposeStaleNextView: assign(({ context }) => {
+      if (context.next) {
+        context.disposeView(context.next.view, context.next.offscreenWin)
+      }
+      return { next: null }
+    }),
+
+    // Moves the preloaded view into the wall at the current view's z-index
+    // and bounds, then retires the current view. Must run before
+    // `promoteNextView` reassigns `context.view`/`context.next`.
+    performSwap: ({ context }) => {
+      const {
+        win,
+        view: oldView,
+        offscreenWin: oldOffscreenWin,
+        next,
+        pos,
+      } = context
+      assert(next)
+
+      const existingIdx = win.contentView.children.indexOf(oldView)
+      next.offscreenWin.contentView.removeChildView(next.view)
+      win.contentView.addChildView(
+        next.view,
+        existingIdx !== -1 ? existingIdx : win.contentView.children.length - 1,
+      )
+      if (pos) {
+        next.view.setBounds(pos)
+      }
+
+      win.contentView.removeChildView(oldView)
+      context.disposeView(oldView, oldOffscreenWin)
+    },
+
+    // Promotes the preloaded view to be the view for this cell now that
+    // `performSwap` has placed it in the wall and retired the old one.
+    promoteNextView: assign(({ context }) => {
+      assert(context.next)
+      return {
+        view: context.next.view,
+        offscreenWin: context.next.offscreenWin,
+        next: null,
+      }
+    }),
+
+    // The newly-promoted view is a fresh WebContentsView: reapply the
+    // options/volume/mute state that the retired view already had, since
+    // none of `running`'s own entry actions re-fire for an in-place swap.
+    resyncSwappedView: ({ context }) => {
+      const { view, options, volume, desiredAudio } = context
+      view.webContents.audioMuted = desiredAudio === 'muted'
+      if (options) {
+        view.webContents.send('options', options)
+      }
+      view.webContents.send('volume', volume)
+    },
   },
 
   guards: {
@@ -283,11 +380,16 @@ const viewStateMachine = setup({
 }).createMachine({
   id: 'view',
   initial: 'empty',
-  context: ({ input: { id, view, win, offscreenWin, retry } }) => ({
+  context: ({
+    input: { id, view, win, offscreenWin, retry, createNextView, disposeView },
+  }) => ({
     id,
     view,
     win,
     offscreenWin,
+    createNextView,
+    disposeView,
+    next: null,
     pos: null,
     content: null,
     options: null,
@@ -458,6 +560,11 @@ const viewStateMachine = setup({
           // Reaching running means the view recovered: clear any error streak so
           // the next failure starts its backoff from scratch.
           entry: ['positionView', 'resetRetryState'],
+          // Leaving `running` for any reason (manual RELOAD, a renderer-
+          // reported VIEW_ERROR, or a stalled-view auto-reload) abandons any
+          // preload that was in flight for this cell, so its WebContentsView
+          // and offscreen window don't leak.
+          exit: 'disposeStaleNextView',
           on: {
             DISPLAY: [
               // Noop if nothing changed.
@@ -480,22 +587,27 @@ const viewStateMachine = setup({
                 },
               },
               // Content actually changed (e.g. a playlist advance or manual
-              // reassignment) while this cell was already running: reload
-              // straight into `loading` as a sibling transition instead of
-              // going through the root DISPLAY handler, which would re-enter
-              // `displaying` and repeat its entry actions -- most visibly
-              // `offscreenView`, which briefly pulls the view out of the wall
-              // even though it's already live and positioned there. This
-              // still fully reloads the WebContentsView (see `loadPage`);
-              // there is no crossfade or seamless handoff. Removing that
-              // reload cost would require preloading the next view in
-              // parallel before swapping it in.
+              // reassignment) while this cell was already running and there
+              // is no preload already in flight (that case is instead handled
+              // by `swap.preloading`'s own DISPLAY handler below, so its
+              // `reenter` only restarts `preloading` instead of `running`):
+              // preload a second WebContentsView for the new content in the
+              // background -- via the `swap` region below -- while the
+              // currently displayed view keeps playing undisturbed, instead
+              // of reloading it in place.
               {
-                target: '#view.displaying.loading',
-                actions: assign({
-                  pos: ({ event }) => event.pos,
-                  content: ({ event }) => event.content,
-                }),
+                target: '#view.displaying.running.swap.preloading',
+                actions: [
+                  'disposeStaleNextView',
+                  assign({
+                    pos: ({ event }) => event.pos,
+                    content: ({ event }) => event.content,
+                  }),
+                  assign({
+                    next: ({ context }) => context.createNextView(),
+                  }),
+                  'offscreenNextView',
+                ],
               },
             ],
           },
@@ -593,6 +705,127 @@ const viewStateMachine = setup({
                   },
                 },
                 blurred: {},
+              },
+            },
+            // Preloads the next WebContentsView for a content swap in the
+            // background, independent of playback/audio/video above, so the
+            // currently displayed view is never disturbed until the new one
+            // is actually ready to take its place (see the `running.on.
+            // DISPLAY` handler that enters `preloading`).
+            swap: {
+              initial: 'idle',
+              states: {
+                idle: {},
+                preloading: {
+                  initial: 'navigate',
+                  // Safety net mirroring the top-level LOADING_TIMEOUT: if the
+                  // preloaded view never finishes initializing, abandon it
+                  // and fall back to a normal reload of the current view
+                  // instead of preloading forever.
+                  after: {
+                    [LOADING_TIMEOUT]: {
+                      target: '#view.displaying.loading',
+                      actions: {
+                        type: 'logError',
+                        params: {
+                          error: 'Timed out waiting for preloaded view to load',
+                        },
+                      },
+                    },
+                  },
+                  on: {
+                    NEXT_VIEW_ERROR: {
+                      target: '#view.displaying.loading',
+                      actions: {
+                        type: 'logError',
+                        params: ({ event: { error } }) => ({ error }),
+                      },
+                    },
+                    // Content changed again while a preload was already in
+                    // flight for a since-superseded target (rapid successive
+                    // changes): abandon it and restart preloading for the
+                    // newest content. `reenter: true` is scoped to this
+                    // handler's own state (`preloading`, defined right here),
+                    // so only it and its navigate/waitForInit/waitForVideo
+                    // descendants re-enter -- `running` itself, and the
+                    // currently displayed view, are untouched.
+                    DISPLAY: [
+                      {
+                        guard: {
+                          type: 'contentPosUnchanged',
+                          params: ({ event: { content, pos } }) => ({
+                            content,
+                            pos,
+                          }),
+                        },
+                      },
+                      {
+                        actions: assign({ pos: ({ event }) => event.pos }),
+                        guard: {
+                          type: 'contentUnchanged',
+                          params: ({ event: { content } }) => ({ content }),
+                        },
+                      },
+                      {
+                        target: '#view.displaying.running.swap.preloading',
+                        reenter: true,
+                        actions: [
+                          'disposeStaleNextView',
+                          assign({
+                            pos: ({ event }) => event.pos,
+                            content: ({ event }) => event.content,
+                          }),
+                          assign({
+                            next: ({ context }) => context.createNextView(),
+                          }),
+                          'offscreenNextView',
+                        ],
+                      },
+                    ],
+                  },
+                  states: {
+                    navigate: {
+                      invoke: {
+                        src: 'loadPage',
+                        input: ({ context }) => {
+                          assert(context.next)
+                          return {
+                            content: context.content,
+                            view: context.next.view,
+                          }
+                        },
+                        onDone: {
+                          target: 'waitForInit',
+                        },
+                        onError: {
+                          target: '#view.displaying.loading',
+                          actions: {
+                            type: 'logError',
+                            params: ({ event: { error } }) => ({ error }),
+                          },
+                        },
+                      },
+                    },
+                    waitForInit: {
+                      on: {
+                        NEXT_VIEW_INIT: 'waitForVideo',
+                      },
+                    },
+                    waitForVideo: {
+                      on: {
+                        NEXT_VIEW_LOADED: {
+                          target: '#view.displaying.running.swap.idle',
+                          actions: [
+                            'performSwap',
+                            'promoteNextView',
+                            'resyncSwappedView',
+                            'resetRetryState',
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
           },

@@ -29,6 +29,14 @@ function makeRetry(overrides: Partial<RetryConfig> = {}): RetryConfig {
   }
 }
 
+// Every actor needs a next-view factory + disposer even in tests that never
+// exercise the preload path, since they're required `input` fields.
+const noopCreateNextView = () => ({
+  view: {} as never,
+  offscreenWin: {} as never,
+})
+const noopDisposeView = noop
+
 // Replace every electron-touching action and the loadPage actor so only the
 // pure state/context logic under test runs. loadPage resolves immediately,
 // moving loading.navigate -> loading.waitForInit.
@@ -37,6 +45,9 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
     actions: {
       offscreenView: noop,
       positionView: noop,
+      offscreenNextView: noop,
+      performSwap: noop,
+      resyncSwappedView: noop,
       muteAudio: noop,
       unmuteAudio: noop,
       openDevTools: noop,
@@ -55,6 +66,8 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
       win: {} as never,
       offscreenWin: {} as never,
       retry,
+      createNextView: noopCreateNextView,
+      disposeView: noopDisposeView,
     },
   })
 }
@@ -320,6 +333,9 @@ describe('viewStateMachine volume control', () => {
       actions: {
         offscreenView: noop,
         positionView: noop,
+        offscreenNextView: noop,
+        performSwap: noop,
+        resyncSwappedView: noop,
         muteAudio: noop,
         unmuteAudio: noop,
         openDevTools: noop,
@@ -338,6 +354,8 @@ describe('viewStateMachine volume control', () => {
         win: {} as never,
         offscreenWin: {} as never,
         retry,
+        createNextView: noopCreateNextView,
+        disposeView: noopDisposeView,
       },
     })
     return { actor, sendViewVolume }
@@ -387,7 +405,7 @@ describe('viewStateMachine volume control', () => {
   })
 })
 
-describe('viewStateMachine content swap while running', () => {
+describe('viewStateMachine content swap while running (seamless preload)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -400,16 +418,33 @@ describe('viewStateMachine content swap while running', () => {
     kind: 'video' as const,
   }
   const OTHER_POS = { x: 10, y: 10, width: 50, height: 50, spaces: [1] }
+  const THIRD_CONTENT = {
+    url: 'https://example.com/third-stream',
+    kind: 'video' as const,
+  }
+  const THIRD_POS = { x: 20, y: 20, width: 30, height: 30, spaces: [2] }
 
-  // Same setup as makeActor, but with spies on offscreenView/positionView so
-  // tests can assert whether the view was shuffled offscreen and repositioned.
-  function makeActorWithPlacementSpies(retry: RetryConfig) {
+  // Same setup as makeActor, but with spies on the placement/swap actions and
+  // a fake createNextView/disposeView pair so tests can assert exactly when a
+  // second view is created, attached, swapped in, or discarded.
+  function makeActorWithSwapSpies(retry: RetryConfig) {
     const offscreenView = vi.fn()
     const positionView = vi.fn()
+    const offscreenNextView = vi.fn()
+    const performSwap = vi.fn()
+    const resyncSwappedView = vi.fn()
+    const disposeView = vi.fn()
+    const createNextView = vi.fn(() => ({
+      view: {} as never,
+      offscreenWin: {} as never,
+    }))
     const machine = viewStateMachine.provide({
       actions: {
         offscreenView,
         positionView,
+        offscreenNextView,
+        performSwap,
+        resyncSwappedView,
         muteAudio: noop,
         unmuteAudio: noop,
         openDevTools: noop,
@@ -428,77 +463,166 @@ describe('viewStateMachine content swap while running', () => {
         win: {} as never,
         offscreenWin: {} as never,
         retry,
+        createNextView,
+        disposeView,
       },
     })
-    return { actor, offscreenView, positionView }
+    return {
+      actor,
+      offscreenView,
+      positionView,
+      offscreenNextView,
+      performSwap,
+      resyncSwappedView,
+      disposeView,
+      createNextView,
+    }
   }
 
-  it('reloads directly into loading without re-shuffling the view offscreen', async () => {
-    const { actor, offscreenView } = makeActorWithPlacementSpies(makeRetry())
+  it('preloads a second view for changed content instead of reloading the current one', async () => {
+    const { actor, offscreenView, offscreenNextView, createNextView } =
+      makeActorWithSwapSpies(makeRetry())
     actor.start()
     await reachRunning(actor)
     expect(offscreenView).toHaveBeenCalledTimes(1)
 
-    actor.send({
-      type: 'DISPLAY',
-      pos: OTHER_POS,
-      content: OTHER_CONTENT,
-    })
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
 
     const snapshot = actor.getSnapshot()
-    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    // The cell never leaves `running`: the currently displayed view keeps
+    // playing, undisturbed, while the new content loads in the background.
+    expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(
+      matchesState('displaying.running.swap.preloading', snapshot.value),
+    ).toBe(true)
     expect(snapshot.context.content).toEqual(OTHER_CONTENT)
     expect(snapshot.context.pos).toEqual(OTHER_POS)
-    // The view is already live in the main window; swapping content must not
-    // repeat the "move offscreen while it (re)loads" shuffle that a fresh
-    // display does.
+    expect(snapshot.context.next).not.toBeNull()
+    expect(createNextView).toHaveBeenCalledTimes(1)
+    expect(offscreenNextView).toHaveBeenCalledTimes(1)
+    // No offscreen shuffle of the still-displayed current view.
     expect(offscreenView).toHaveBeenCalledTimes(1)
   })
 
-  it('returns to running with the new content and repositions the view', async () => {
-    const { actor, offscreenView, positionView } =
-      makeActorWithPlacementSpies(makeRetry())
+  it('swaps in the preloaded view once it reports ready, without leaving running', async () => {
+    const { actor, performSwap, resyncSwappedView, positionView } =
+      makeActorWithSwapSpies(makeRetry())
     actor.start()
     await reachRunning(actor)
     positionView.mockClear()
 
-    actor.send({
-      type: 'DISPLAY',
-      pos: OTHER_POS,
-      content: OTHER_CONTENT,
-    })
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
     await vi.advanceTimersByTimeAsync(0)
-    actor.send({ type: 'VIEW_INIT' })
-    actor.send({ type: 'VIEW_LOADED' })
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
 
     const snapshot = actor.getSnapshot()
-    expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(matchesState('displaying.running.swap.idle', snapshot.value)).toBe(
+      true,
+    )
     expect(snapshot.context.content).toEqual(OTHER_CONTENT)
-    expect(snapshot.context.pos).toEqual(OTHER_POS)
-    expect(offscreenView).toHaveBeenCalledTimes(1)
-    expect(positionView).toHaveBeenCalledTimes(1)
+    expect(snapshot.context.next).toBeNull()
+    expect(performSwap).toHaveBeenCalledTimes(1)
+    expect(resyncSwappedView).toHaveBeenCalledTimes(1)
+    // running's own entry (positionView) never re-fires: the swap is handled
+    // entirely by performSwap, not by re-entering running.
+    expect(positionView).not.toHaveBeenCalled()
   })
 
-  it('still performs a fresh load for the new content (retry budget included)', async () => {
-    const { actor } = makeActorWithPlacementSpies(makeRetry({ maxRetries: 1 }))
+  it('abandons a stale preload and starts a fresh one when content changes again mid-preload', async () => {
+    const { actor, disposeView, createNextView } =
+      makeActorWithSwapSpies(makeRetry())
     actor.start()
     await reachRunning(actor)
 
-    actor.send({
-      type: 'DISPLAY',
-      pos: OTHER_POS,
-      content: OTHER_CONTENT,
-    })
-    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+    expect(disposeView).not.toHaveBeenCalled()
 
-    // A fresh content swap should get its own retry budget rather than
-    // inheriting exhaustion from whatever the previous content did.
-    expect(actor.getSnapshot().context.retryCount).toBe(0)
+    actor.send({ type: 'DISPLAY', pos: THIRD_POS, content: THIRD_CONTENT })
+
+    expect(disposeView).toHaveBeenCalledTimes(1)
+    expect(createNextView).toHaveBeenCalledTimes(2)
+    const snapshot = actor.getSnapshot()
+    expect(snapshot.context.content).toEqual(THIRD_CONTENT)
+    expect(snapshot.context.pos).toEqual(THIRD_POS)
+    expect(
+      matchesState('displaying.running.swap.preloading', snapshot.value),
+    ).toBe(true)
+  })
+
+  it('does not restart an in-flight preload for a duplicate DISPLAY of the same pending target', async () => {
+    const { actor, createNextView } = makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+
+    expect(createNextView).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to a full reload of the current view if the preload errors', async () => {
+    const { actor, disposeView } = makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+    actor.send({ type: 'NEXT_VIEW_ERROR', error: new Error('boom') })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    expect(snapshot.context.next).toBeNull()
+    expect(disposeView).toHaveBeenCalledTimes(1)
+    // The content stays the intended target: the fallback reload retries
+    // loading it on the existing (still-live) current view.
+    expect(snapshot.context.content).toEqual(OTHER_CONTENT)
+  })
+
+  it('falls back to a full reload if the preload never finishes within the loading timeout', async () => {
+    const { actor, disposeView } = makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+    await vi.advanceTimersByTimeAsync(45 * 1000) // LOADING_TIMEOUT
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    expect(snapshot.context.next).toBeNull()
+    expect(disposeView).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards an in-flight preload when a manual RELOAD interrupts it', async () => {
+    const { actor, disposeView } = makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+
+    actor.send({ type: 'RELOAD' })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    expect(snapshot.context.next).toBeNull()
+    expect(disposeView).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards an in-flight preload when the current view errors out', async () => {
+    const { actor, disposeView } = makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: OTHER_CONTENT })
+
+    actor.send({ type: 'VIEW_ERROR', error: new Error('current view crashed') })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.error', snapshot.value)).toBe(true)
+    expect(snapshot.context.next).toBeNull()
+    expect(disposeView).toHaveBeenCalledTimes(1)
   })
 
   it('ignores a DISPLAY with unchanged content and position while running', async () => {
-    const { actor, offscreenView, positionView } =
-      makeActorWithPlacementSpies(makeRetry())
+    const { actor, offscreenView, positionView, createNextView } =
+      makeActorWithSwapSpies(makeRetry())
     actor.start()
     await reachRunning(actor)
     positionView.mockClear()
@@ -510,13 +634,30 @@ describe('viewStateMachine content swap while running', () => {
     expect(snapshot.context.content).toEqual(CONTENT)
     expect(snapshot.context.pos).toEqual(POS)
     // contentPosUnchanged guard: nothing actually changed, so the view must
-    // not be re-shuffled offscreen or repositioned.
+    // not be re-shuffled offscreen or repositioned, and no preload starts.
     expect(offscreenView).toHaveBeenCalledTimes(1)
     expect(positionView).not.toHaveBeenCalled()
+    expect(createNextView).not.toHaveBeenCalled()
+  })
+
+  it('repositions the current view for a position-only change while running', async () => {
+    const { actor, positionView, createNextView } =
+      makeActorWithSwapSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    positionView.mockClear()
+
+    actor.send({ type: 'DISPLAY', pos: OTHER_POS, content: CONTENT })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(snapshot.context.pos).toEqual(OTHER_POS)
+    expect(positionView).toHaveBeenCalledTimes(1)
+    expect(createNextView).not.toHaveBeenCalled()
   })
 
   it('reloads via a manual RELOAD from running without moving the view offscreen again', async () => {
-    const { actor, offscreenView } = makeActorWithPlacementSpies(makeRetry())
+    const { actor, offscreenView } = makeActorWithSwapSpies(makeRetry())
     actor.start()
     await reachRunning(actor)
     expect(offscreenView).toHaveBeenCalledTimes(1)
@@ -559,6 +700,9 @@ describe('viewStateMachine loadPage navigation', () => {
       actions: {
         offscreenView: noop,
         positionView: noop,
+        offscreenNextView: noop,
+        performSwap: noop,
+        resyncSwappedView: noop,
         muteAudio: noop,
         unmuteAudio: noop,
         openDevTools: noop,
@@ -574,6 +718,8 @@ describe('viewStateMachine loadPage navigation', () => {
         win: {} as never,
         offscreenWin: {} as never,
         retry,
+        createNextView: noopCreateNextView,
+        disposeView: noopDisposeView,
       },
     })
     return { actor, view, executeJavaScript, loadURL }
@@ -902,15 +1048,21 @@ describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
     await reachRunning(actor)
     actor.send({ type: 'UNMUTE' })
 
-    // A playlist advance / drag-to-place reassignment: same cell, new content.
+    // A playlist advance / drag-to-place reassignment: same cell, new
+    // content. It preloads a second view (see the "seamless preload" describe
+    // block above) rather than reloading in place, so the completion events
+    // are NEXT_VIEW_INIT/NEXT_VIEW_LOADED and the cell never leaves running.
     actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
-    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
-      true,
-    )
+    expect(
+      matchesState(
+        'displaying.running.swap.preloading',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
 
     await vi.advanceTimersByTimeAsync(0)
-    actor.send({ type: 'VIEW_INIT' })
-    actor.send({ type: 'VIEW_LOADED' })
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
 
     expect(
       matchesState(
@@ -928,8 +1080,8 @@ describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
 
     actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
     await vi.advanceTimersByTimeAsync(0)
-    actor.send({ type: 'VIEW_INIT' })
-    actor.send({ type: 'VIEW_LOADED' })
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
 
     expect(
       matchesState(
@@ -947,8 +1099,8 @@ describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
 
     actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
     await vi.advanceTimersByTimeAsync(0)
-    actor.send({ type: 'VIEW_INIT' })
-    actor.send({ type: 'VIEW_LOADED' })
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
 
     expect(
       matchesState(
