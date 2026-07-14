@@ -38,6 +38,10 @@ import {
 } from './config'
 import ControlWindow from './ControlWindow'
 import {
+  CONTROL_WINDOW_ORIGIN,
+  shouldForwardUpdateToControlWindow,
+} from './controlWindowEcho'
+import {
   LocalStreamData,
   OVERLAY_DATA_SOURCE_NAME,
   StreamIDGenerator,
@@ -732,7 +736,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
 
   // Control <- main collab updates
-  stateDoc.on('update', (update) => {
+  stateDoc.on('update', (update, origin) => {
+    if (!shouldForwardUpdateToControlWindow(origin)) {
+      return
+    }
     controlWindow.onYDocUpdate(update)
   })
 
@@ -743,7 +750,9 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
 
   // Control -> main
-  controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
+  controlWindow.on('ydoc', (update) =>
+    Y.applyUpdate(stateDoc, update, CONTROL_WINDOW_ORIGIN),
+  )
   controlWindow.on('command', (command) =>
     dispatchCommand(onCommand, command, 'local'),
   )
