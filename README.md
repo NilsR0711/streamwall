@@ -11,9 +11,9 @@ It's a cross-platform desktop app built with Electron and TypeScript. Streams ar
 
 Under the hood, think of Streamwall as a specialized web browser for mosaicing video streams. It uses [Electron](https://www.electronjs.org) to create a grid of web browser views, loading the specified webpages into them. Once the page loads, Streamwall finds the `<video>` tag and reformats the page so that the video fills the space. This works for a wide variety of web pages without specialized scrapers.
 
-<!-- TODO(screenshots): the wall and control UI don't have images here yet.
-     See #165 to add real screenshots once captured on a machine with a
-     display. -->
+<!-- TODO(screenshots): the wall grid itself still has no image here — it
+     needs to be captured on a machine with a display and real streams
+     running, which isn't possible in a headless environment. See #165. -->
 
 ## Features
 
@@ -26,6 +26,8 @@ Under the hood, think of Streamwall as a specialized web browser for mosaicing v
 - **Automatic recovery** — failed or stalled stream loads are retried automatically with exponential backoff, with the failure surfaced on the wall and in the control UI.
 - **Flexible data sources** — load streams from JSON APIs, TOML files, or add them ad hoc (including `overlay`/`background` kinds for widgets and chroma-key layers).
 - **Twitch chat bot** — an optional bot posts templated announcements and runs viewer polls in a Twitch channel's chat.
+
+![Control UI](docs/images/control-ui.png)
 
 ## Configuration
 
