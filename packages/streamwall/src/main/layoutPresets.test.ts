@@ -1,11 +1,10 @@
-import type { LayoutPreset } from 'streamwall-shared'
+import { MAX_LAYOUT_PRESETS, type LayoutPreset } from 'streamwall-shared'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import {
   addLayoutPreset,
   applyLayoutPreset,
   buildLayoutPreset,
-  MAX_LAYOUT_PRESETS,
 } from './layoutPresets'
 
 function makeViewsState(assignments: Record<number, string | undefined>) {

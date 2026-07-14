@@ -1,6 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type { LayoutPreset } from 'streamwall-shared'
+import { MAX_LAYOUT_PRESETS, type LayoutPreset } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 
@@ -132,5 +132,56 @@ describe('LayoutPresetControls', () => {
 
     expect(input.disabled).toBe(false)
     expect(presetButton.disabled).toBe(false)
+  })
+
+  test('shows how many of the preset cap are used', () => {
+    const el = renderControls()
+    expect(el.querySelector('.preset-count')?.textContent).toBe(
+      `2 / ${MAX_LAYOUT_PRESETS}`,
+    )
+  })
+
+  test('does not warn about eviction below the preset cap', () => {
+    const el = renderControls()
+    expect(el.querySelector('.preset-cap-warning')).toBeNull()
+  })
+
+  test('warns which preset a save would evict once the cap is reached', () => {
+    const fullPresets: LayoutPreset[] = Array.from(
+      { length: MAX_LAYOUT_PRESETS },
+      (_, i) => ({
+        id: `p${i}`,
+        name: `Layout ${i}`,
+        cols: 1,
+        rows: 1,
+        views: {},
+      }),
+    )
+
+    const el = renderControls({ presets: fullPresets })
+
+    expect(el.querySelector('.preset-count')?.textContent).toBe(
+      `${MAX_LAYOUT_PRESETS} / ${MAX_LAYOUT_PRESETS}`,
+    )
+    expect(el.querySelector('.preset-cap-warning')?.textContent).toContain(
+      'Layout 0',
+    )
+  })
+
+  test('does not show the eviction warning for a role without save-layout-preset permission', () => {
+    const fullPresets: LayoutPreset[] = Array.from(
+      { length: MAX_LAYOUT_PRESETS },
+      (_, i) => ({
+        id: `p${i}`,
+        name: `Layout ${i}`,
+        cols: 1,
+        rows: 1,
+        views: {},
+      }),
+    )
+
+    const el = renderControls({ presets: fullPresets, role: 'monitor' })
+
+    expect(el.querySelector('.preset-cap-warning')).toBeNull()
   })
 })

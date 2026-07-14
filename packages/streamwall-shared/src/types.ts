@@ -102,6 +102,9 @@ export interface AuthTokenInfo {
   name: string
 }
 
+/** Maximum number of saved layout presets, bounding unbounded storage growth. */
+export const MAX_LAYOUT_PRESETS = 50
+
 /** A named, saved grid layout: its dimensions and per-cell stream assignments. */
 export interface LayoutPreset {
   id: string
