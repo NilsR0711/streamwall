@@ -7,21 +7,14 @@ import Hls, { ErrorTypes, Events, type ErrorData } from 'hls.js'
 const MAX_FATAL_ERROR_RETRIES = 3
 
 // Matches this page's own `media-src` CSP directive (see playHLS.html).
-// `src` is an attacker-controllable query param, and the native-playback
-// fallback assigns it directly to a <video> element, so it must be
-// restricted to the schemes we actually intend to play before either
-// loading path touches it.
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'blob:'])
-
-function isPlayableSrc(src: string): boolean {
-  try {
-    return ALLOWED_PROTOCOLS.has(new URL(src, location.href).protocol)
-  } catch {
-    return false
-  }
-}
+// `src` is an attacker-controllable query param, so every function that
+// feeds it to the network or assigns it to the DOM re-checks this pattern
+// immediately beforehand, guarding that sink directly.
+const ALLOWED_SRC_PATTERN = /^(https?:|blob:)/i
 
 function loadWithHlsJs(src: string) {
+  if (!ALLOWED_SRC_PATTERN.test(src)) return
+
   const videoEl = document.createElement('video')
   const hls = new Hls()
   let fatalErrorRetries = 0
@@ -66,6 +59,8 @@ function loadWithHlsJs(src: string) {
 }
 
 function loadNatively(videoEl: HTMLVideoElement, src: string) {
+  if (!ALLOWED_SRC_PATTERN.test(src)) return
+
   videoEl.addEventListener('loadedmetadata', () => {
     document.body.appendChild(videoEl)
   })
@@ -73,8 +68,6 @@ function loadNatively(videoEl: HTMLVideoElement, src: string) {
 }
 
 function loadHLS(src: string) {
-  if (!isPlayableSrc(src)) return
-
   if (Hls.isSupported()) {
     loadWithHlsJs(src)
     return
