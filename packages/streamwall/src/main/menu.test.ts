@@ -16,16 +16,18 @@ vi.mock('electron', () => ({
 const { buildApplicationMenuTemplate, installApplicationMenu } =
   await import('./menu')
 
-function searchForOpenConfigFolderItem(
+function searchForMenuItem(
   template: MenuItemConstructorOptions[],
+  label: string,
 ): MenuItemConstructorOptions | undefined {
   for (const item of template) {
-    if (item.label === 'Open Config Folder') {
+    if (item.label === label) {
       return item
     }
     if (Array.isArray(item.submenu)) {
-      const found = searchForOpenConfigFolderItem(
+      const found = searchForMenuItem(
         item.submenu as MenuItemConstructorOptions[],
+        label,
       )
       if (found) {
         return found
@@ -35,15 +37,20 @@ function searchForOpenConfigFolderItem(
   return undefined
 }
 
-function findOpenConfigFolderItem(
+function findMenuItem(
   template: MenuItemConstructorOptions[],
+  label: string,
 ): MenuItemConstructorOptions {
-  const found = searchForOpenConfigFolderItem(template)
+  const found = searchForMenuItem(template, label)
   if (!found) {
-    throw new Error('"Open Config Folder" menu item not found in template')
+    throw new Error(`"${label}" menu item not found in template`)
   }
   return found
 }
+
+const CONFIG_PATH =
+  '/Users/test/Library/Application Support/Streamwall/config.toml'
+const LOG_PATH = '/Users/test/Library/Logs/Streamwall/main.log'
 
 describe('buildApplicationMenuTemplate', () => {
   afterEach(() => {
@@ -51,11 +58,9 @@ describe('buildApplicationMenuTemplate', () => {
   })
 
   it('includes an "Open Config Folder" item that opens the directory containing the config path', () => {
-    const template = buildApplicationMenuTemplate(
-      '/Users/test/Library/Application Support/Streamwall/config.toml',
-    )
+    const template = buildApplicationMenuTemplate(CONFIG_PATH, LOG_PATH)
 
-    const item = findOpenConfigFolderItem(template)
+    const item = findMenuItem(template, 'Open Config Folder')
     expect(typeof item.click).toBe('function')
 
     ;(item.click as () => void)()
@@ -68,15 +73,27 @@ describe('buildApplicationMenuTemplate', () => {
   it('works when the config file does not exist yet (first run)', () => {
     const template = buildApplicationMenuTemplate(
       '/home/test/.config/Streamwall/config.toml',
+      '/home/test/.config/Streamwall/logs/main.log',
     )
 
-    const item = findOpenConfigFolderItem(template)
+    const item = findMenuItem(template, 'Open Config Folder')
     ;(item.click as () => void)()
 
     // openPath targets the userData directory itself, which Electron always
     // creates - unlike shell.showItemInFolder, it doesn't require config.toml
     // to already exist.
     expect(openPath).toHaveBeenCalledWith('/home/test/.config/Streamwall')
+  })
+
+  it('includes an "Open Logs Folder" item that opens the directory containing the log file', () => {
+    const template = buildApplicationMenuTemplate(CONFIG_PATH, LOG_PATH)
+
+    const item = findMenuItem(template, 'Open Logs Folder')
+    expect(typeof item.click).toBe('function')
+
+    ;(item.click as () => void)()
+
+    expect(openPath).toHaveBeenCalledWith('/Users/test/Library/Logs/Streamwall')
   })
 })
 
@@ -87,7 +104,7 @@ describe('installApplicationMenu', () => {
   })
 
   it('builds a menu from the template and installs it as the application menu', () => {
-    installApplicationMenu('/home/test/.config/Streamwall/config.toml')
+    installApplicationMenu(CONFIG_PATH, LOG_PATH)
 
     expect(buildFromTemplate).toHaveBeenCalledTimes(1)
     expect(setApplicationMenu).toHaveBeenCalledTimes(1)
