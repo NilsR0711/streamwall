@@ -371,19 +371,35 @@ async function startUplinkServer() {
 }
 
 test('rejects a second Streamwall connection while the first stays connected', async () => {
-  const { base, secret } = await startUplinkServer()
+  const {
+    auth,
+    port,
+    streamwallWs: first,
+    connectClient,
+  } = await bootServerWithUplink()
   const warn = spyOnConsoleWarn()
 
   try {
-    const first = new WebSocket(base, {
-      headers: { authorization: `Bearer ${secret}` },
-    })
-    after(() => first.terminate())
-    await once(first, 'open')
+    // Registering the first uplink connection requires the server to await a
+    // real `validateToken` scrypt derivation, so the client's 'open' event
+    // (and even the fixed delay in `bootServerWithUplink`) is not proof that
+    // registration has actually completed — most visible on a loaded/slower
+    // CI runner. Round-trip a client through the state broadcast the uplink
+    // just sent: that broadcast can only happen after registration finished,
+    // so it deterministically proves the race window has closed rather than
+    // assuming a fixed ordering.
+    const { client } = await connectClient('admin')
+    await client.waitFor((m) => m.type === 'state')
 
-    const second = new WebSocket(base, {
-      headers: { authorization: `Bearer ${secret}` },
+    const secondToken = await auth.createToken({
+      kind: 'streamwall',
+      role: 'admin',
+      name: 'second uplink',
     })
+    const second = new WebSocket(
+      `ws://127.0.0.1:${port}/streamwall/${secondToken.tokenId}/ws`,
+      { headers: { authorization: `Bearer ${secondToken.secret}` } },
+    )
     after(() => second.terminate())
     const nextMessage = messageCollector(second)
 
