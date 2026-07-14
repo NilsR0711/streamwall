@@ -77,7 +77,7 @@ function useStreamwallWebsocketConnection(
       }
     })
     wsRef.current = { ws, msgId: 0, responseMap: new Map() }
-  }, [])
+  }, [setStateDoc, wsEndpoint])
 
   const send = useCallback(
     (msg: ControlCommand, cb?: (msg: unknown) => void) => {
