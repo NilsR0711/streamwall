@@ -7,7 +7,6 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
 import '@fontsource/oswald/600.css'
 import '@fontsource/saira-stencil-one'
-import Color from 'color'
 import { orderBy, range, truncate } from 'lodash-es'
 import { DateTime } from 'luxon'
 import { type JSX } from 'preact'
@@ -35,6 +34,7 @@ import {
 } from 'react-icons/md'
 import {
   clampGridDimension,
+  Color,
   type ContentKind,
   type ControlCommand,
   GRID_MAX,
@@ -75,8 +75,9 @@ import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
 import { createSharedUndoManager } from './yUndo.ts'
 
-// `import Color from 'color'` binds only the value; alias the instance type
-// (as returned by the Color factory) for use in styled-component prop types.
+// `import { Color } from 'streamwall-shared'` binds only the value; alias
+// the instance type (as returned by the Color factory) for use in
+// styled-component prop types.
 type ColorInstance = ReturnType<typeof Color>
 
 export interface ViewInfo {

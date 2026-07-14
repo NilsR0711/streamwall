@@ -1,6 +1,6 @@
-import Color from 'color'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { Color } from 'streamwall-shared'
 import { afterEach, describe, expect, test } from 'vitest'
 import { GridPreviewBox } from './index.tsx'
 

@@ -1,5 +1,12 @@
 import Color from 'color'
 
+// Re-exported so consumers construct/re-wrap colors via this exact module
+// instance instead of installing their own copy of 'color' — the monorepo's
+// per-workspace node_modules layout means a separately imported copy is a
+// physically different class, breaking Color's `instanceof` fast path for
+// values returned by idColor() below.
+export { Color }
+
 export function hashText(text: string, range: number) {
   // DJBX33A-ish
   // based on https://github.com/euphoria-io/heim/blob/978c921063e6b06012fc8d16d9fbf1b3a0be1191/client/lib/hueHash.js#L16-L45
