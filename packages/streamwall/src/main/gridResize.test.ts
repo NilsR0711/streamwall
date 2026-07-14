@@ -1,6 +1,7 @@
 import {
   boxesFromViewContentMap,
   GRID_MAX,
+  GRID_MIN,
   type ViewContentMap,
 } from 'streamwall-shared'
 import { describe, expect, it } from 'vitest'
@@ -182,6 +183,35 @@ describe('applyGridResize', () => {
     expect(viewsState.get('4')?.get('streamId')).toBe('stream-b')
   })
 
+  it('grows only the column count, preserving the row count', () => {
+    const { viewsState, ctx } = setupWall(2, 3)
+    // cell 4 = (x=0, y=2), only reachable with a 2-col grid at 3+ rows.
+    seedAssignments(viewsState, 2, 3, { 4: 'stream-a' })
+
+    const applied = applyGridResize(ctx, 4, 3)
+
+    expect(applied).toEqual({ cols: 4, rows: 3 })
+    // (0,2) -> 4*2 + 0 = 8 in the new 4-col grid.
+    expect(viewsState.get('8')?.get('streamId')).toBe('stream-a')
+    expect([...viewsState.keys()]).toHaveLength(12)
+  })
+
+  it('shrinks only the row count, dropping assignments that fall outside', () => {
+    const { viewsState, wall, updateViewsFromStateDoc, ctx } = setupWall(2, 4)
+    // cell 6 = (x=0, y=3), only reachable with 4+ rows.
+    seedAssignments(viewsState, 2, 4, { 6: 'stream-a', 0: 'stream-b' })
+
+    updateViewsFromStateDoc()
+    viewsState.observeDeep(updateViewsFromStateDoc)
+
+    const applied = applyGridResize(ctx, 2, 2)
+
+    expect(applied).toEqual({ cols: 2, rows: 2 })
+    expect(wall.live.has('stream-a')).toBe(false)
+    expect(viewsState.get('0')?.get('streamId')).toBe('stream-b')
+    expect([...viewsState.keys()]).toHaveLength(4)
+  })
+
   it('drops and destroys a stream that falls outside a shrunk grid', () => {
     const { viewsState, wall, updateViewsFromStateDoc, ctx } = setupWall(3, 3)
     // cell 8 = (x=2, y=2), only reachable in a 3x3 (or larger) grid.
@@ -223,6 +253,33 @@ describe('applyGridResize', () => {
 
     expect(applied).toEqual({ cols: 1, rows: GRID_MAX })
     expect(viewsState.size).toBe(1 * GRID_MAX)
+  })
+
+  it('clamps a NaN/non-finite request to the minimum dimension', () => {
+    const { viewsState, ctx } = setupWall(2, 2)
+    seedAssignments(viewsState, 2, 2, {})
+
+    const applied = applyGridResize(ctx, Number.NaN, Number.POSITIVE_INFINITY)
+
+    expect(applied).toEqual({ cols: GRID_MIN, rows: GRID_MIN })
+    expect(viewsState.size).toBe(GRID_MIN * GRID_MIN)
+  })
+
+  it('rebuilds viewsState as a single atomic Yjs update', () => {
+    const { doc, viewsState, ctx } = setupWall(2, 2)
+    seedAssignments(viewsState, 2, 2, { 0: 'stream-a', 3: 'stream-b' })
+
+    let updateCount = 0
+    doc.on('update', () => {
+      updateCount++
+    })
+
+    applyGridResize(ctx, 3, 3)
+
+    // The delete-all + rebuild must land in one transact, not one update per
+    // key, so observers (e.g. updateViewsFromStateDoc) never see a
+    // partially-rebuilt viewsState.
+    expect(updateCount).toBe(1)
   })
 
   it('does not resurrect a stale viewsState key left over from a larger grid (issue #17)', () => {
