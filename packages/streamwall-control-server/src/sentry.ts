@@ -48,3 +48,25 @@ export function initSentry(
   client.init({ dsn: config.dsn })
   return true
 }
+
+/** The subset of the Sentry client this module depends on to report caught errors, for injection in tests. */
+export interface SentryCaptureClient {
+  captureException(err: unknown): unknown
+}
+
+/**
+ * Reports an already-caught error to Sentry when crash reporting is enabled.
+ * Takes `enabled` explicitly (the value `initSentry()` returned) rather than
+ * tracking module-level state, so this stays a pure function callers can
+ * unit test without depending on a prior `initSentry()` call.
+ */
+export function captureException(
+  err: unknown,
+  enabled: boolean,
+  client: SentryCaptureClient = Sentry,
+): void {
+  if (!enabled) {
+    return
+  }
+  client.captureException(err)
+}
