@@ -954,7 +954,7 @@ export function ControlUI({
                 className="filter-input"
                 onChange={handleStreamFilterChange}
                 value={streamFilter}
-                placeholder="Quellen filtern…"
+                placeholder="Filter streams…"
               />
               <h3>
                 Viewing <span className="ct">{wallStreams.length}</span>
