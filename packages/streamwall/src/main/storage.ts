@@ -34,6 +34,22 @@ export async function loadStorage(dbPath: string) {
 }
 
 /**
+ * Applies an update and persists it, logging (rather than throwing on) a
+ * rejected write -- e.g. a full disk or a permissions error -- so a single
+ * failed persist doesn't surface as an unhandled promise rejection.
+ */
+export async function safeUpdate(
+  db: StorageDB,
+  fn: (data: StreamwallStoredData) => void,
+): Promise<void> {
+  try {
+    await db.update(fn)
+  } catch (err) {
+    console.error('Failed to persist storage update', err)
+  }
+}
+
+/**
  * Guarantees the latest state is on disk before the app quits.
  *
  * Writes that go through a throttled updater (e.g. the Yjs stateDoc persist)

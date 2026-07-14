@@ -6,6 +6,7 @@ import { describe, expect, it, test, vi } from 'vitest'
 import {
   flushStorage,
   loadStorage,
+  safeUpdate,
   StorageDB,
   StreamwallStoredData,
 } from './storage'
@@ -58,6 +59,38 @@ describe('flushStorage', () => {
     expect(persisted?.localStreamData).toEqual([
       { _id: 'a', kind: 'video', link: 'https://example.test' },
     ])
+  })
+})
+
+describe('safeUpdate', () => {
+  it('applies the update to db.data', async () => {
+    const db = makeDB()
+
+    await safeUpdate(db, (data) => {
+      data.stateDoc = 'updated'
+    })
+
+    expect(db.data.stateDoc).toBe('updated')
+  })
+
+  it('logs and swallows a rejection instead of throwing', async () => {
+    const db = makeDB()
+    const writeError = new Error('disk full')
+    vi.spyOn(db, 'write').mockRejectedValueOnce(writeError)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      safeUpdate(db, (data) => {
+        data.stateDoc = 'updated'
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to persist storage update'),
+      writeError,
+    )
+
+    consoleError.mockRestore()
   })
 })
 
