@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
+import {
+  resolveEagerWriteStreamId,
+  resolveTargetViewIdx,
+  resolveWriteStreamId,
+} from './viewPlacement.ts'
 
 describe('resolveTargetViewIdx', () => {
   it('targets the focused input cell regardless of occupancy', () => {
@@ -74,5 +78,28 @@ describe('resolveWriteStreamId', () => {
 
   it('clears the cell when there are no streams', () => {
     expect(resolveWriteStreamId([], 'new')).toBe('')
+  })
+})
+
+describe('resolveEagerWriteStreamId', () => {
+  it('commits the streamId once it matches a known stream', () => {
+    expect(
+      resolveEagerWriteStreamId([{ _id: 'old' }, { _id: 'wolf' }], 'wolf'),
+    ).toBe('wolf')
+  })
+
+  it('clears the cell once the input is emptied', () => {
+    expect(resolveEagerWriteStreamId([{ _id: 'wolf' }], '')).toBe('')
+  })
+
+  it('does not commit a partial, non-matching keystroke', () => {
+    // Regression: typing "wolf" character-by-character used to clear the
+    // cell on every non-matching partial ("w", "wo", "wol"), tearing down
+    // the view until the final matching keystroke landed.
+    expect(resolveEagerWriteStreamId([{ _id: 'wolf' }], 'wol')).toBeUndefined()
+  })
+
+  it('does not commit an unknown value that will never match', () => {
+    expect(resolveEagerWriteStreamId([{ _id: 'old' }], 'typo')).toBeUndefined()
   })
 })
