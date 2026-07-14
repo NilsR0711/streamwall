@@ -30,3 +30,20 @@ export async function loadStorage(dbPath: string) {
 
   return db
 }
+
+/**
+ * Guarantees the latest state is on disk before the app quits.
+ *
+ * Writes that go through a throttled updater (e.g. the Yjs stateDoc persist)
+ * can have a trailing call still pending when the app quits, so `db.data`
+ * may not yet hold the latest value. `flushPendingUpdate` should synchronously
+ * force that pending call to run (e.g. lodash's `throttled.flush()`) before
+ * this writes `db.data` to the adapter.
+ */
+export async function flushStorage(
+  db: StorageDB,
+  flushPendingUpdate: () => void,
+): Promise<void> {
+  flushPendingUpdate()
+  await db.write()
+}
