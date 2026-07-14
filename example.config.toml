@@ -82,3 +82,11 @@ json-url = []
 # Whether to report uncaught errors to Streamwall's Sentry project. Enabled
 # by default; uncomment to opt out.
 #sentry = false
+
+# Cycle a grid cell through a fixed list of stream URLs on an interval,
+# independent of manual placement or any data source. Add one [[playlist]]
+# table per cell you want to cycle; cells without one behave as usual.
+#[[playlist]]
+#view = 0
+#interval = 60
+#urls = ["https://example.com/stream-a", "https://example.com/stream-b"]

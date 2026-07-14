@@ -25,6 +25,7 @@ Under the hood, think of Streamwall as a specialized web browser for mosaicing v
 - **Remote control with roles** — an optional web-based control server lets operators run the wall from a browser, with **admin**, **operator**, and **monitor** roles gated by invite links.
 - **Automatic recovery** — failed or stalled stream loads are retried automatically with exponential backoff, with the failure surfaced on the wall and in the control UI.
 - **Flexible data sources** — load streams from JSON APIs, TOML files, or add them ad hoc (including `overlay`/`background` kinds for widgets and chroma-key layers).
+- **Playlists** — optionally cycle a grid cell through a fixed list of stream URLs on an interval.
 - **Twitch chat bot** — an optional bot posts templated announcements and runs viewer polls in a Twitch channel's chat.
 
 ![Control UI](docs/images/control-ui.png)
@@ -134,6 +135,31 @@ Each entry (a `[[streams]]` table in TOML, or an object in the JSON array) suppo
 - `web` — an arbitrary webpage, shown as-is without searching for a `<video>` tag.
 - `background` — a webpage loaded behind the grid instead of in a tile.
 - `overlay` — a webpage loaded as a full-screen `<iframe>` layered over the whole wall (e.g. scoreboards, alerts). See [Security: overlay and background streams](#security-overlay-and-background-streams) below.
+
+## Playlists
+
+A grid cell can optionally cycle through a fixed list of stream URLs on an
+interval, independent of manual placement or any data source. Add one
+`[[playlist]]` table per cell you want to cycle (see `example.config.toml`):
+
+```toml
+[[playlist]]
+view = 0
+interval = 60
+urls = ["https://example.com/stream-a", "https://example.com/stream-b"]
+```
+
+| Field      | Type     | Required | Description                                                             |
+| ---------- | -------- | -------- | ----------------------------------------------------------------------- |
+| `view`     | number   | yes      | The grid cell (0-indexed) to cycle. Must be within the configured grid. |
+| `interval` | number   | yes      | Seconds between advances.                                               |
+| `urls`     | string[] | yes      | Stream URLs to cycle through, in order, looping back to the start.      |
+
+A cell without a matching `[[playlist]]` table behaves as usual — assign it
+manually from the control UI. Each URL is matched against the streams
+currently known from your data sources (`json-url`/`toml-file`/custom); if a
+URL doesn't currently resolve to a known stream, that step is skipped with a
+warning and the cell keeps its previous content until the next advance.
 
 ## Security: overlay and background streams
 
