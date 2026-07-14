@@ -68,6 +68,7 @@ import {
   resolveMoveTarget,
 } from './gestures'
 import {
+  computeKeyboardResizeHoverIdx,
   computeResizeAssignments,
   computeSwap,
   isIdxInResizeBox,
@@ -848,6 +849,53 @@ export function ControlUI({
     [sharedState],
   )
 
+  // Keyboard equivalent of the pointer-drag resize above: each arrow-key
+  // press commits a one-cell step immediately (there's no keyboard hover
+  // state to preview), rather than opening an in-progress `resize` gesture.
+  const handleResizeKeyDown = useCallback(
+    (
+      anchorIdx: number,
+      handle: ResizeHandle,
+      originalSpaces: number[],
+      ev: KeyboardEvent,
+    ) => {
+      if (cols == null || rows == null) {
+        return
+      }
+      const hoverIdx = computeKeyboardResizeHoverIdx(
+        cols,
+        rows,
+        anchorIdx,
+        handle,
+        originalSpaces,
+        ev.key,
+      )
+      if (hoverIdx == null) {
+        return
+      }
+      ev.preventDefault()
+      const streamId = sharedState?.views?.[anchorIdx]?.streamId ?? undefined
+      if (streamId == null || streamId === '') {
+        return
+      }
+      stateDoc.transact(() => {
+        const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
+        const assignments = computeResizeAssignments(
+          cols,
+          anchorIdx,
+          hoverIdx,
+          streamId,
+          handle,
+          originalSpaces,
+        )
+        for (const [idx, assignedStreamId] of assignments) {
+          viewsMap.get(String(idx))?.set('streamId', assignedStreamId)
+        }
+      })
+    },
+    [cols, rows, sharedState, stateDoc],
+  )
+
   useLayoutEffect(() => {
     function endResize(ev: PointerEvent) {
       // A resize only commits while the pointer is over the grid; released
@@ -928,7 +976,7 @@ export function ControlUI({
         if (
           gridWouldDropAssignments(cols, targetCols, targetRows, assignments) &&
           !window.confirm(
-            'Das neue Raster ist kleiner und entfernt belegte Kacheln dauerhaft. Fortfahren?',
+            'The new grid is smaller and will permanently remove occupied tiles. Continue?',
           )
         ) {
           return
@@ -1294,7 +1342,7 @@ export function ControlUI({
           {role !== 'local' && (
             <div className="status">
               <span className={`dot ${isConnected ? 'on' : 'off'}`} />
-              {isConnected ? 'verbunden' : 'verbinde…'} · {role}
+              {isConnected ? 'connected' : 'connecting...'} · {role}
             </div>
           )}
           <ThemeToggle />
@@ -1404,22 +1452,37 @@ export function ControlUI({
                       }}
                     >
                       <StyledResizeHandles>
-                        <div
+                        <button
+                          type="button"
                           className="handle e"
+                          aria-label="Resize right edge"
                           onPointerDown={(ev) =>
                             handleResizeStart(anchorIdx, 'e', pos.spaces, ev)
                           }
+                          onKeyDown={(ev) =>
+                            handleResizeKeyDown(anchorIdx, 'e', pos.spaces, ev)
+                          }
                         />
-                        <div
+                        <button
+                          type="button"
                           className="handle s"
+                          aria-label="Resize bottom edge"
                           onPointerDown={(ev) =>
                             handleResizeStart(anchorIdx, 's', pos.spaces, ev)
                           }
+                          onKeyDown={(ev) =>
+                            handleResizeKeyDown(anchorIdx, 's', pos.spaces, ev)
+                          }
                         />
-                        <div
+                        <button
+                          type="button"
                           className="handle se"
+                          aria-label="Resize bottom-right corner"
                           onPointerDown={(ev) =>
                             handleResizeStart(anchorIdx, 'se', pos.spaces, ev)
+                          }
+                          onKeyDown={(ev) =>
+                            handleResizeKeyDown(anchorIdx, 'se', pos.spaces, ev)
                           }
                         />
                       </StyledResizeHandles>
@@ -1781,13 +1844,12 @@ function StreamDelayBox({
               <StyledButton
                 $isActive={delayState.isCensored}
                 onClick={handleToggleStreamCensored}
-                tabIndex={1}
               >
                 {buttonText}
               </StyledButton>
             )}
             {roleCan(role, 'set-stream-running') && (
-              <StyledButton onClick={handleToggleStreamRunning} tabIndex={1}>
+              <StyledButton onClick={handleToggleStreamRunning}>
                 {delayState.isStreamRunning ? 'End stream' : 'Start stream'}
               </StyledButton>
             )}
@@ -1967,6 +2029,10 @@ const StyledResizeHandles = styled.div`
     background: var(--accent, #e23);
     opacity: 0;
     transition: opacity 0.1s;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    appearance: none;
   }
   &:hover .handle {
     opacity: 0.6;
@@ -1977,6 +2043,14 @@ const StyledResizeHandles = styled.div`
     .handle {
       opacity: 0.6;
     }
+  }
+  /* A focused handle needs to be visible even without a hover, so it can be
+     found and operated by keyboard (arrow keys resize, see
+     handleResizeKeyDown). */
+  .handle:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--accent, #e23);
+    outline-offset: 2px;
   }
   .handle.e {
     top: 20%;
@@ -2289,17 +2363,26 @@ export function GridControls({
           {showDebug ? (
             <>
               {roleCan(role, 'reload-view') && (
-                <StyledSmallButton onClick={handleReloadClick} tabIndex={1}>
+                <StyledSmallButton
+                  onClick={handleReloadClick}
+                  aria-label="Reload stream"
+                >
                   <FaSyncAlt />
                 </StyledSmallButton>
               )}
               {roleCan(role, 'browse') && (
-                <StyledSmallButton onClick={handleBrowseClick} tabIndex={1}>
+                <StyledSmallButton
+                  onClick={handleBrowseClick}
+                  aria-label="Open stream in browser"
+                >
                   <FaRegWindowMaximize />
                 </StyledSmallButton>
               )}
               {roleCan(role, 'dev-tools') && (
-                <StyledSmallButton onClick={handleDevToolsClick} tabIndex={1}>
+                <StyledSmallButton
+                  onClick={handleDevToolsClick}
+                  aria-label="Open developer tools"
+                >
                   <FaRegLifeRing />
                 </StyledSmallButton>
               )}
@@ -2307,7 +2390,10 @@ export function GridControls({
           ) : (
             <>
               {roleCan(role, 'reload-view') && (
-                <StyledSmallButton onClick={handleReloadClick} tabIndex={1}>
+                <StyledSmallButton
+                  onClick={handleReloadClick}
+                  aria-label="Reload stream"
+                >
                   <FaSyncAlt />
                 </StyledSmallButton>
               )}
@@ -2315,13 +2401,16 @@ export function GridControls({
                 <StyledSmallButton
                   $isActive={isSwapping}
                   onClick={handleSwapClick}
-                  tabIndex={1}
+                  aria-label={isSwapping ? 'Cancel swap' : 'Swap stream'}
                 >
                   <FaExchangeAlt />
                 </StyledSmallButton>
               )}
               {roleCan(role, 'rotate-stream') && (
-                <StyledSmallButton onClick={handleRotateClick} tabIndex={1}>
+                <StyledSmallButton
+                  onClick={handleRotateClick}
+                  aria-label="Rotate stream"
+                >
                   <FaRedoAlt />
                 </StyledSmallButton>
               )}
@@ -2334,7 +2423,7 @@ export function GridControls({
           <StyledButton
             $isActive={isBlurred}
             onClick={handleBlurClick}
-            tabIndex={1}
+            aria-label={isBlurred ? 'Unblur video' : 'Blur video'}
           >
             <FaVideoSlash />
           </StyledButton>
@@ -2347,7 +2436,6 @@ export function GridControls({
             step={0.01}
             value={volume}
             onInput={handleVolumeInput}
-            tabIndex={1}
             aria-label="Volume"
           />
         )}
@@ -2358,7 +2446,11 @@ export function GridControls({
               isListening ? 'red' : Color('red').desaturate(0.5).hsl().string()
             }
             onClick={handleListeningClick}
-            tabIndex={1}
+            aria-label={
+              isListening || isBackgroundListening
+                ? 'Mute audio'
+                : 'Listen to audio'
+            }
           >
             <FaVolumeUp />
           </StyledButton>

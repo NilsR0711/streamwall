@@ -92,3 +92,69 @@ describe('GridControls volume slider', () => {
     expect(onSetVolume).toHaveBeenCalledWith(3, 0.3)
   })
 })
+
+describe('GridControls accessible names', () => {
+  test('gives every icon-only button a descriptive aria-label', () => {
+    const box = renderControls({ role: 'admin', showDebug: true })
+
+    expect(
+      box.querySelector('button[aria-label="Reload stream"]'),
+    ).not.toBeNull()
+    expect(
+      box.querySelector('button[aria-label="Open stream in browser"]'),
+    ).not.toBeNull()
+    expect(
+      box.querySelector('button[aria-label="Open developer tools"]'),
+    ).not.toBeNull()
+  })
+
+  test('labels the swap and rotate buttons outside debug mode', () => {
+    const box = renderControls({ showDebug: false })
+
+    expect(box.querySelector('button[aria-label="Swap stream"]')).not.toBeNull()
+    expect(
+      box.querySelector('button[aria-label="Rotate stream"]'),
+    ).not.toBeNull()
+  })
+
+  test('flips the swap button label to "Cancel swap" while swapping', () => {
+    const box = renderControls({ isSwapping: true })
+
+    expect(box.querySelector('button[aria-label="Cancel swap"]')).not.toBeNull()
+    expect(box.querySelector('button[aria-label="Swap stream"]')).toBeNull()
+  })
+
+  test('labels the blur toggle button by its current state', () => {
+    let box = renderControls({ isBlurred: false })
+    expect(box.querySelector('button[aria-label="Blur video"]')).not.toBeNull()
+
+    box = renderControls({ isBlurred: true })
+    expect(
+      box.querySelector('button[aria-label="Unblur video"]'),
+    ).not.toBeNull()
+  })
+
+  test('labels the listening toggle button by its current state', () => {
+    let box = renderControls({
+      isListening: false,
+      isBackgroundListening: false,
+    })
+    expect(
+      box.querySelector('button[aria-label="Listen to audio"]'),
+    ).not.toBeNull()
+
+    box = renderControls({ isListening: true })
+    expect(box.querySelector('button[aria-label="Mute audio"]')).not.toBeNull()
+
+    box = renderControls({ isBackgroundListening: true })
+    expect(box.querySelector('button[aria-label="Mute audio"]')).not.toBeNull()
+  })
+
+  test('does not set a positive tabIndex on any button, relying on native DOM order', () => {
+    const box = renderControls({ isBlurred: true })
+
+    for (const button of Array.from(box.querySelectorAll('button'))) {
+      expect(button.getAttribute('tabindex')).not.toBe('1')
+    }
+  })
+})
