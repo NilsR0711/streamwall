@@ -20,9 +20,11 @@ declare global {
 }
 
 function useStreamwallIPCConnection(): StreamwallConnection {
-  const { docValue: sharedState, doc: stateDoc } = useYDoc<CollabData>([
-    'views',
-  ])
+  const {
+    docValue: sharedState,
+    doc: stateDoc,
+    undoManager,
+  } = useYDoc<CollabData>(['views'], 'app')
 
   const [streamwallState, setStreamwallState] = useState<StreamwallState>()
   const appState = useStreamwallState(streamwallState)
@@ -73,6 +75,7 @@ function useStreamwallIPCConnection(): StreamwallConnection {
     send,
     sharedState,
     stateDoc,
+    undoManager,
   }
 }
 

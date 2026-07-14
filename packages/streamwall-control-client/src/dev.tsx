@@ -166,9 +166,11 @@ const demoState: StreamwallState = {
 }
 
 function useMockConnection(): StreamwallConnection {
-  const { docValue: sharedState, doc: stateDoc } = useYDoc<CollabData>([
-    'views',
-  ])
+  const {
+    docValue: sharedState,
+    doc: stateDoc,
+    undoManager,
+  } = useYDoc<CollabData>(['views'])
   const appState = useStreamwallState(demoState)
 
   useEffect(() => {
@@ -191,6 +193,7 @@ function useMockConnection(): StreamwallConnection {
     send: (msg) => console.debug('[mock send]', msg),
     sharedState,
     stateDoc,
+    undoManager,
   }
 }
 
