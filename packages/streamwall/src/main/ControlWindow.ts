@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, Event as ElectronEvent, ipcMain } from 'electron'
 import EventEmitter from 'events'
 import path from 'path'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
@@ -6,7 +6,7 @@ import { loadHTML } from './loadHTML'
 
 export interface ControlWindowEventMap {
   load: []
-  close: []
+  close: [ElectronEvent]
   command: [ControlCommand]
   ydoc: [Uint8Array]
 }
@@ -28,7 +28,7 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
     })
     this.win.removeMenu()
 
-    this.win.on('close', () => this.emit('close'))
+    this.win.on('close', (event) => this.emit('close', event))
 
     loadHTML(this.win.webContents, 'control')
 
