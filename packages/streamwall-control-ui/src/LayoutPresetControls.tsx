@@ -1,6 +1,8 @@
 import { type JSX } from 'preact'
 import { useCallback, useState } from 'preact/hooks'
+import { FaExclamationTriangle } from 'react-icons/fa'
 import {
+  MAX_LAYOUT_PRESETS,
   roleCan,
   type LayoutPreset,
   type StreamwallRole,
@@ -45,6 +47,17 @@ const StyledLayoutPresetControls = styled.div`
     padding: 2px 6px;
     color: var(--text-dim, #888);
   }
+  .preset-count {
+    font-size: 12px;
+    color: var(--text-dim, #888);
+  }
+  .preset-cap-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #e0a800;
+  }
 `
 
 /**
@@ -68,6 +81,12 @@ export function LayoutPresetControls({
   const disabled = !roleCan(role, 'save-layout-preset')
 
   const [nameDraft, setNameDraft] = useState('')
+
+  // `addLayoutPreset` (main/layoutPresets.ts) silently drops the oldest
+  // preset once the list is at MAX_LAYOUT_PRESETS, so warn before that
+  // happens rather than let a preset vanish with no explanation (issue #218).
+  const atCapacity = presets.length >= MAX_LAYOUT_PRESETS
+  const oldestPreset = presets[0]
 
   const handleChangeName = useCallback<JSX.InputEventHandler<HTMLInputElement>>(
     (ev) => {
@@ -102,6 +121,18 @@ export function LayoutPresetControls({
           save layout
         </button>
       </form>
+      <span className="preset-count">
+        {presets.length} / {MAX_LAYOUT_PRESETS}
+      </span>
+      {atCapacity && !disabled && oldestPreset && (
+        <span
+          className="preset-cap-warning"
+          title={`The preset list is full. Saving a new one will remove the oldest: "${oldestPreset.name}".`}
+        >
+          <FaExclamationTriangle />
+          Saving will replace &ldquo;{oldestPreset.name}&rdquo;
+        </span>
+      )}
       {presets.map((preset) => (
         <span className="preset-chip" key={preset.id}>
           <button
