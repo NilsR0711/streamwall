@@ -357,6 +357,36 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
+  test('accepts a valid set-view-volume command', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-volume',
+        viewIdx: 0,
+        volume: 0.5,
+      }).success,
+    ).toBe(true)
+  })
+
+  test('bounds volume to the 0-1 range on set-view-volume', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-volume',
+        viewIdx: 0,
+        volume: 1.5,
+      }).success,
+    ).toBe(false)
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-volume',
+        viewIdx: 0,
+        volume: -0.1,
+      }).success,
+    ).toBe(false)
+  })
+
   test('parsed commands remain assignable to the ControlCommand type', () => {
     const result = controlCommandMessageSchema.safeParse({
       id: 7,

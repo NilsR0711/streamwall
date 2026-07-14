@@ -43,6 +43,7 @@ const orientationSchema = z.enum(['V', 'H'])
 const rotationSchema = z.number().min(0).max(MAX_ROTATION)
 const viewIdxSchema = z.number().int().min(0).max(MAX_VIEW_IDX)
 const gridDimensionSchema = z.number().int().min(GRID_MIN).max(GRID_MAX)
+const volumeSchema = z.number().min(0).max(1)
 
 /** Longest allowed name for a saved layout preset. */
 export const MAX_LAYOUT_PRESET_NAME_LENGTH = 100
@@ -139,6 +140,11 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('set-view-blurred'),
     viewIdx: viewIdxSchema,
     blurred: z.boolean(),
+  }),
+  z.object({
+    type: z.literal('set-view-volume'),
+    viewIdx: viewIdxSchema,
+    volume: volumeSchema,
   }),
   z.object({
     type: z.literal('rotate-stream'),

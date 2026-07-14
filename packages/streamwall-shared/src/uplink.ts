@@ -20,6 +20,7 @@ const UPLINK_ALLOWED_COMMANDS: ReadonlySet<ControlCommand['type']> = new Set<
   'set-listening-view',
   'set-view-background-listening',
   'set-view-blurred',
+  'set-view-volume',
   'rotate-stream',
   'update-custom-stream',
   'delete-custom-stream',

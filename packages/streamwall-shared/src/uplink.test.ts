@@ -15,6 +15,7 @@ describe('isCommandAllowedFromUplink', () => {
     expect(isCommandAllowedFromUplink('set-stream-censored')).toBe(true)
     expect(isCommandAllowedFromUplink('set-stream-running')).toBe(true)
     expect(isCommandAllowedFromUplink('set-grid-size')).toBe(true)
+    expect(isCommandAllowedFromUplink('set-view-volume')).toBe(true)
   })
 
   test('allows layout preset commands', () => {
