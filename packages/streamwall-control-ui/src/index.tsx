@@ -840,7 +840,7 @@ export function ControlUI({
         if (
           gridWouldDropAssignments(cols, targetCols, targetRows, assignments) &&
           !window.confirm(
-            'Das neue Raster ist kleiner und entfernt belegte Kacheln dauerhaft. Fortfahren?',
+            'The new grid is smaller and will permanently remove occupied cells. Continue?',
           )
         ) {
           return
