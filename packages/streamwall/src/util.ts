@@ -38,11 +38,45 @@ function isLoopbackHostname(hostname: string): boolean {
   return host === 'localhost' || host.endsWith('.localhost')
 }
 
-type HostAddressResolver = (hostname: string) => Promise<string[]>
+export type HostAddressResolver = (hostname: string) => Promise<string[]>
 
 const resolveHostAddresses: HostAddressResolver = async (hostname) => {
   const results = await lookup(hostname, { all: true })
   return results.map((result) => result.address)
+}
+
+// Structural view of the DNS-resolution surface Electron's `Session` exposes
+// (see `session.resolveHost` in the Electron API), kept independent of the
+// `electron` module so this file — and its tests — stay Electron-free.
+interface HostResolvingSession {
+  resolveHost(host: string): Promise<{ endpoints: { address: string }[] }>
+}
+
+/**
+ * Builds a {@link HostAddressResolver} backed by a session's own DNS resolver
+ * — the same resolver, and same cache, Chromium uses to actually connect —
+ * instead of Node's independent `dns.lookup`. Callers that have a session
+ * available (every real call site does) should pass this to
+ * {@link ensureValidURL} / {@link findRequestBlockReason} so the validated
+ * address is very likely the one still in the session's cache when the real
+ * connection is made moments later, narrowing the DNS-rebinding
+ * time-of-check/time-of-use gap described in #169.
+ *
+ * This narrows the gap; it does not close it. Chromium can still re-resolve
+ * independently if the cache entry it just populated has already expired
+ * (e.g. an attacker serving a TTL of 0), and Electron/Chromium currently
+ * expose no API to pin a single request's connection to a specific,
+ * pre-validated address. The network-layer guard
+ * (`findRequestBlockReason`/`installRequestSSRFGuard`) therefore remains
+ * necessary as defense in depth, not a complete fix on its own.
+ */
+export function createSessionHostResolver(
+  session: HostResolvingSession,
+): HostAddressResolver {
+  return async (hostname) => {
+    const { endpoints } = await session.resolveHost(hostname)
+    return endpoints.map((endpoint) => endpoint.address)
+  }
 }
 
 /**
@@ -52,9 +86,14 @@ const resolveHostAddresses: HostAddressResolver = async (hostname) => {
  * etc.). Hostnames are resolved and every resulting address is checked, so a
  * public domain that maps to a private address is rejected too.
  *
- * Note: DNS is re-resolved by the loader afterwards, so this does not defend
- * against active DNS-rebinding; it blocks statically-malicious and
- * literal-address targets, which is the reported operator SSRF vector.
+ * Note: DNS is re-resolved by the loader afterwards, so passing the default
+ * resolver does not defend against active DNS-rebinding; it blocks
+ * statically-malicious and literal-address targets, which is the reported
+ * operator SSRF vector. Callers should pass a
+ * {@link createSessionHostResolver} bound to the session that will actually
+ * load the URL — this narrows (but, per that function's docs, does not
+ * eliminate) the DNS-rebinding gap by sharing the loader's own resolver and
+ * cache instead of an independent lookup.
  */
 export async function ensureValidURL(
   urlStr: string,

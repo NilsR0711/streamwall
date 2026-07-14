@@ -16,7 +16,7 @@
  */
 
 import type { Session } from 'electron'
-import { findRequestBlockReason } from '../util'
+import { createSessionHostResolver, findRequestBlockReason } from '../util'
 
 const VIEW_PARTITION_PREFIX = 'view-'
 
@@ -58,6 +58,7 @@ interface RequestFilteringSession {
   webRequest: {
     onBeforeRequest(listener: RequestListener): void
   }
+  resolveHost(host: string): Promise<{ endpoints: { address: string }[] }>
 }
 
 export interface RequestGuardOptions {
@@ -68,7 +69,11 @@ export interface RequestGuardOptions {
    * by the same entry as its http: origin. Empty in a packaged build.
    */
   allowedOrigins?: readonly string[]
-  /** Overridable for tests; defaults to the real address classifier. */
+  /**
+   * Overridable for tests; defaults to the real address classifier, resolving
+   * hostnames through the guarded session's own DNS resolver (see
+   * {@link createSessionHostResolver}) rather than an independent lookup.
+   */
   findBlockReason?: (url: string) => Promise<string | null>
 }
 
@@ -97,7 +102,8 @@ export function installRequestSSRFGuard(
   session: RequestFilteringSession,
   {
     allowedOrigins = [],
-    findBlockReason = findRequestBlockReason,
+    findBlockReason = (url) =>
+      findRequestBlockReason(url, createSessionHostResolver(session)),
   }: RequestGuardOptions = {},
 ): void {
   const allowedHosts = new Set(

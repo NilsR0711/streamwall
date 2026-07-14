@@ -31,6 +31,11 @@ function fakeSession() {
         requestListener = listener
       },
     },
+    // Overridable per test; the default reports every hostname as public so
+    // tests that don't care about DNS classification aren't forced to stub it.
+    resolveHost: async (): Promise<{
+      endpoints: { address: string; family: 'ipv4' | 'ipv6' }[]
+    }> => ({ endpoints: [{ address: '93.184.216.34', family: 'ipv4' }] }),
     request(permission: string): boolean {
       assert.ok(handler, 'a permission request handler must be registered')
       let granted: boolean | undefined
@@ -221,5 +226,34 @@ test('installRequestSSRFGuard fails open if the reason lookup itself throws', as
     await session.requestURL('https://cdn.example/0.ts'),
     false,
     'an internal guard error must not cancel legitimate traffic',
+  )
+})
+
+// The default resolver (i.e. when findBlockReason is not overridden) must be
+// the guarded session's own resolveHost, not an independent DNS lookup — this
+// is what narrows the #169 DNS-rebinding time-of-check/time-of-use gap by
+// sharing the resolver and cache Chromium actually connects through.
+
+test("installRequestSSRFGuard defaults to the guarded session's own resolveHost", async () => {
+  const session = fakeSession()
+  const calls: string[] = []
+  session.resolveHost = async (host: string) => {
+    calls.push(host)
+    return { endpoints: [{ address: '93.184.216.34', family: 'ipv4' }] }
+  }
+  installRequestSSRFGuard(session)
+  assert.equal(await session.requestURL('http://stream.example/0.ts'), false)
+  assert.deepEqual(calls, ['stream.example'])
+})
+
+test('installRequestSSRFGuard blocks a request when the session resolver reports a private address', async () => {
+  const session = fakeSession()
+  session.resolveHost = async () => ({
+    endpoints: [{ address: '10.1.2.3', family: 'ipv4' }],
+  })
+  installRequestSSRFGuard(session)
+  assert.equal(
+    await session.requestURL('http://rebind.evil.example/0.ts'),
+    true,
   )
 })
