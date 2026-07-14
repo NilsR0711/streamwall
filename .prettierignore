@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output (mirrors .gitignore entries across all workspaces)
+dist/
+dist-ssr/
+out/
+build/
+.vite/
+.webpack/
+
+# Coverage / logs / caches
+coverage/
+*.log
+.cache/
+.eslintcache
+
+# Package lock (auto-formatted by npm, not by prettier)
+package-lock.json
