@@ -65,6 +65,7 @@ import {
 import './index.css'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
+import { createSharedUndoManager } from './yUndo.ts'
 
 // `import Color from 'color'` binds only the value; alias the instance type
 // (as returned by the Color factory) for use in styled-component prop types.
@@ -428,10 +429,20 @@ function filterStreams(
   return [wallStreams, liveStreams, otherStreams]
 }
 
-export function useYDoc<T>(keys: string[]): {
+export function useYDoc<T>(
+  keys: string[],
+  // Origin string used by this connection when applying remote updates to
+  // `doc` (e.g. `'server'` for the websocket client, `'app'` for the
+  // Electron IPC renderer). Passed through to the doc's `Y.UndoManager` so
+  // that remotely-applied changes - notably a destructive grid-shrink remap,
+  // which runs on the main process's doc and only reaches here as a
+  // remote-origin update - are undoable too (issue #79).
+  remoteOrigin?: string,
+): {
   docValue: T | undefined
   doc: Y.Doc
   setDoc: (doc: Y.Doc) => void
+  undoManager: Y.UndoManager | undefined
 } {
   const [doc, setDoc] = useState(new Y.Doc())
   const [docValue, setDocValue] = useState<T>()
@@ -453,7 +464,19 @@ export function useYDoc<T>(keys: string[]): {
     // without any behavioral benefit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc])
-  return { docValue, doc, setDoc }
+
+  const [undoManager, setUndoManager] = useState<Y.UndoManager>()
+  useEffect(() => {
+    const manager = createSharedUndoManager(doc, keys, remoteOrigin)
+    setUndoManager(manager)
+    return () => {
+      manager.destroy()
+    }
+    // `keys` is deliberately omitted for the same reason as above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, remoteOrigin])
+
+  return { docValue, doc, setDoc, undoManager }
 }
 
 export interface CollabData {
@@ -466,6 +489,7 @@ export interface StreamwallConnection {
   send: (msg: ControlCommand, cb?: (msg: unknown) => void) => void
   sharedState: CollabData | undefined
   stateDoc: Y.Doc
+  undoManager?: Y.UndoManager
   config: StreamWindowConfig | undefined
   streams: StreamData[]
   customStreams: StreamData[]
@@ -557,6 +581,7 @@ export function ControlUI({
     send,
     sharedState,
     stateDoc,
+    undoManager,
     config,
     streams,
     customStreams,
@@ -1064,6 +1089,26 @@ export function ControlUI({
     // Also fire while a grid input is focused during a gesture.
     { enableOnFormTags: true },
     [setMoveStart, setResize],
+  )
+  // Undo/redo edits to the shared views doc (drag-move, swap, and destructive
+  // grid-shrink remaps alike - see `useYDoc`'s `remoteOrigin` wiring).
+  // `enableOnFormTags` defaults to false so this doesn't hijack native
+  // undo/redo while a text input (e.g. a grid-size field) is focused.
+  useHotkeys(
+    'mod+z',
+    (ev) => {
+      ev.preventDefault()
+      undoManager?.undo()
+    },
+    [undoManager],
+  )
+  useHotkeys(
+    'mod+shift+z',
+    (ev) => {
+      ev.preventDefault()
+      undoManager?.redo()
+    },
+    [undoManager],
   )
 
   const wallStreamIds = useMemo(

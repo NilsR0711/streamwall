@@ -29,7 +29,8 @@ function useStreamwallWebsocketConnection(
     docValue: sharedState,
     doc: stateDoc,
     setDoc: setStateDoc,
-  } = useYDoc<CollabData>(['views'])
+    undoManager,
+  } = useYDoc<CollabData>(['views'], 'server')
   const [streamwallState, setStreamwallState] = useState<StreamwallState>()
   const appState = useStreamwallState(streamwallState)
 
@@ -133,6 +134,7 @@ function useStreamwallWebsocketConnection(
     send,
     sharedState,
     stateDoc,
+    undoManager,
   }
 }
 
