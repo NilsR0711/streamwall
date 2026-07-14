@@ -80,7 +80,7 @@ function useStreamwallIPCConnection(): StreamwallConnection {
 
   return {
     ...appState,
-    isConnected: true,
+    connectionStatus: 'connected',
     send,
     sharedState,
     stateDoc,

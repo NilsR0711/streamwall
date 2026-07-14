@@ -192,7 +192,7 @@ function useMockConnection(): StreamwallConnection {
 
   return {
     ...appState,
-    isConnected: true,
+    connectionStatus: 'connected',
     send: (msg) => console.debug('[mock send]', msg),
     sharedState,
     stateDoc,

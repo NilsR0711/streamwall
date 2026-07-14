@@ -10,8 +10,10 @@ import {
   useYDoc,
 } from 'streamwall-control-ui'
 import {
+  type ConnectionStatus,
   type ControlCommand,
   isSocketOpen,
+  nextConnectionStatus,
   stateDiff,
   type StreamwallState,
 } from 'streamwall-shared'
@@ -25,7 +27,8 @@ function useStreamwallWebsocketConnection(
     msgId: number
     responseMap: Map<number, (msg: object) => void>
   }>()
-  const [isConnected, setIsConnected] = useState(false)
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>('connecting')
   const {
     docValue: sharedState,
     doc: stateDoc,
@@ -49,11 +52,17 @@ function useStreamwallWebsocketConnection(
       maxEnqueuedMessages: 0,
     })
     ws.binaryType = 'arraybuffer'
-    ws.addEventListener('close', () => {
-      setStreamwallState(undefined)
-      lastStateData = undefined
+    ws.addEventListener('open', () => {
+      // Discard any local Yjs edits that never reached the server (sendUpdate
+      // below silently drops sends made while the socket is closed) so the
+      // full-doc snapshot the server sends on every (re)connect merges into a
+      // clean doc instead of racing an edit the server never learned about.
       setStateDoc(new Y.Doc())
-      setIsConnected(false)
+    })
+    ws.addEventListener('close', () => {
+      setConnectionStatus((prev) =>
+        nextConnectionStatus(prev, { type: 'closed' }),
+      )
     })
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
@@ -71,7 +80,9 @@ function useStreamwallWebsocketConnection(
         let state: StreamwallState
         if (msg.type === 'state') {
           state = msg.state
-          setIsConnected(true)
+          setConnectionStatus((prev) =>
+            nextConnectionStatus(prev, { type: 'state-received' }),
+          )
         } else {
           // Clone so updated object triggers React renders
           state = stateDiff.clone(
@@ -80,6 +91,18 @@ function useStreamwallWebsocketConnection(
         }
         lastStateData = state
         setStreamwallState(state)
+      } else if (msg.error === 'unauthorized') {
+        setConnectionStatus((prev) =>
+          nextConnectionStatus(prev, { type: 'unauthorized' }),
+        )
+        // The server won't accept this session on a retry - stop
+        // reconnecting so the UI can show a stable "reload / request a new
+        // invite" message instead of a spinner that will never resolve.
+        ws.close()
+      } else if (msg.error === 'streamwall disconnected') {
+        setConnectionStatus((prev) =>
+          nextConnectionStatus(prev, { type: 'server-down' }),
+        )
       } else {
         console.warn('unexpected ws message', msg)
       }
@@ -141,7 +164,7 @@ function useStreamwallWebsocketConnection(
 
   return {
     ...appState,
-    isConnected,
+    connectionStatus,
     send,
     sharedState,
     stateDoc,
