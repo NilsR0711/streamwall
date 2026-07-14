@@ -315,6 +315,7 @@ function makeState(): StreamwallState {
     layoutPresets: [
       { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },
     ],
+    favorites: ['https://example.com/stream'],
     dataSourceHealth: [],
   }
 }
@@ -368,6 +369,7 @@ test('StateWrapper.view passes non-sensitive fields through unchanged', () => {
   assert.equal(view.views, state.views)
   assert.equal(view.streamdelay, state.streamdelay)
   assert.equal(view.layoutPresets, state.layoutPresets)
+  assert.equal(view.favorites, state.favorites)
 })
 
 test('StateWrapper.info returns an unprivileged (monitor) view with no auth', () => {

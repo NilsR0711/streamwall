@@ -95,6 +95,7 @@ export class StateWrapper extends EventEmitter {
       views,
       streamdelay,
       layoutPresets,
+      favorites,
       dataSourceHealth,
     } = this._value
 
@@ -108,6 +109,7 @@ export class StateWrapper extends EventEmitter {
       views,
       streamdelay,
       layoutPresets,
+      favorites,
       dataSourceHealth,
     }
     if (role === 'admin') {
