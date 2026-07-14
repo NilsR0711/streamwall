@@ -4,6 +4,7 @@ import {
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
+  hasGridAssignments,
   idxToCoords,
   parseGridDimensionInput,
   remapGridAssignments,
@@ -124,5 +125,25 @@ describe('gridWouldDropAssignments', () => {
   it('returns false when the grid grows', () => {
     const assignments = new Map<number, string | undefined>([[3, 'a']])
     expect(gridWouldDropAssignments(2, 4, 4, assignments)).toBe(false)
+  })
+})
+
+describe('hasGridAssignments', () => {
+  it('returns false for an empty map', () => {
+    expect(hasGridAssignments(new Map())).toBe(false)
+  })
+  it('returns false when every cell is empty or empty-string', () => {
+    const assignments = new Map<number, string | undefined>([
+      [0, undefined],
+      [1, ''],
+    ])
+    expect(hasGridAssignments(assignments)).toBe(false)
+  })
+  it('returns true when at least one cell holds a streamId', () => {
+    const assignments = new Map<number, string | undefined>([
+      [0, undefined],
+      [1, 'a'],
+    ])
+    expect(hasGridAssignments(assignments)).toBe(true)
   })
 })

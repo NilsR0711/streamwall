@@ -184,6 +184,25 @@ export function gridWouldDropAssignments(
 }
 
 /**
+ * Reports whether any cell in `assignments` holds a stream. Used to decide
+ * whether an operation that unconditionally replaces the whole grid (e.g.
+ * loading a layout preset) needs a confirmation, since unlike a resize there
+ * is no partial overlap to preserve.
+ *
+ * @param assignments Map of cell index -> streamId (undefined/'' = empty).
+ */
+export function hasGridAssignments(
+  assignments: Map<number, string | undefined>,
+): boolean {
+  for (const streamId of assignments.values()) {
+    if (streamId !== undefined && streamId !== '') {
+      return true
+    }
+  }
+  return false
+}
+
+/**
  * Remaps grid cell assignments when the grid dimensions change. Each non-empty
  * assignment is preserved at the same (x, y) position if that position still
  * exists in the new grid; assignments that fall outside the new grid are

@@ -40,6 +40,7 @@ import {
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
+  hasGridAssignments,
   idColor,
   idxInBox,
   inviteLink,
@@ -1048,9 +1049,27 @@ export function ControlUI({
 
   const handleLoadLayoutPreset = useCallback(
     (presetId: string) => {
+      // Loading a preset unconditionally replaces every cell (see
+      // applyLayoutPreset), unlike a grid resize which only drops cells that
+      // fall outside the new bounds. So warn whenever the current layout has
+      // any live assignment, mirroring handleSetGridSize's confirm above.
+      if (sharedState) {
+        const assignments = new Map<number, string | undefined>()
+        for (const [idx, view] of Object.entries(sharedState.views)) {
+          assignments.set(Number(idx), view.streamId)
+        }
+        if (
+          hasGridAssignments(assignments) &&
+          !window.confirm(
+            'Loading this preset will replace the current layout. Save it as a preset first if you want to keep it. Continue?',
+          )
+        ) {
+          return
+        }
+      }
       send({ type: 'load-layout-preset', presetId })
     },
-    [send],
+    [send, sharedState],
   )
 
   const handleDeleteLayoutPreset = useCallback(
