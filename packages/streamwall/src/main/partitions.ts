@@ -63,20 +63,32 @@ interface RequestFilteringSession {
 export interface RequestGuardOptions {
   /**
    * Origins that bypass the address check entirely (e.g. the Vite dev server on
-   * loopback, which serves the HLS renderer page). Empty in a packaged build.
+   * loopback, which serves the HLS renderer page). Matched by host (hostname
+   * plus port), not full origin, so the dev server's ws: HMR socket is covered
+   * by the same entry as its http: origin. Empty in a packaged build.
    */
   allowedOrigins?: readonly string[]
   /** Overridable for tests; defaults to the real address classifier. */
   findBlockReason?: (url: string) => Promise<string | null>
 }
 
+/** Extracts the `host` (hostname[:port]) from an origin string, or undefined if unparseable. */
+function hostOf(origin: string): string | undefined {
+  try {
+    return new URL(origin).host
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Enforces the non-public-address policy at the network layer of a session, so
  * that *every* request it issues is checked — not just the initial URL string.
  * This closes the SSRF vectors a single up-front check structurally cannot
- * cover: HTTP 3xx redirects (Chromium re-enters `onBeforeRequest` for each hop)
- * and sub-resources named inside loaded content (e.g. HLS variant/segment URIs
- * fetched by hls.js), both of which are issued *after* `ensureValidURL` has run.
+ * cover: HTTP 3xx redirects (Chromium re-enters `onBeforeRequest` for each hop),
+ * sub-resources named inside loaded content (e.g. HLS variant/segment URIs
+ * fetched by hls.js), and WebSockets opened by script inside the loaded page —
+ * all of which are issued *after* `ensureValidURL` has run.
  *
  * Blocked requests are cancelled; a cancelled main-frame navigation surfaces as
  * a view error on the wall via the existing `did-fail-load` handler.
@@ -88,17 +100,22 @@ export function installRequestSSRFGuard(
     findBlockReason = findRequestBlockReason,
   }: RequestGuardOptions = {},
 ): void {
-  const allowed = new Set(allowedOrigins.filter(Boolean))
+  const allowedHosts = new Set(
+    allowedOrigins
+      .filter(Boolean)
+      .map(hostOf)
+      .filter((host): host is string => host !== undefined),
+  )
   session.webRequest.onBeforeRequest((details, callback) => {
     void (async () => {
       try {
-        let origin: string | undefined
+        let host: string | undefined
         try {
-          origin = new URL(details.url).origin
+          host = new URL(details.url).host
         } catch {
-          origin = undefined
+          host = undefined
         }
-        if (origin !== undefined && allowed.has(origin)) {
+        if (host !== undefined && allowedHosts.has(host)) {
           callback({ cancel: false })
           return
         }

@@ -191,6 +191,25 @@ test('installRequestSSRFGuard allows an explicitly allowed origin without consul
   )
 })
 
+test('installRequestSSRFGuard allows a ws: request to the allow-listed dev server host', async () => {
+  // The Vite HMR socket connects over ws: to the same host:port the dev
+  // server's http: origin is allow-listed for; the allow-list must match by
+  // host so this is not treated as a different, unlisted origin.
+  const session = guardWith(
+    { 'ws://localhost:5173/vite-hmr': 'loopback host' },
+    ['http://localhost:5173'],
+  )
+  assert.equal(await session.requestURL('ws://localhost:5173/vite-hmr'), false)
+})
+
+test('installRequestSSRFGuard still blocks a ws: request to a different, non-allow-listed host', async () => {
+  const session = guardWith(
+    { 'ws://169.254.169.254/': 'blocking request to private-network address' },
+    ['http://localhost:5173'],
+  )
+  assert.equal(await session.requestURL('ws://169.254.169.254/'), true)
+})
+
 test('installRequestSSRFGuard fails open if the reason lookup itself throws', async () => {
   const session = fakeSession()
   installRequestSSRFGuard(session, {

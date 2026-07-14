@@ -280,3 +280,49 @@ test('findRequestBlockReason allows a public IPv6-literal request', async () => 
     null,
   )
 })
+
+// A page loaded into a view can open a WebSocket from script (e.g.
+// `new WebSocket('ws://169.254.169.254/')`), which is the same class of
+// loopback/LAN/cloud-metadata SSRF as an http(s) sub-resource fetch. The
+// guard must classify ws:/wss: targets the same way.
+
+test('findRequestBlockReason blocks a ws: request to the cloud-metadata address', async () => {
+  assert.match(
+    String(
+      await findRequestBlockReason('ws://169.254.169.254/latest/meta-data/'),
+    ),
+    /private-network/,
+  )
+})
+
+test('findRequestBlockReason blocks a wss: request to a loopback hostname', async () => {
+  assert.match(
+    String(await findRequestBlockReason('wss://localhost:8404/')),
+    /loopback/,
+  )
+})
+
+test('findRequestBlockReason blocks a ws: request to a public host resolving to a private address', async () => {
+  const reason = await findRequestBlockReason(
+    'ws://ws.evil.example/socket',
+    resolvesTo('10.1.2.3'),
+  )
+  assert.match(String(reason), /private-network/)
+})
+
+test('findRequestBlockReason allows a wss: request to a public host resolving to a public address', async () => {
+  assert.equal(
+    await findRequestBlockReason(
+      'wss://ws.example.com/socket',
+      resolvesTo('93.184.216.34'),
+    ),
+    null,
+  )
+})
+
+test('findRequestBlockReason fails open for a ws: request when the host does not resolve', async () => {
+  assert.equal(
+    await findRequestBlockReason('ws://cdn.example/socket', resolveFails),
+    null,
+  )
+})

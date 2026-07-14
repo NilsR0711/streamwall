@@ -117,9 +117,12 @@ export async function ensureValidURL(
  *
  * It reuses the same non-public-address classification but differs from
  * `ensureValidURL` in two deliberate ways that suit a per-request hook:
- *   - Only http(s) is governed. Other schemes (file:, data:, blob:, devtools:,
- *     ws:, …) are the app's own machinery and are always allowed; an
+ *   - Only http(s)/ws(s) are governed. Other schemes (file:, data:, blob:,
+ *     devtools:, …) are the app's own machinery and are always allowed; an
  *     unparseable URL is likewise left for the network stack to reject.
+ *     ws:/wss: is included because a page loaded into a view can open a
+ *     WebSocket to an internal host from script, the same class of SSRF as an
+ *     http(s) sub-resource fetch.
  *   - It fails *open* on a resolution failure. Only a positive match — a
  *     loopback hostname or an address that classifies as non-public — blocks a
  *     request, so a transient DNS hiccup on a legitimate public host does not
@@ -136,7 +139,12 @@ export async function findRequestBlockReason(
     return null
   }
 
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+  if (
+    url.protocol !== 'http:' &&
+    url.protocol !== 'https:' &&
+    url.protocol !== 'ws:' &&
+    url.protocol !== 'wss:'
+  ) {
     return null
   }
 
