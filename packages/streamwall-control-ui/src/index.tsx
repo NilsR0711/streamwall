@@ -50,6 +50,7 @@ import {
   type StreamwallRole,
   type StreamwallState,
   type StreamWindowConfig,
+  type ViewPos,
   type ViewState,
 } from 'streamwall-shared'
 import { createGlobalStyle, styled } from 'styled-components'
@@ -59,6 +60,10 @@ import { isPrimaryButton, resolveMoveTarget } from './gestures'
 import './index.css'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
+
+// `import Color from 'color'` binds only the value; alias the instance type
+// (as returned by the Color factory) for use in styled-component prop types.
+type ColorInstance = ReturnType<typeof Color>
 
 export interface ViewInfo {
   state: ViewState
@@ -1417,7 +1422,13 @@ export function ControlUI({
   )
 }
 
-const Stack = styled.div`
+const Stack = styled.div<{
+  direction?: string
+  flex?: string
+  gap?: number
+  scroll?: boolean
+  minHeight?: number
+}>`
   display: flex;
   flex-direction: ${({ direction }) => direction ?? 'column'};
   flex: ${({ flex }) => flex};
@@ -1546,7 +1557,7 @@ function StreamLine({
     <StyledStreamLine>
       <StyledId
         $disabled={disabled}
-        onMouseDown={disabled ? null : handleMouseDownId}
+        onMouseDown={disabled ? undefined : handleMouseDownId}
         $color={idColor(id)}
       >
         {id}
@@ -2128,11 +2139,14 @@ const StyledStreamDelayBox = styled.div`
   color: var(--text);
 `
 
-const StyledDataContainer = styled.div`
+const StyledDataContainer = styled.div<{ isConnected?: boolean }>`
   opacity: ${({ isConnected }) => (isConnected ? 1 : 0.5)};
 `
 
-const StyledButton = styled.button`
+const StyledButton = styled.button<{
+  isActive?: boolean
+  activeColor?: string
+}>`
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2190,7 +2204,15 @@ const StyledGridInfo = styled.div`
   z-index: 1000; /* Keep above grid inputs */
 `
 
-const StyledGridPreviewBox = styled.div.attrs(() => ({
+const StyledGridPreviewBox = styled.div.attrs<{
+  color: ColorInstance
+  isError: boolean
+  pos: ViewPos
+  windowWidth: number
+  windowHeight: number
+  isListening: boolean
+  borderWidth?: number
+}>(() => ({
   borderWidth: 2,
 }))`
   display: flex;
@@ -2259,7 +2281,7 @@ const StyledGridInputContainer = styled.div`
   position: absolute;
 `
 
-const StyledGridButtons = styled.div`
+const StyledGridButtons = styled.div<{ side?: 'left' | 'right' }>`
   display: flex;
   position: absolute;
   ${({ side }) =>
@@ -2271,7 +2293,10 @@ const StyledGridButtons = styled.div`
   }
 `
 
-const StyledGridInput = styled(LazyChangeInput)`
+const StyledGridInput = styled(LazyChangeInput)<{
+  color: ColorInstance
+  isHighlighted?: boolean
+}>`
   width: 100%;
   height: 100%;
   outline: 1px solid rgba(0, 0, 0, 0.5);
@@ -2300,7 +2325,10 @@ const StyledGridControlsContainer = styled.div`
   }
 `
 
-const StyledGridContainer = styled.div`
+const StyledGridContainer = styled.div<{
+  windowWidth: number
+  windowHeight: number
+}>`
   position: relative;
   /* Responsive: keep the wall's aspect ratio but fit the available space
      instead of a hard-coded pixel size, so the layout never overflows. */
@@ -2319,7 +2347,7 @@ const StyledGridContainer = styled.div`
   }
 `
 
-const StyledId = styled.div`
+const StyledId = styled.div<{ $color: ColorInstance; $disabled?: boolean }>`
   flex-shrink: 0;
   font-family: var(--font-mono);
   font-weight: 700;

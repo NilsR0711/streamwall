@@ -12,7 +12,11 @@ import {
   FaYoutube,
 } from 'react-icons/fa'
 import { RiKickFill, RiTwitterXFill } from 'react-icons/ri'
-import { StreamwallState } from 'streamwall-shared'
+import {
+  type StreamData,
+  StreamwallState,
+  type ViewPos,
+} from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { TailSpin } from 'svg-loaders-react'
 import { matchesState } from 'xstate'
@@ -46,7 +50,7 @@ function Overlay({
       <VersionFooter />
       {activeViews.map(({ state, context }) => {
         const { content, pos } = context
-        if (!content) {
+        if (!content || !pos) {
           return
         }
 
@@ -188,7 +192,14 @@ const OverlayContainer = styled.div`
   overflow: hidden;
 `
 
-const SpaceBorder = styled.div.attrs(() => ({
+const SpaceBorder = styled.div.attrs<{
+  pos: ViewPos
+  windowWidth: number
+  windowHeight: number
+  activeColor: string
+  isListening: boolean
+  borderWidth?: number
+}>(() => ({
   borderWidth: 2,
 }))`
   display: flex;
@@ -214,7 +225,11 @@ const SpaceBorder = styled.div.attrs(() => ({
   user-select: none;
 `
 
-const StreamTitle = styled.div`
+const StreamTitle = styled.div<{
+  position: StreamData['labelPosition']
+  isListening: boolean
+  activeColor: string
+}>`
   position: absolute;
   ${({ position }) => {
     if (position === 'top-left') {
@@ -240,13 +255,7 @@ const StreamTitle = styled.div`
   color: white;
   text-shadow: 0 0 4px black;
   letter-spacing: -0.025em;
-  background: ${({
-    isListening,
-    activeColor,
-  }: {
-    isListening: boolean
-    activeColor: string
-  }) =>
+  background: ${({ isListening, activeColor }) =>
     Color(isListening ? activeColor : 'black')
       .alpha(0.5)
       .toString()};
@@ -323,7 +332,7 @@ const LoadingSpinner = styled(TailSpin)<{ isVisible: boolean }>`
   visibility: ${({ isVisible }) => (isVisible ? 'visible' : 'hidden')};
 `
 
-const FilterCover = styled.div`
+const FilterCover = styled.div<{ isBlurred: boolean; isDesaturated: boolean }>`
   position: absolute;
   left: 0;
   right: 0;
@@ -335,7 +344,7 @@ const FilterCover = styled.div`
     )};
 `
 
-const VersionText = styled.div`
+const VersionText = styled.div<{ isShowing: boolean }>`
   position: fixed;
   bottom: 4px;
   right: 4px;
