@@ -38,6 +38,7 @@ import {
   type ContentKind,
   type ControlCommand,
   type DataSourceHealth,
+  type DisconnectReason,
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
@@ -61,6 +62,7 @@ import { matchesState } from 'xstate'
 import * as Y from 'yjs'
 import { createErrorSurfacingSend } from './commandError.ts'
 import { CommandErrorBanner } from './CommandErrorBanner.tsx'
+import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx'
 import { DataSourceHealthBanner } from './DataSourceHealthBanner.tsx'
 import {
   computeHoveringIdx,
@@ -521,6 +523,12 @@ export interface CollabData {
 
 export interface StreamwallConnection {
   isConnected: boolean
+  /**
+   * Why the websocket is currently closed, when the server said so before
+   * closing it. `undefined`/`null` while connected, or while disconnected
+   * for an unexplained reason (network blip, generic retry).
+   */
+  disconnectReason?: DisconnectReason | null
   role: StreamwallRole | null
   send: (msg: ControlCommand, cb?: (msg: unknown) => void) => void
   sharedState: CollabData | undefined
@@ -623,6 +631,7 @@ export function ControlUI({
 }) {
   const {
     isConnected,
+    disconnectReason,
     send: connectionSend,
     sharedState,
     stateDoc,
@@ -1347,6 +1356,10 @@ export function ControlUI({
           )}
           <ThemeToggle />
         </StyledHeader>
+        <ConnectionStatusBanner
+          isConnected={isConnected}
+          reason={disconnectReason}
+        />
         <DataSourceHealthBanner dataSourceHealth={dataSourceHealth} />
         <CommandErrorBanner
           error={commandError}
@@ -1605,8 +1618,15 @@ export function ControlUI({
         </StyledStatusBar>
       </Stack>
       <Stack className="stream-list" $scroll={true} $minHeight={200}>
+        {
+          // Keyed on `role` (persists across a reconnect, see
+          // `StreamwallConnection`) rather than `isConnected`, so a brief
+          // disconnect dims the last-known list instead of replacing it with
+          // "loading..." (issue #37). Only the very first load, before any
+          // state has ever arrived, shows the loading placeholder.
+        }
         <StyledDataContainer $isConnected={isConnected}>
-          {isConnected ? (
+          {role != null ? (
             <div>
               <input
                 className="filter-input"
