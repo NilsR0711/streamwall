@@ -37,10 +37,11 @@ import {
 import { applyGridResize } from './gridResize'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
-import { loadStorage } from './storage'
+import { flushStorage, loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
+import { shouldHideInsteadOfQuit } from './windowCloseBehavior'
 
 const SENTRY_DSN =
   'https://e630a21dcf854d1a9eb2a7a8584cbd0b@o459879.ingest.sentry.io/5459505'
@@ -436,15 +437,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     }
   }
 
-  stateDoc.on(
-    'update',
-    throttle(() => {
-      db.update((data) => {
-        const fullDoc = Y.encodeStateAsUpdate(stateDoc)
-        data.stateDoc = Buffer.from(fullDoc).toString('base64')
-      })
-    }, 1000),
-  )
+  const persistStateDoc = throttle(() => {
+    db.update((data) => {
+      const fullDoc = Y.encodeStateAsUpdate(stateDoc)
+      data.stateDoc = Buffer.from(fullDoc).toString('base64')
+    })
+  }, 1000)
+  stateDoc.on('update', persistStateDoc)
 
   stateDoc.transact(() => {
     for (let i = 0; i < argv.grid.cols * argv.grid.rows; i++) {
@@ -614,9 +613,42 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
   controlWindow.on('command', (command) => onCommand(command, 'local'))
 
-  // TODO: Hide on macOS, allow reopening from dock
-  streamWindow.on('close', () => {
-    process.exit(0)
+  // Closing the stream window quits the app, except on macOS where the
+  // convention is to hide the window and keep the app (and its dock icon)
+  // running until the user explicitly quits.
+  let isQuitting = false
+  let storageFlushed = false
+  app.on('before-quit', () => {
+    isQuitting = true
+  })
+  app.on('activate', () => {
+    streamWindow.win.show()
+  })
+  streamWindow.on('close', (event) => {
+    if (shouldHideInsteadOfQuit(process.platform, isQuitting)) {
+      event.preventDefault()
+      streamWindow.win.hide()
+      return
+    }
+    app.quit()
+  })
+
+  // The throttled stateDoc persist above may still have a pending write when
+  // the app quits, so flush it and wait for storage to hit disk before the
+  // process actually exits (otherwise recent grid/view changes are lost).
+  app.on('before-quit', (event) => {
+    if (storageFlushed) {
+      return
+    }
+    event.preventDefault()
+    flushStorage(db, () => persistStateDoc.flush())
+      .catch((err) => {
+        console.error('Failed to flush storage before quit', err)
+      })
+      .finally(() => {
+        storageFlushed = true
+        app.quit()
+      })
   })
 
   if (

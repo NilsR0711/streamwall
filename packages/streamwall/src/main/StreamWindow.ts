@@ -1,5 +1,11 @@
 import assert from 'assert'
-import { BrowserWindow, ipcMain, WebContents, WebContentsView } from 'electron'
+import {
+  BrowserWindow,
+  Event as ElectronEvent,
+  ipcMain,
+  WebContents,
+  WebContentsView,
+} from 'electron'
 import EventEmitter from 'events'
 import intersection from 'lodash/intersection'
 import isEqual from 'lodash/isEqual'
@@ -35,7 +41,7 @@ function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
 
 export interface StreamWindowEventMap {
   load: []
-  close: []
+  close: [ElectronEvent]
   state: [ViewState[]]
   resize: []
 }
@@ -71,7 +77,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     })
     win.removeMenu()
     win.loadURL('about:blank')
-    win.on('close', () => this.emit('close'))
+    win.on('close', (event) => this.emit('close', event))
 
     win.once('ready-to-show', () => {
       win.show()
