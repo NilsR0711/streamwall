@@ -86,3 +86,8 @@ json-url = []
 [streamdelay]
 #endpoint = "http://localhost:8404"
 #key = "super-secret"
+
+[telemetry]
+# Whether to report uncaught errors to Streamwall's Sentry project. Enabled
+# by default; uncomment to opt out.
+#sentry = false

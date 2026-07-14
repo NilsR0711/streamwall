@@ -43,6 +43,13 @@ Configuration precedence is:
 
 See `example.config.toml` for an example.
 
+### Telemetry
+
+Streamwall reports uncaught errors to a Sentry project run by the maintainers
+(`telemetry.sentry`, default `true`). To opt out, set `sentry = false` under
+`[telemetry]` in your config file (see `example.config.toml`) or pass
+`--telemetry.sentry=false` on the command line.
+
 ## Remote control server
 
 For multi-operator setups, `streamwall-control-server` lets you control the
