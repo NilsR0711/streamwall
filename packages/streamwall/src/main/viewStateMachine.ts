@@ -462,6 +462,24 @@ const viewStateMachine = setup({
                   params: ({ event: { content } }) => ({ content }),
                 },
               },
+              // Content actually changed (e.g. a playlist advance or manual
+              // reassignment) while this cell was already running: reload
+              // straight into `loading` as a sibling transition instead of
+              // going through the root DISPLAY handler, which would re-enter
+              // `displaying` and repeat its entry actions -- most visibly
+              // `offscreenView`, which briefly pulls the view out of the wall
+              // even though it's already live and positioned there. This
+              // still fully reloads the WebContentsView (see `loadPage`);
+              // there is no crossfade or seamless handoff. Removing that
+              // reload cost would require preloading the next view in
+              // parallel before swapping it in.
+              {
+                target: '#view.displaying.loading',
+                actions: assign({
+                  pos: ({ event }) => event.pos,
+                  content: ({ event }) => event.content,
+                }),
+              },
             ],
           },
           states: {
