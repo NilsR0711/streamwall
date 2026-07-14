@@ -118,6 +118,17 @@ const hotkeyTriggers = [
 ]
 
 /**
+ * Label for the `alt+<key>` hotkey that toggles audio on grid cell `idx`, or
+ * `undefined` if `idx` falls outside hotkeyTriggers' fixed 20-slot range
+ * (grids can have up to GRID_MAX * GRID_MAX = 64 cells, so not every cell has
+ * an assigned hotkey).
+ */
+export function getHotkeyLabel(idx: number): string | undefined {
+  const key = hotkeyTriggers[idx]
+  return key === undefined ? undefined : `Alt+${key.toUpperCase()}`
+}
+
+/**
  * Theme tokens. Light is the base; dark is applied either by the OS setting
  * (prefers-color-scheme) when no explicit choice is made, or by an explicit
  * `data-theme` attribute on <html> (set by the theme switcher).
@@ -1756,6 +1767,7 @@ export function GridPreviewBox({
   state: string | undefined
   style?: JSX.HTMLAttributes['style']
 }) {
+  const hotkeyLabel = getHotkeyLabel(pos.spaces[0])
   return (
     <StyledGridPreviewBox
       $color={color}
@@ -1765,6 +1777,7 @@ export function GridPreviewBox({
       $windowHeight={windowHeight}
       $isListening={isListening}
       $isError={isError}
+      title={hotkeyLabel ? `${hotkeyLabel} toggles audio` : undefined}
     >
       <StyledGridInfo className={isSmall ? 'small' : undefined}>
         <StyledGridLabel>
