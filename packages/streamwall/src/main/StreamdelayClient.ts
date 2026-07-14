@@ -57,8 +57,8 @@ export default class StreamdelayClient extends EventEmitter {
       return
     }
     this.emit('state', {
-      isConnected,
       ...this.status,
+      isConnected,
     })
   }
 
