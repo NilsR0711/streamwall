@@ -75,6 +75,33 @@ describe('remapGridAssignments', () => {
     expect(result.get(0)).toBeUndefined()
     expect(result.get(1)).toBe('a')
   })
+
+  it('ignores a stale entry beyond the true old grid when oldRows is given (issue #17)', () => {
+    // The true old grid was only 3x1 (3 cells). Index 17 is a leftover key from
+    // some previous, larger grid config that was never pruned. Naively reading
+    // it via oldCols=3 alone gives (x=17%3=2, y=floor(17/3)=5), which lands
+    // inside a large-enough new grid and would revive as a ghost stream.
+    const old = new Map<number, string | undefined>([
+      [0, 'a'],
+      [17, 'ghost'],
+    ])
+    const result = remapGridAssignments(3, 6, 6, old, 1)
+    expect([...result.values()]).not.toContain('ghost')
+    expect(result.get(0)).toBe('a')
+  })
+
+  it('keeps an entry within the true old grid when oldRows is given', () => {
+    // 3x2 grid: idx3 = (x=0, y=1).
+    const old = new Map<number, string | undefined>([[3, 'b']])
+    const result = remapGridAssignments(3, 4, 4, old, 2)
+    expect(result.get(4)).toBe('b') // (0,1) -> 4*1 + 0 = 4
+  })
+
+  it('applies no extra filtering when oldRows is omitted (back-compat)', () => {
+    const old = new Map<number, string | undefined>([[17, 'ghost']])
+    const result = remapGridAssignments(3, 6, 6, old)
+    expect(result.get(32)).toBe('ghost') // (x=2, y=5) -> 6*5 + 2 = 32
+  })
 })
 
 describe('parseGridDimensionInput', () => {

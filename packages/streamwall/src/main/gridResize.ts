@@ -13,6 +13,13 @@ export interface GridResizeContext {
   transact: (fn: () => void) => void
   /** Current column count of the wall (used to read each cell's (x, y)). */
   getCols: () => number
+  /**
+   * Current row count of the wall. Bounds `oldCols * oldRows` so a stale
+   * `viewsState` key left over from a previously larger grid (see
+   * `getCols`) is dropped as out-of-range rather than remapped by
+   * coincidence (issue #17).
+   */
+  getRows: () => number
   /** Applies the new grid dimensions to the wall (mutates the shared config). */
   setGridSize: (cols: number, rows: number) => void
 }
@@ -41,6 +48,7 @@ export function applyGridResize(
   const cols = clampGridDimension(requestedCols)
   const rows = clampGridDimension(requestedRows)
   const oldCols = ctx.getCols()
+  const oldRows = ctx.getRows()
 
   // Read current assignments keyed by old cell index.
   const oldAssignments = new Map<number, string | undefined>()
@@ -54,6 +62,7 @@ export function applyGridResize(
     cols,
     rows,
     oldAssignments,
+    oldRows,
   )
 
   // Update the grid dimensions BEFORE the transact so the synchronous observer

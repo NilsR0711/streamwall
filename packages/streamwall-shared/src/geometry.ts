@@ -213,19 +213,30 @@ export function hasGridAssignments(
  * @param newCols Column count of the target grid.
  * @param newRows Row count of the target grid.
  * @param oldAssignments Map of old cell index -> streamId (undefined/'' = empty).
+ * @param oldRows Row count of the true old grid. When given, entries whose
+ *   index falls outside `oldCols * oldRows` are dropped as stale before
+ *   remapping, rather than being read against `oldCols` alone — a stale key
+ *   left over from a previously larger grid config can otherwise land inside
+ *   the new grid by coincidence and resurface as a ghost stream (issue #17).
+ *   Omit when `oldAssignments` is already known to cover exactly the old grid.
  */
 export function remapGridAssignments(
   oldCols: number,
   newCols: number,
   newRows: number,
   oldAssignments: Map<number, string | undefined>,
+  oldRows?: number,
 ): Map<number, string | undefined> {
   const result = new Map<number, string | undefined>()
   for (let idx = 0; idx < newCols * newRows; idx++) {
     result.set(idx, undefined)
   }
+  const oldCellCount = oldRows === undefined ? undefined : oldCols * oldRows
   for (const [oldIdx, streamId] of oldAssignments) {
     if (streamId === undefined || streamId === '') {
+      continue
+    }
+    if (oldCellCount !== undefined && oldIdx >= oldCellCount) {
       continue
     }
     const x = oldIdx % oldCols

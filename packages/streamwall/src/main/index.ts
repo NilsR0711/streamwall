@@ -49,6 +49,7 @@ import { flushStorage, loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
+import { initializeViewsState } from './viewsStateInit'
 import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
@@ -494,16 +495,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }, 1000)
   stateDoc.on('update', persistStateDoc)
 
-  stateDoc.transact(() => {
-    for (let i = 0; i < argv.grid.cols * argv.grid.rows; i++) {
-      if (viewsState.has(String(i))) {
-        continue
-      }
-      const data = new Y.Map<string | undefined>()
-      data.set('streamId', undefined)
-      viewsState.set(String(i), data)
-    }
-  })
+  initializeViewsState(
+    { viewsState, transact: (fn) => stateDoc.transact(fn) },
+    argv.grid.cols,
+    argv.grid.rows,
+  )
 
   updateViewsFromStateDoc()
   viewsState.observeDeep(updateViewsFromStateDoc)
@@ -620,6 +616,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           viewsState,
           transact: (fn) => stateDoc.transact(fn),
           getCols: () => streamWindowConfig.cols,
+          getRows: () => streamWindowConfig.rows,
           setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
         },
         msg.cols,

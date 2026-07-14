@@ -86,6 +86,7 @@ function setupWall(cols: number, rows: number) {
     viewsState,
     transact: (fn) => doc.transact(fn),
     getCols: () => wall.cols,
+    getRows: () => wall.rows,
     setGridSize: (c, r) => wall.setGridSize(c, r),
   }
 
@@ -154,6 +155,7 @@ describe('applyGridResize', () => {
       viewsState,
       transact: (fn) => doc.transact(fn),
       getCols: () => cols,
+      getRows: () => rows,
       setGridSize: (c, r) => {
         cols = c
         rows = r
@@ -221,5 +223,28 @@ describe('applyGridResize', () => {
 
     expect(applied).toEqual({ cols: 1, rows: GRID_MAX })
     expect(viewsState.size).toBe(1 * GRID_MAX)
+  })
+
+  it('does not resurrect a stale viewsState key left over from a larger grid (issue #17)', () => {
+    // The true current grid is 3x1. A key like "17" can only be a leftover
+    // from some previous, larger grid config that was never pruned (e.g. an
+    // 8x8 wall) - it has no meaning under the current 3x1 dimensions.
+    const { viewsState, wall, ctx } = setupWall(3, 1)
+    seedAssignments(viewsState, 3, 1, { 0: 'stream-a' })
+    viewsState.doc!.transact(() => {
+      const ghost = new Y.Map<string | undefined>()
+      ghost.set('streamId', 'ghost')
+      viewsState.set('17', ghost)
+    })
+
+    // Grow to 6x6: naively reading idx=17 via oldCols=3 gives (x=2, y=5),
+    // which fits inside 6x6 and would revive the ghost at cell 32.
+    applyGridResize(ctx, 6, 6)
+
+    expect(wall.live.has('ghost')).toBe(false)
+    for (const [, viewData] of viewsState) {
+      expect(viewData.get('streamId')).not.toBe('ghost')
+    }
+    expect(viewsState.get('0')?.get('streamId')).toBe('stream-a')
   })
 })
