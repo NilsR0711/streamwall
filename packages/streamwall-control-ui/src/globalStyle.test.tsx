@@ -1,7 +1,7 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test } from 'vitest'
-import { GlobalStyle } from './index.tsx'
+import { GlobalStyle } from './globalStyle.tsx'
 
 let container: HTMLDivElement | undefined
 

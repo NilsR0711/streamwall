@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { getHotkeyLabel } from './index.tsx'
+import { getHotkeyLabel } from './hotkeyLabel.ts'
 
 describe('getHotkeyLabel', () => {
   test('labels the first hotkey slot', () => {

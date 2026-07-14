@@ -2,7 +2,7 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { GridInput } from './index.tsx'
+import { GridInput } from './GridInput.tsx'
 
 let container: HTMLDivElement | undefined
 

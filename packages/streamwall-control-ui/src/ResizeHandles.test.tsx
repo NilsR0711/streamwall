@@ -1,7 +1,7 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { ResizeHandles } from './index.tsx'
+import { ResizeHandles } from './ResizeHandles.tsx'
 
 let container: HTMLDivElement | undefined
 
