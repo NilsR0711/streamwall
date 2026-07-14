@@ -8,6 +8,12 @@ import { describe, expect, it, vi } from 'vitest'
 class FakeBrowserWindow extends EventEmitter {
   webContents = { send: vi.fn() }
   removeMenu = vi.fn()
+  options: Record<string, unknown>
+
+  constructor(options: Record<string, unknown>) {
+    super()
+    this.options = options
+  }
 }
 
 vi.mock('electron', () => ({
@@ -29,5 +35,13 @@ describe('ControlWindow close', () => {
     controlWindow.win.emit('close', fakeEvent)
 
     expect(closeListener).toHaveBeenCalledWith(fakeEvent)
+  })
+
+  it('keeps the native close control enabled so the quit/hide behavior wired through the close event is reachable from the window chrome', () => {
+    const controlWindow = new ControlWindow()
+
+    expect(
+      (controlWindow.win as unknown as FakeBrowserWindow).options.closable,
+    ).not.toBe(false)
   })
 })

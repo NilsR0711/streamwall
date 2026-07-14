@@ -21,7 +21,6 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
       title: 'Streamwall Control',
       width: 1280,
       height: 1024,
-      closable: false,
       webPreferences: {
         preload: path.join(__dirname, 'controlPreload.js'),
       },
