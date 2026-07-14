@@ -1268,11 +1268,11 @@ export function ControlUI({
   useHotkeys(
     `alt+s`,
     () => {
-      if (focusedInputIdx != null) {
+      if (focusedInputIdx != null && roleCan(role, 'mutate-state-doc')) {
         handleSwapView(focusedInputIdx)
       }
     },
-    [handleSwapView, focusedInputIdx],
+    [handleSwapView, focusedInputIdx, role],
   )
   // Escape cancels an in-progress drag-move or resize without committing. The
   // window pointerup/pointercancel listeners are no-ops once these are cleared.
