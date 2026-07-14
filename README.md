@@ -77,6 +77,11 @@ See
 for environment variable configuration (hostname/port, storage location, rate
 limits).
 
+`streamwall-control-server` does not generate or manage TLS certificates —
+for `wss://`/`https://` endpoints, terminate TLS with a reverse proxy (e.g.
+nginx, Caddy) in front of the server and set `STREAMWALL_CONTROL_URL` to the
+public `https://` address.
+
 ## Data sources
 
 Streamwall can load stream data from both JSON APIs and TOML files. Data sources can be specified in a config file (see `example.config.toml` for an example) or the command line:
