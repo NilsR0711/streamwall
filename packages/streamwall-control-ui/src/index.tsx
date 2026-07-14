@@ -1225,7 +1225,8 @@ export function ControlUI({
                   const isError = matchesState('displaying.error', state.state)
                   const errorReason = state.context.error
                   return (
-                    <StyledGridPreviewBox
+                    <GridPreviewBox
+                      streamId={streamId}
                       color={idColor(streamId)}
                       style={{
                         left: `${(100 * pos.x) / windowWidth}%`,
@@ -1237,30 +1238,14 @@ export function ControlUI({
                       windowWidth={windowWidth}
                       windowHeight={windowHeight}
                       isListening={isListening}
+                      isSmall={isSmall}
                       isError={isError}
-                    >
-                      <StyledGridInfo className={isSmall ? 'small' : undefined}>
-                        <StyledGridLabel>
-                          {streamId}
-                          <OrientationIndicator
-                            orientation={data?.orientation ?? null}
-                            className={`orientation-${(data?.orientation ?? 'unknown').toLowerCase()}`}
-                          />
-                        </StyledGridLabel>
-                        {!isSmall && <div>{data?.source}</div>}
-                        {data?.city && (
-                          <StyledGridLocation>
-                            {data?.city} {data?.state}
-                          </StyledGridLocation>
-                        )}
-                        {isError && (
-                          <StyledGridError title={errorReason ?? undefined}>
-                            <FaExclamationTriangle />
-                            <span>{errorReason ?? 'Stream error'}</span>
-                          </StyledGridError>
-                        )}
-                      </StyledGridInfo>
-                    </StyledGridPreviewBox>
+                      errorReason={errorReason}
+                      orientation={data?.orientation ?? null}
+                      source={data?.source}
+                      city={data?.city}
+                      state={data?.state}
+                    />
                   )
                 })}
               </StyledGridPreview>
@@ -1545,6 +1530,74 @@ function OrientationIndicator({
   } else {
     return null
   }
+}
+
+// Extracted from the ControlUI grid preview loop so the error badge markup
+// can be rendered and tested in isolation.
+export function GridPreviewBox({
+  streamId,
+  color,
+  pos,
+  windowWidth,
+  windowHeight,
+  isListening,
+  isSmall,
+  isError,
+  errorReason,
+  orientation,
+  source,
+  city,
+  state,
+  style,
+}: {
+  streamId: string
+  color: ColorInstance
+  pos: ViewPos
+  windowWidth: number
+  windowHeight: number
+  isListening: boolean
+  isSmall: boolean
+  isError: boolean
+  errorReason: string | null | undefined
+  orientation: 'V' | 'H' | null | undefined
+  source: string | undefined
+  city: string | undefined
+  state: string | undefined
+  style?: JSX.HTMLAttributes['style']
+}) {
+  return (
+    <StyledGridPreviewBox
+      color={color}
+      style={style}
+      pos={pos}
+      windowWidth={windowWidth}
+      windowHeight={windowHeight}
+      isListening={isListening}
+      isError={isError}
+    >
+      <StyledGridInfo className={isSmall ? 'small' : undefined}>
+        <StyledGridLabel>
+          {streamId}
+          <OrientationIndicator
+            orientation={orientation}
+            className={`orientation-${(orientation ?? 'unknown').toLowerCase()}`}
+          />
+        </StyledGridLabel>
+        {!isSmall && <div>{source}</div>}
+        {city && (
+          <StyledGridLocation>
+            {city} {state}
+          </StyledGridLocation>
+        )}
+        {isError && (
+          <StyledGridError title={errorReason ?? undefined}>
+            <FaExclamationTriangle />
+            <span>{errorReason ?? 'Stream error'}</span>
+          </StyledGridError>
+        )}
+      </StyledGridInfo>
+    </StyledGridPreviewBox>
+  )
 }
 
 function StreamLine({
