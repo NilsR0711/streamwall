@@ -200,6 +200,12 @@ export const GlobalStyle = createGlobalStyle`
   html, body {
     display: flex;
     flex: 1;
+    margin: 0;
+    /* body is a flex item of html with no explicit min-width, so its
+       automatic minimum size falls back to its content's min-content width -
+       which can exceed the viewport and inflate body past it even with the
+       margin reset above (see #225). */
+    min-width: 0;
     background: var(--bg);
     color: var(--text);
     font-family: var(--font-ui);
