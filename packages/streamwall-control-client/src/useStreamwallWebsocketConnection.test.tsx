@@ -3,6 +3,7 @@ import { act } from 'preact/test-utils'
 import type { StreamwallConnection } from 'streamwall-control-ui'
 import type { ControlCommand, StreamwallState } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 
 const { FakeSocket, instances } = vi.hoisted(() => {
   type Listener = (ev: unknown) => void
@@ -250,6 +251,78 @@ describe('useStreamwallWebsocketConnection', () => {
       })
 
       expect(getConnection().stateDoc).not.toBe(docBeforeClose)
+    })
+  })
+
+  // The Yjs doc still gets reset on close (see the test above), which would
+  // otherwise blank the grid's cell assignments (`sharedState.views`) for the
+  // duration of a blip even though the rest of the state keeps rendering its
+  // last-known content. `sharedState` should keep serving the pre-disconnect
+  // snapshot until the server's resync repopulates the fresh doc (issue #283).
+  describe('sharedState across a disconnect (issue #283)', () => {
+    function setCellAssignment(doc: Y.Doc, idx: string, streamId: string) {
+      const viewsMap = doc.getMap<Y.Map<string | undefined>>('views')
+      const cellMap = new Y.Map<string | undefined>()
+      cellMap.set('streamId', streamId)
+      viewsMap.set(idx, cellMap)
+    }
+
+    it('keeps the last-known cell assignments instead of blanking them on close', () => {
+      const { getConnection } = mount()
+
+      act(() => {
+        setCellAssignment(getConnection().stateDoc, '0', 'abc')
+      })
+      expect(getConnection().sharedState?.views['0']?.streamId).toBe('abc')
+
+      const socket = instances[0]!
+      act(() => {
+        socket.dispatch('close')
+      })
+
+      expect(getConnection().isConnected).toBe(false)
+      expect(getConnection().sharedState?.views['0']?.streamId).toBe('abc')
+    })
+
+    it('does not mutate the fresh post-close doc with the frozen snapshot', () => {
+      const { getConnection } = mount()
+
+      act(() => {
+        setCellAssignment(getConnection().stateDoc, '0', 'abc')
+      })
+
+      const socket = instances[0]!
+      act(() => {
+        socket.dispatch('close')
+      })
+
+      const freshDoc = getConnection().stateDoc
+      const viewsMap = freshDoc.getMap<Y.Map<string | undefined>>('views')
+      expect(viewsMap.size).toBe(0)
+    })
+
+    it('switches back to the live sharedState once reconnected', () => {
+      const { getConnection } = mount()
+
+      act(() => {
+        setCellAssignment(getConnection().stateDoc, '0', 'abc')
+      })
+
+      const socket = instances[0]!
+      act(() => {
+        socket.dispatch('close')
+      })
+      expect(getConnection().sharedState?.views['0']?.streamId).toBe('abc')
+
+      act(() => {
+        setCellAssignment(getConnection().stateDoc, '0', 'fresh')
+      })
+      act(() => {
+        socket.dispatch('message', stateMessage())
+      })
+
+      expect(getConnection().isConnected).toBe(true)
+      expect(getConnection().sharedState?.views['0']?.streamId).toBe('fresh')
     })
   })
 

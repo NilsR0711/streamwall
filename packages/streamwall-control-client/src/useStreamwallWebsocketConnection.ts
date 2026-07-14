@@ -36,6 +36,19 @@ export function useStreamwallWebsocketConnection(
   const [streamwallState, setStreamwallState] = useState<StreamwallState>()
   const appState = useStreamwallState(streamwallState)
 
+  // Kept in sync with `sharedState` on every render so `handleClose` (which
+  // runs outside React's render cycle) can always read the value from just
+  // before the disconnect - see `lastKnownSharedStateRef` below.
+  const sharedStateRef = useRef(sharedState)
+  sharedStateRef.current = sharedState
+  // `stateDoc` gets swapped for a fresh, empty doc on every disconnect (see
+  // the comment on `handleClose`), which would otherwise blank the grid's
+  // cell assignments (`sharedState.views`) for the duration of a blip. This
+  // snapshot lets the connection keep serving the pre-disconnect data for
+  // rendering while offline; it's never written back into `stateDoc`, so it
+  // can't reintroduce the divergence risk the reset avoids (issue #283).
+  const lastKnownSharedStateRef = useRef<CollabData | undefined>(undefined)
+
   useEffect(() => {
     let lastStateData: StreamwallState | undefined
     const ws = new ReconnectingWebSocket(wsEndpoint, [], {
@@ -62,6 +75,7 @@ export function useStreamwallWebsocketConnection(
     // silently diverge from what the server (and every other client)
     // actually has.
     function handleClose() {
+      lastKnownSharedStateRef.current = sharedStateRef.current
       setStateDoc(new Y.Doc())
       setIsConnected(false)
       // Any command awaiting a response will never hear back from this
@@ -192,7 +206,9 @@ export function useStreamwallWebsocketConnection(
     isConnected,
     disconnectReason,
     send,
-    sharedState,
+    sharedState: isConnected
+      ? sharedState
+      : (lastKnownSharedStateRef.current ?? sharedState),
     stateDoc,
     undoManager,
   }
