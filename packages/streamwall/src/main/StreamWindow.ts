@@ -13,6 +13,7 @@ import isEqual from 'lodash/isEqual'
 import path from 'path'
 import {
   boxesFromViewContentMap,
+  computeBoxRect,
   ContentDisplayOptions,
   StreamData,
   StreamList,
@@ -318,8 +319,6 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
   setViews(viewContentMap: ViewContentMap, streams: StreamList) {
     const { width, height, cols, rows } = this.config
-    const spaceWidth = Math.floor(width / cols)
-    const spaceHeight = Math.floor(height / rows)
     const { win, views } = this
     const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
     const remainingBoxes = new Set(boxes)
@@ -373,7 +372,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
     const newViews = new Map()
     for (const { box, view } of viewsToDisplay) {
-      const { content, x, y, w, h, spaces } = box
+      const { content, spaces } = box
       if (!content) {
         // Route through the teardown path below instead of dropping the
         // reference outright, or the actor/WebContentsView/offscreen
@@ -390,10 +389,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       }
 
       const pos = {
-        x: spaceWidth * x,
-        y: spaceHeight * y,
-        width: spaceWidth * w,
-        height: spaceHeight * h,
+        ...computeBoxRect(cols, rows, width, height, box),
         spaces,
       }
 
