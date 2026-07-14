@@ -42,7 +42,6 @@ import {
   gridWouldDropAssignments,
   hasGridAssignments,
   idColor,
-  idxInBox,
   inviteLink,
   type LayoutPreset,
   type LocalStreamData,
@@ -67,6 +66,8 @@ import {
 import {
   computeResizeAssignments,
   computeSwap,
+  isIdxInResizeBox,
+  type ResizeHandle,
   type SwapBox,
 } from './gridInteractions'
 import './index.css'
@@ -773,11 +774,22 @@ export function ControlUI({
   }, [moveStart, hoveringIdx, swapBoxes])
 
   const [resize, setResize] = useState<
-    { anchorIdx: number; streamId: string } | undefined
+    | {
+        anchorIdx: number
+        streamId: string
+        handle: ResizeHandle
+        originalSpaces: number[]
+      }
+    | undefined
   >()
 
   const handleResizeStart = useCallback(
-    (anchorIdx: number, ev: PointerEvent) => {
+    (
+      anchorIdx: number,
+      handle: ResizeHandle,
+      originalSpaces: number[],
+      ev: PointerEvent,
+    ) => {
       if (!isPrimaryButton(ev.button)) {
         return
       }
@@ -787,7 +799,7 @@ export function ControlUI({
       if (streamId == null || streamId === '') {
         return
       }
-      setResize({ anchorIdx, streamId })
+      setResize({ anchorIdx, streamId, handle, originalSpaces })
     },
     [sharedState],
   )
@@ -814,6 +826,8 @@ export function ControlUI({
           resize.anchorIdx,
           hoveringIdx,
           resize.streamId,
+          resize.handle,
+          resize.originalSpaces,
         )
         for (const [idx, streamId] of assignments) {
           viewsMap.get(String(idx))?.set('streamId', streamId)
@@ -1291,7 +1305,14 @@ export function ControlUI({
                     const isResizeHighlight =
                       resize != null &&
                       hoveringIdx != null &&
-                      idxInBox(cols, resize.anchorIdx, hoveringIdx, idx)
+                      isIdxInResizeBox(
+                        cols,
+                        resize.anchorIdx,
+                        hoveringIdx,
+                        resize.handle,
+                        resize.originalSpaces,
+                        idx,
+                      )
                     const isHighlighted = isMoveHighlight || isResizeHighlight
                     return (
                       <GridInput
@@ -1343,19 +1364,19 @@ export function ControlUI({
                         <div
                           className="handle e"
                           onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, ev)
+                            handleResizeStart(anchorIdx, 'e', pos.spaces, ev)
                           }
                         />
                         <div
                           className="handle s"
                           onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, ev)
+                            handleResizeStart(anchorIdx, 's', pos.spaces, ev)
                           }
                         />
                         <div
                           className="handle se"
                           onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, ev)
+                            handleResizeStart(anchorIdx, 'se', pos.spaces, ev)
                           }
                         />
                       </StyledResizeHandles>

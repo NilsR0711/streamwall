@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeResizeAssignments,
   computeSwap,
+  isIdxInResizeBox,
   type SwapBox,
 } from './gridInteractions'
 
@@ -75,7 +76,7 @@ describe('computeSwap', () => {
 
 describe('computeResizeAssignments', () => {
   it('assigns a single cell when the anchor and hover are the same', () => {
-    expect(computeResizeAssignments(3, 4, 4, 'stream-a')).toEqual(
+    expect(computeResizeAssignments(3, 4, 4, 'stream-a', 'se', [4])).toEqual(
       new Map([[4, 'stream-a']]),
     )
   })
@@ -84,20 +85,7 @@ describe('computeResizeAssignments', () => {
     // 3-col grid; anchor at idx 0 (x0,y0), hover at idx 4 (x1,y1) spans the
     // 2x2 box { 0, 1, 3, 4 }. Cells 1 and 3 belong to other, unrelated boxes
     // before the resize — they must be overwritten by the anchor's stream.
-    expect(computeResizeAssignments(3, 0, 4, 'stream-a')).toEqual(
-      new Map([
-        [0, 'stream-a'],
-        [1, 'stream-a'],
-        [3, 'stream-a'],
-        [4, 'stream-a'],
-      ]),
-    )
-  })
-
-  it('spans the box the same way regardless of drag direction', () => {
-    // Same 2x2 box as above, but dragged from the bottom-right corner back
-    // up to the top-left anchor.
-    expect(computeResizeAssignments(3, 4, 0, 'stream-a')).toEqual(
+    expect(computeResizeAssignments(3, 0, 4, 'stream-a', 'se', [0])).toEqual(
       new Map([
         [0, 'stream-a'],
         [1, 'stream-a'],
@@ -108,8 +96,100 @@ describe('computeResizeAssignments', () => {
   })
 
   it('does not include cells outside the spanned box', () => {
-    const assignments = computeResizeAssignments(3, 0, 4, 'stream-a')
+    const assignments = computeResizeAssignments(3, 0, 4, 'stream-a', 'se', [0])
     expect(assignments.has(2)).toBe(false)
     expect(assignments.has(5)).toBe(false)
+  })
+
+  it('clamps to the anchor when the hover is dragged past it, instead of spanning backward', () => {
+    // The anchor (top-left corner of the box) never moves. Dragging the 'se'
+    // handle up and to the left of the anchor must not grow the box in that
+    // direction — it must clamp to the anchor cell itself.
+    expect(computeResizeAssignments(3, 4, 0, 'stream-a', 'se', [4])).toEqual(
+      new Map([[4, 'stream-a']]),
+    )
+  })
+
+  it('clears vacated cells when shrinking a box', () => {
+    // 4-col grid; a 3x3 box anchored at idx 0 occupies { 0,1,2, 4,5,6, 8,9,10 }.
+    // Shrinking via the 'se' handle to hover at idx 5 (x1,y1) leaves a 2x2 box
+    // { 0,1, 4,5 } — the other five original cells must be explicitly cleared,
+    // not left with the stale streamId.
+    const originalSpaces = [0, 1, 2, 4, 5, 6, 8, 9, 10]
+    const assignments = computeResizeAssignments(
+      4,
+      0,
+      5,
+      'stream-a',
+      'se',
+      originalSpaces,
+    )
+    expect(assignments).toEqual(
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-a'],
+        [4, 'stream-a'],
+        [5, 'stream-a'],
+        [2, undefined],
+        [6, undefined],
+        [8, undefined],
+        [9, undefined],
+        [10, undefined],
+      ]),
+    )
+  })
+
+  it("locks the y-axis to the original box height when dragging the 'e' (east) handle", () => {
+    // 4-col grid; a 1x2 box anchored at idx 0 occupies { 0, 4 } (height 2).
+    // Dragging the east handle to idx 6 (x2,y1) must only grow the width —
+    // the height stays locked at the original 2 rows regardless of hover y.
+    const originalSpaces = [0, 4]
+    expect(
+      computeResizeAssignments(4, 0, 6, 'stream-a', 'e', originalSpaces),
+    ).toEqual(
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-a'],
+        [2, 'stream-a'],
+        [4, 'stream-a'],
+        [5, 'stream-a'],
+        [6, 'stream-a'],
+      ]),
+    )
+  })
+
+  it("locks the x-axis to the original box width when dragging the 's' (south) handle", () => {
+    // 4-col grid; a 2x1 box anchored at idx 0 occupies { 0, 1 } (width 2).
+    // Dragging the south handle to idx 9 (x1,y2) must only grow the height —
+    // the width stays locked at the original 2 columns regardless of hover x.
+    const originalSpaces = [0, 1]
+    expect(
+      computeResizeAssignments(4, 0, 9, 'stream-a', 's', originalSpaces),
+    ).toEqual(
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-a'],
+        [4, 'stream-a'],
+        [5, 'stream-a'],
+        [8, 'stream-a'],
+        [9, 'stream-a'],
+      ]),
+    )
+  })
+})
+
+describe('isIdxInResizeBox', () => {
+  it('matches the box computeResizeAssignments would commit, including axis locking and clamping', () => {
+    const originalSpaces = [0, 4]
+    // Growing the 'e' handle to idx 6: width grows to x<=2, height stays
+    // locked to the original y<=1 — idx 10 (x2,y2) falls outside the height
+    // lock even though it shares the grown column.
+    expect(isIdxInResizeBox(4, 0, 6, 'e', originalSpaces, 2)).toBe(true)
+    expect(isIdxInResizeBox(4, 0, 6, 'e', originalSpaces, 10)).toBe(false)
+  })
+
+  it('reports only the anchor cell when the hover is dragged past the anchor', () => {
+    expect(isIdxInResizeBox(3, 4, 0, 'se', [4], 4)).toBe(true)
+    expect(isIdxInResizeBox(3, 4, 0, 'se', [4], 0)).toBe(false)
   })
 })

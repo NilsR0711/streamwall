@@ -42,28 +42,90 @@ export function computeSwap(
   return assignments
 }
 
+/** Which edge(s) of the box a resize handle drags. */
+export type ResizeHandle = 'e' | 's' | 'se'
+
+/**
+ * The grid rectangle a resize gesture currently spans. `anchorIdx`'s cell is
+ * always the box's fixed top-left corner (`minX`/`minY`), so hover positions
+ * above or left of it clamp back to the anchor instead of spanning backward
+ * past it — that would grow the box in the wrong direction. An edge handle
+ * ('e' or 's') only drags its own axis: the other axis stays locked to the
+ * original box's extent (from `originalSpaces`) regardless of hover.
+ */
+function computeResizeBox(
+  cols: number,
+  anchorIdx: number,
+  hoverIdx: number,
+  handle: ResizeHandle,
+  originalSpaces: number[],
+) {
+  const { x: anchorX, y: anchorY } = idxToCoords(cols, anchorIdx)
+  const { x: hoverX, y: hoverY } = idxToCoords(cols, hoverIdx)
+  const originalCoords = originalSpaces.map((idx) => idxToCoords(cols, idx))
+  const originalMaxX = Math.max(...originalCoords.map(({ x }) => x))
+  const originalMaxY = Math.max(...originalCoords.map(({ y }) => y))
+  return {
+    minX: anchorX,
+    maxX: handle === 's' ? originalMaxX : Math.max(anchorX, hoverX),
+    minY: anchorY,
+    maxY: handle === 'e' ? originalMaxY : Math.max(anchorY, hoverY),
+  }
+}
+
+/** Whether `idx` falls inside the box an in-progress resize gesture spans — used to preview which cells a commit would overwrite. */
+export function isIdxInResizeBox(
+  cols: number,
+  anchorIdx: number,
+  hoverIdx: number,
+  handle: ResizeHandle,
+  originalSpaces: number[],
+  idx: number,
+): boolean {
+  const { minX, maxX, minY, maxY } = computeResizeBox(
+    cols,
+    anchorIdx,
+    hoverIdx,
+    handle,
+    originalSpaces,
+  )
+  const { x, y } = idxToCoords(cols, idx)
+  return x >= minX && x <= maxX && y >= minY && y <= maxY
+}
+
 /**
  * Compute the streamId assignment for a resize gesture: every grid cell in
- * the rectangle spanned by `anchorIdx` and `hoverIdx` (inclusive, in either
- * drag direction) is assigned `streamId`, overwriting whatever stream(s)
- * currently occupy that box.
+ * the box `computeResizeBox` spans is assigned `streamId`, overwriting
+ * whatever stream(s) currently occupy that box. Any cell in `originalSpaces`
+ * (the box's extent before this gesture) that falls outside the new box is
+ * explicitly cleared (set to `undefined`) so a shrink actually vacates it,
+ * rather than leaving a stale streamId that keeps rendering as part of the
+ * (now smaller) box.
  */
 export function computeResizeAssignments(
   cols: number,
   anchorIdx: number,
   hoverIdx: number,
   streamId: string,
-): Map<number, string> {
-  const { x: anchorX, y: anchorY } = idxToCoords(cols, anchorIdx)
-  const { x: hoverX, y: hoverY } = idxToCoords(cols, hoverIdx)
-  const lowX = Math.min(anchorX, hoverX)
-  const highX = Math.max(anchorX, hoverX)
-  const lowY = Math.min(anchorY, hoverY)
-  const highY = Math.max(anchorY, hoverY)
-  const assignments = new Map<number, string>()
-  for (let y = lowY; y <= highY; y++) {
-    for (let x = lowX; x <= highX; x++) {
+  handle: ResizeHandle,
+  originalSpaces: number[],
+): Map<number, string | undefined> {
+  const { minX, maxX, minY, maxY } = computeResizeBox(
+    cols,
+    anchorIdx,
+    hoverIdx,
+    handle,
+    originalSpaces,
+  )
+  const assignments = new Map<number, string | undefined>()
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
       assignments.set(cols * y + x, streamId)
+    }
+  }
+  for (const idx of originalSpaces) {
+    if (!assignments.has(idx)) {
+      assignments.set(idx, undefined)
     }
   }
   return assignments
