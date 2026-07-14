@@ -303,6 +303,19 @@ describe('useStreamwallWebsocketConnection', () => {
       expect(getConnection().disconnectReason).toBeNull()
     })
 
+    it('is set from a rate-limited error message instead of being dropped as unexpected', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ error: 'rate limit exceeded' }),
+        })
+      })
+
+      expect(getConnection().disconnectReason).toBe('rate-limited')
+    })
+
     it('clears once a full state message confirms a successful reconnect', () => {
       const { getConnection } = mount()
       const socket = instances[0]!

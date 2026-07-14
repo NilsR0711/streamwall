@@ -14,6 +14,12 @@ describe('parseDisconnectReason', () => {
     )
   })
 
+  test('recognizes an inbound message rate limit', () => {
+    expect(parseDisconnectReason({ error: 'rate limit exceeded' })).toBe(
+      'rate-limited',
+    )
+  })
+
   test('returns null for an unrelated server error', () => {
     expect(
       parseDisconnectReason({ error: 'streamwall already connected' }),

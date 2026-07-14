@@ -5,11 +5,13 @@
  * treat "no reason" (a `null` return from `parseDisconnectReason`) as a
  * generic, still-retrying disconnect (most likely a transient network blip).
  */
-export type DisconnectReason = 'unauthorized' | 'streamwall-disconnected'
+export type DisconnectReason =
+  'unauthorized' | 'streamwall-disconnected' | 'rate-limited'
 
 const REASON_BY_SERVER_ERROR: Record<string, DisconnectReason> = {
   unauthorized: 'unauthorized',
   'streamwall disconnected': 'streamwall-disconnected',
+  'rate limit exceeded': 'rate-limited',
 }
 
 /**

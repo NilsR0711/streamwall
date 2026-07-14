@@ -17,6 +17,7 @@ const StyledConnectionStatusBanner = styled.div`
 const MESSAGE_BY_REASON: Record<DisconnectReason, string> = {
   unauthorized: 'Session invalid - please sign in again.',
   'streamwall-disconnected': 'Streamwall app disconnected - reconnecting...',
+  'rate-limited': 'Too many messages sent - reconnecting...',
 }
 
 const GENERIC_MESSAGE = 'Connection lost - reconnecting...'

@@ -61,4 +61,11 @@ describe('ConnectionStatusBanner', () => {
     const banner = el.querySelector('[role="status"]')
     expect(banner?.textContent).toContain('Streamwall app disconnected')
   })
+
+  test('distinguishes a rate-limited connection from a generic disconnect', () => {
+    const el = renderBanner({ isConnected: false, reason: 'rate-limited' })
+    const banner = el.querySelector('[role="status"]')
+    expect(banner?.textContent).toContain('Too many messages')
+    expect(banner?.className).toContain('rate-limited')
+  })
 })
