@@ -3,6 +3,7 @@ import fastifyHelmet from '@fastify/helmet'
 import fastifyRateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
+import * as Sentry from '@sentry/node'
 import Fastify from 'fastify'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -22,6 +23,7 @@ import {
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
+import { initSentry } from './sentry.ts'
 import {
   applyValidatedDocUpdate,
   type DocUpdateLimits,
@@ -290,6 +292,12 @@ export async function initApp({
   const auth = new Auth(db.data.auth)
 
   const app = Fastify()
+
+  // Opt-in crash reporting (see sentry.ts for why there is no default DSN).
+  // Must be wired up before routes are registered so their errors are covered.
+  if (initSentry()) {
+    Sentry.setupFastifyErrorHandler(app)
+  }
 
   await app.register(fastifyCookie)
 
