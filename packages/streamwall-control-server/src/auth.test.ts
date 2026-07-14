@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { scrypt as scryptCb } from 'node:crypto'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
-import { type AuthToken, Auth, rand62, uniqueRand62 } from './auth.ts'
+import type { StreamwallRole, StreamwallState } from 'streamwall-shared'
+import {
+  type AuthToken,
+  Auth,
+  rand62,
+  StateWrapper,
+  uniqueRand62,
+} from './auth.ts'
 
 const scrypt = promisify(scryptCb)
 
@@ -276,4 +283,90 @@ test('validateToken returns null (never throws) when the stored hash is not vali
   const info = await auth.validateToken(tokenId, 'any-secret')
 
   assert.equal(info, null)
+})
+
+// A representative, fully-populated state whose `auth` block (the token list)
+// is the sensitive payload StateWrapper.view scopes by role.
+function makeState(): StreamwallState {
+  return {
+    identity: { role: 'admin' },
+    auth: {
+      invites: [
+        { tokenId: 'inv1', kind: 'invite', role: 'operator', name: 'invitee' },
+      ],
+      sessions: [
+        { tokenId: 'sess1', kind: 'session', role: 'admin', name: 'owner' },
+      ],
+    },
+    config: {
+      cols: 3,
+      rows: 3,
+      width: 1920,
+      height: 1080,
+      frameless: false,
+      activeColor: '#ffffff',
+      backgroundColor: '#000000',
+    },
+    streams: [],
+    customStreams: [],
+    views: [],
+    streamdelay: null,
+  }
+}
+
+test('StateWrapper.view("admin") exposes the auth token list', () => {
+  const state = makeState()
+  const view = new StateWrapper(state).view('admin')
+
+  assert.ok('auth' in view, 'admin view must carry the auth key')
+  assert.deepEqual(view.auth, state.auth)
+  assert.equal(view.identity.role, 'admin')
+})
+
+// Only admins see the token list. Every other role — including all-powerful
+// `local` — gets a view with no `auth` key at all (not merely `undefined`), so
+// the secret-bearing invite/session names never reach a non-admin client.
+for (const role of [
+  'operator',
+  'monitor',
+  'local',
+] satisfies StreamwallRole[]) {
+  test(`StateWrapper.view("${role}") omits the auth token list entirely`, () => {
+    const view = new StateWrapper(makeState()).view(role)
+
+    assert.ok(!('auth' in view), `${role} view must not have an auth key`)
+    assert.equal(view.auth, undefined)
+    assert.equal(view.identity.role, role)
+  })
+}
+
+test('StateWrapper.view re-stamps identity.role without mutating the source', () => {
+  const state = makeState()
+  const wrapper = new StateWrapper(state)
+
+  const operatorView = wrapper.view('operator')
+
+  assert.equal(operatorView.identity.role, 'operator')
+  // The wrapped value is untouched: viewing under one role must not rewrite the
+  // identity seen by a subsequent viewer.
+  assert.equal(state.identity.role, 'admin')
+  assert.equal(wrapper.view('admin').identity.role, 'admin')
+})
+
+test('StateWrapper.view passes non-sensitive fields through unchanged', () => {
+  const state = makeState()
+  const view = new StateWrapper(state).view('monitor')
+
+  assert.equal(view.config, state.config)
+  assert.equal(view.streams, state.streams)
+  assert.equal(view.customStreams, state.customStreams)
+  assert.equal(view.views, state.views)
+  assert.equal(view.streamdelay, state.streamdelay)
+})
+
+test('StateWrapper.info returns an unprivileged (monitor) view with no auth', () => {
+  const view = new StateWrapper(makeState()).info
+
+  assert.ok(!('auth' in view), 'the info getter must not leak the auth key')
+  assert.equal(view.identity.role, 'monitor')
 })
