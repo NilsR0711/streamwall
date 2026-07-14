@@ -1,4 +1,5 @@
 export * from './colors.ts'
+export * from './connectionStatus.ts'
 export * from './controlEndpoint.ts'
 export * from './geometry.ts'
 export * from './roles.ts'
