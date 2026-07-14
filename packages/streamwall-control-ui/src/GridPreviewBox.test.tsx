@@ -98,4 +98,32 @@ describe('GridPreviewBox', () => {
       }
     }
   })
+
+  test('shows the assigned audio hotkey as a tooltip for a cell within the hotkey range (#84)', () => {
+    const box = renderBox({
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [0] },
+    })
+
+    expect(box.firstElementChild?.getAttribute('title')).toBe(
+      'Alt+1 toggles audio',
+    )
+  })
+
+  test('surfaces the correct key for a later cell within the hotkey range (#84)', () => {
+    const box = renderBox({
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [10] },
+    })
+
+    expect(box.firstElementChild?.getAttribute('title')).toBe(
+      'Alt+Q toggles audio',
+    )
+  })
+
+  test('omits the hotkey tooltip for a cell beyond the fixed 20-slot hotkey range (#84)', () => {
+    const box = renderBox({
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [20] },
+    })
+
+    expect(box.firstElementChild?.hasAttribute('title')).toBe(false)
+  })
 })
