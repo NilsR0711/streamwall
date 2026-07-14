@@ -373,7 +373,7 @@ export function ThemeToggle() {
   ]
 
   return (
-    <StyledThemeToggle role="group" aria-label="Farbschema">
+    <StyledThemeToggle role="group" aria-label="Color scheme">
       {opts.map(({ key, label, icon }) => (
         <button
           key={key}
@@ -1738,7 +1738,7 @@ function GridSizeControls({
         </button>
       ))}
       <label>
-        Spalten
+        Columns
         <input
           type="number"
           min={GRID_MIN}
@@ -1751,7 +1751,7 @@ function GridSizeControls({
         />
       </label>
       <label>
-        Zeilen
+        Rows
         <input
           type="number"
           min={GRID_MIN}
