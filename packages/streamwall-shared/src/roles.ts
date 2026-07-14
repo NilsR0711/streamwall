@@ -19,6 +19,8 @@ const operatorActions = [
   'load-layout-preset',
   'delete-layout-preset',
   'set-view-volume',
+  'add-favorite',
+  'remove-favorite',
 ] as const
 
 const monitorActions = ['set-view-blurred', 'set-stream-censored'] as const
