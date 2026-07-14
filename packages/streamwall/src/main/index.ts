@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/electron/main'
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, Event as ElectronEvent, app } from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
@@ -41,7 +41,10 @@ import { flushStorage, loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
-import { shouldHideInsteadOfQuit } from './windowCloseBehavior'
+import {
+  shouldHideInsteadOfQuit,
+  shouldQuitOnAllWindowsClosed,
+} from './windowCloseBehavior'
 
 const SENTRY_DSN =
   'https://e630a21dcf854d1a9eb2a7a8584cbd0b@o459879.ingest.sentry.io/5459505'
@@ -613,7 +616,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
   controlWindow.on('command', (command) => onCommand(command, 'local'))
 
-  // Closing the stream window quits the app, except on macOS where the
+  // Closing either top-level window quits the app, except on macOS where the
   // convention is to hide the window and keep the app (and its dock icon)
   // running until the user explicitly quits.
   let isQuitting = false
@@ -623,14 +626,33 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
   app.on('activate', () => {
     streamWindow.win.show()
+    controlWindow.win.show()
   })
-  streamWindow.on('close', (event) => {
+
+  function handleWindowClose(win: BrowserWindow, event: ElectronEvent) {
     if (shouldHideInsteadOfQuit(process.platform, isQuitting)) {
       event.preventDefault()
-      streamWindow.win.hide()
+      win.hide()
       return
     }
     app.quit()
+  }
+  streamWindow.on('close', (event) =>
+    handleWindowClose(streamWindow.win, event),
+  )
+  controlWindow.on('close', (event) =>
+    handleWindowClose(controlWindow.win, event),
+  )
+
+  // Standard Electron convention as a safety net: if every window somehow
+  // ends up closed without the app already quitting (e.g. a future window
+  // added without wiring into the close handling above), quit rather than
+  // linger as a windowless background process. macOS is excluded, matching
+  // the hide-instead-of-quit convention above.
+  app.on('window-all-closed', () => {
+    if (shouldQuitOnAllWindowsClosed(process.platform)) {
+      app.quit()
+    }
   })
 
   // The throttled stateDoc persist above may still have a pending write when

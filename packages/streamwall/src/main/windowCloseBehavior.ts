@@ -10,3 +10,14 @@ export function shouldHideInsteadOfQuit(
 ): boolean {
   return platform === 'darwin' && !isQuitting
 }
+
+/**
+ * Standard Electron convention: once every window has closed, quit the app.
+ * macOS is the exception -- the app (and its dock icon) stays running with no
+ * windows open until the user explicitly quits.
+ */
+export function shouldQuitOnAllWindowsClosed(
+  platform: NodeJS.Platform,
+): boolean {
+  return platform !== 'darwin'
+}
