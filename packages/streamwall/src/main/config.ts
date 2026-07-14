@@ -1,5 +1,5 @@
 import TOML from '@iarna/toml'
-import { GRID_MAX, GRID_MIN } from 'streamwall-shared'
+import { GRID_MAX, GRID_MIN, MAX_VIEW_IDX } from 'streamwall-shared'
 import { z } from 'zod'
 
 /**
@@ -33,6 +33,7 @@ const nonNegativeNumber = z.number().nonnegative()
 // Kept in lockstep with the WS command schema's grid bounds so a configured
 // wall can always be targeted and resized by remote control commands.
 const gridDimension = z.number().int().min(GRID_MIN).max(GRID_MAX)
+const viewIdx = z.number().int().min(0).max(MAX_VIEW_IDX)
 
 /**
  * Shape of the resolved Streamwall configuration (config file + CLI flags after
@@ -91,6 +92,17 @@ const streamwallConfigSchema = z.object({
   telemetry: z.object({
     sentry: z.boolean(),
   }),
+  // Each entry cycles the given view through a fixed list of stream URLs on
+  // an interval, independent of whatever data source populates the wall.
+  playlist: z
+    .array(
+      z.object({
+        view: viewIdx,
+        interval: z.number().positive(),
+        urls: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .default([]),
 })
 
 /**
@@ -103,6 +115,27 @@ export function validateConfig(config: unknown): void {
     throw new ConfigError(
       `Invalid configuration:\n${z.prettifyError(result.error)}`,
     )
+  }
+
+  // The schema alone can't know the configured grid size, so cross-check
+  // each playlist entry's view index against it here, and reject entries
+  // that would fight over the same cell.
+  const { grid, playlist } = result.data
+  const maxConfiguredViewIdx = grid.cols * grid.rows - 1
+  const seenViews = new Set<number>()
+  for (const entry of playlist) {
+    if (entry.view > maxConfiguredViewIdx) {
+      throw new ConfigError(
+        `Invalid configuration:\nplaylist entry targets view ${entry.view}, but the ` +
+          `configured ${grid.cols}x${grid.rows} grid only has views 0-${maxConfiguredViewIdx}.`,
+      )
+    }
+    if (seenViews.has(entry.view)) {
+      throw new ConfigError(
+        `Invalid configuration:\nmultiple playlist entries target view ${entry.view}.`,
+      )
+    }
+    seenViews.add(entry.view)
   }
 }
 

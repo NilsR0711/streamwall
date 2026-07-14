@@ -166,6 +166,60 @@ describe('validateConfig', () => {
     config.retry['max-retries'] = 2.5
     expect(() => validateConfig(config)).toThrow(ConfigError)
   })
+
+  test('accepts a config with no playlist entries', () => {
+    const config = { ...baseConfig(), playlist: [] }
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('accepts a valid playlist entry targeting an in-bounds view', () => {
+    const config = {
+      ...baseConfig(),
+      playlist: [{ view: 8, interval: 60, urls: ['https://a', 'https://b'] }],
+    }
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('rejects a playlist entry with an empty urls list', () => {
+    const config = {
+      ...baseConfig(),
+      playlist: [{ view: 0, interval: 60, urls: [] }],
+    }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('rejects a playlist entry with a non-positive interval', () => {
+    const config = {
+      ...baseConfig(),
+      playlist: [{ view: 0, interval: 0, urls: ['https://a'] }],
+    }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('rejects a playlist entry targeting a view outside the configured grid', () => {
+    // grid is 3x3 by default, so views run 0-8.
+    const config = {
+      ...baseConfig(),
+      playlist: [{ view: 9, interval: 60, urls: ['https://a'] }],
+    }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+    try {
+      validateConfig(config)
+    } catch (err) {
+      expect((err as Error).message).toContain('view 9')
+    }
+  })
+
+  test('rejects two playlist entries targeting the same view', () => {
+    const config = {
+      ...baseConfig(),
+      playlist: [
+        { view: 0, interval: 60, urls: ['https://a'] },
+        { view: 0, interval: 30, urls: ['https://b'] },
+      ],
+    }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
 })
 
 describe('findUnknownConfigKeys', () => {

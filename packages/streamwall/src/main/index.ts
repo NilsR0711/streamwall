@@ -37,6 +37,7 @@ import {
 import { applyGridResize } from './gridResize'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
+import { PlaylistScheduler } from './playlist'
 import { flushStorage, loadStorage } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -123,6 +124,11 @@ export interface StreamwallConfig {
   telemetry: {
     sentry: boolean
   }
+  playlist: {
+    view: number
+    interval: number
+    urls: string[]
+  }[]
 }
 
 // Warns (does not throw) about keys in a raw parsed config file that the
@@ -338,6 +344,11 @@ function parseArgs(): StreamwallConfig {
       boolean: true,
       default: true,
     })
+    // Configured only via `[[playlist]]` tables in config.toml (or --config);
+    // not exposed as an individual CLI flag since it's a list of tables.
+    .option('playlist', {
+      default: [],
+    })
     .help()
     // https://github.com/yargs/yargs/issues/2137
     .parseSync(process.argv) as unknown as StreamwallConfig
@@ -458,6 +469,22 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   updateViewsFromStateDoc()
   viewsState.observeDeep(updateViewsFromStateDoc)
+
+  // Cycles any configured views through their playlist of stream URLs,
+  // independent of whatever data source populated `clientState.streams`.
+  const playlistScheduler = new PlaylistScheduler(argv.playlist, {
+    resolveStreamId: (url) =>
+      (
+        clientState.streams.byURL?.get(url) ??
+        clientState.streams.find((s) => s.link === url)
+      )?._id,
+    setViewStream: (view, streamId) => {
+      stateDoc.transact(() => {
+        viewsState.get(String(view))?.set('streamId', streamId)
+      })
+    },
+  })
+  playlistScheduler.start()
 
   const onCommand = async (
     msg: ControlCommand,
