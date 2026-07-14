@@ -1,6 +1,7 @@
 import { Low, Memory } from 'lowdb'
 import { JSONFilePreset } from 'lowdb/node'
 import { LayoutPreset, StreamDataContent } from 'streamwall-shared'
+import log from './logger'
 
 export interface StreamwallStoredData {
   stateDoc: string
@@ -22,7 +23,7 @@ export async function loadStorage(dbPath: string) {
   try {
     db = await JSONFilePreset<StreamwallStoredData>(dbPath, defaultData)
   } catch (err) {
-    console.warn(
+    log.warn(
       'Failed to load storage at',
       dbPath,
       ' -- changes will not be persisted',

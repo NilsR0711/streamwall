@@ -4,6 +4,7 @@ import ReconnectingWebSocket from 'reconnecting-websocket'
 import { StreamDelayStatus } from 'streamwall-shared'
 import * as url from 'url'
 import WebSocket from 'ws'
+import log from './logger'
 
 export interface StreamdelayClientOptions {
   endpoint: string
@@ -42,7 +43,7 @@ export default class StreamdelayClient extends EventEmitter {
       try {
         data = JSON.parse(ev.data)
       } catch (err) {
-        console.error('invalid JSON from streamdelay:', ev.data)
+        log.error('invalid JSON from streamdelay:', ev.data)
         return
       }
       this.status = data.status

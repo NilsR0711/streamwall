@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import log from './logger'
 import { PlaylistScheduler } from './playlist'
 
 describe('PlaylistScheduler', () => {
@@ -83,7 +84,7 @@ describe('PlaylistScheduler', () => {
       [{ view: 0, interval: 10, urls: ['a', 'b', 'c'] }],
       deps,
     )
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
 
     scheduler.start()
     deps.setViewStream.mockClear()

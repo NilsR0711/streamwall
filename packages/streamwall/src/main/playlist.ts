@@ -1,3 +1,5 @@
+import log from './logger'
+
 export interface PlaylistConfig {
   view: number
   /** Seconds between advances. */
@@ -49,7 +51,7 @@ export class PlaylistScheduler {
     const url = playlist.urls[cursor % playlist.urls.length]
     const streamId = this.deps.resolveStreamId(url)
     if (streamId === undefined) {
-      console.warn(
+      log.warn(
         `Playlist for view ${playlist.view}: no stream found for URL "${url}", skipping`,
       )
     } else {

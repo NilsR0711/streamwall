@@ -10,6 +10,7 @@ import EventEmitter from 'events'
 import { StreamList, StreamwallState } from 'streamwall-shared'
 import { matchesState } from 'xstate'
 import { StreamwallConfig } from '.'
+import log from './logger'
 
 const VOTE_RE = /^!(\d+)$/
 
@@ -63,15 +64,15 @@ export default class TwitchBot extends EventEmitter {
       this.onReady().catch((err) => this.handleAsyncError('onReady', err))
     })
     client.on('error', (err) => {
-      console.error('Twitch connection error:', err)
+      log.error('Twitch connection error:', err)
       if (err instanceof LoginError) {
         client.close()
       }
     })
     client.on('close', (err) => {
-      console.log('Twitch bot disconnected.')
+      log.info('Twitch bot disconnected.')
       if (err != null) {
-        console.error('Twitch bot disconnected due to error:', err)
+        log.error('Twitch bot disconnected due to error:', err)
       }
     })
     client.on('PRIVMSG', (msg) => {

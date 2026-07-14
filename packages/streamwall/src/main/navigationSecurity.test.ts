@@ -3,6 +3,7 @@ import { test, vi } from 'vitest'
 
 import type { WebContents } from 'electron'
 
+import log from './logger'
 import { denyWindowOpen, secureStreamView } from './navigationSecurity'
 
 interface NavEvent {
@@ -91,7 +92,7 @@ test('secureStreamView blocks will-navigate to a different URL', () => {
 
 test('secureStreamView allows will-navigate to the same URL (self reload)', () => {
   // Silence the informational reload log so test output stays clean.
-  vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  vi.spyOn(log, 'info').mockImplementation(() => undefined)
   const wc = new FakeWebContents('https://example.com/stream')
   secureStreamView(asWebContents(wc))
 
@@ -127,7 +128,7 @@ test('secureStreamView allows a redirect while the initial load is still resolvi
 
 test('secureStreamView allows will-redirect to the same URL', () => {
   // Silence the informational reload log so test output stays clean.
-  vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  vi.spyOn(log, 'info').mockImplementation(() => undefined)
   const wc = new FakeWebContents('https://example.com/stream')
   secureStreamView(asWebContents(wc))
 

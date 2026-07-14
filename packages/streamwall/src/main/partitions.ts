@@ -17,6 +17,7 @@
 
 import type { Session } from 'electron'
 import { createSessionHostResolver, findRequestBlockReason } from '../util'
+import log from './logger'
 
 const VIEW_PARTITION_PREFIX = 'view-'
 
@@ -127,7 +128,7 @@ export function installRequestSSRFGuard(
         }
         const reason = await findBlockReason(details.url)
         if (reason !== null) {
-          console.warn(reason)
+          log.warn(reason)
           callback({ cancel: true })
           return
         }
@@ -136,7 +137,7 @@ export function installRequestSSRFGuard(
         // Fail open on an internal guard error: the up-front ensureValidURL
         // already vetted the top-level URL, and cancelling here would break
         // legitimate traffic on an unexpected fault.
-        console.warn('SSRF request guard error:', err)
+        log.warn('SSRF request guard error:', err)
         callback({ cancel: false })
       }
     })()

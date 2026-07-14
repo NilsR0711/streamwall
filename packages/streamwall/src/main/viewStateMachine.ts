@@ -14,6 +14,7 @@ import {
 import { Actor, assign, fromPromise, setup } from 'xstate'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { loadHTML } from './loadHTML'
+import log from './logger'
 
 // Safety net for the whole loading phase (navigate -> waitForInit -> waitForVideo).
 // Longer than the media preload's own acquisition timeouts (~20s) so that slow but
@@ -116,7 +117,7 @@ const viewStateMachine = setup({
 
   actions: {
     logError: (_, params: { error: unknown }) => {
-      console.warn(params.error)
+      log.warn(params.error)
     },
 
     // Store a serializable reason for the current failure so it can be surfaced

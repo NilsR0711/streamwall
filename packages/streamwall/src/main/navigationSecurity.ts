@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron'
+import log from './logger'
 
 // A navigation event as surfaced by Electron's `will-navigate` / `will-redirect`.
 // Declared as a structural subset of Electron's event so the guards below can be
@@ -25,7 +26,7 @@ function preventNavigationAway(
 
   // Allow the page to reload itself (navigating to the URL it is already on).
   if (event.url === currentURL) {
-    console.log('Allowing page to reload:', event.url)
+    log.info('Allowing page to reload:', event.url)
     return
   }
 
