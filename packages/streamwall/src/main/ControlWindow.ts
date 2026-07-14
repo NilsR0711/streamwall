@@ -1,5 +1,6 @@
-import { BrowserWindow, Event as ElectronEvent, ipcMain } from 'electron'
+import { BrowserWindow, Event as ElectronEvent, ipcMain, shell } from 'electron'
 import EventEmitter from 'events'
+import { dirname } from 'node:path'
 import path from 'path'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
 import { loadHTML } from './loadHTML'
@@ -11,10 +12,16 @@ export interface ControlWindowEventMap {
   ydoc: [Uint8Array]
 }
 
+/** Where the user data `config.toml` would live, and whether it exists yet. */
+export interface ConfigInfo {
+  configPath: string
+  hasUserConfig: boolean
+}
+
 export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
   win: BrowserWindow
 
-  constructor() {
+  constructor(configInfo: ConfigInfo) {
     super()
 
     this.win = new BrowserWindow({
@@ -25,7 +32,9 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
         preload: path.join(__dirname, 'controlPreload.js'),
       },
     })
-    this.win.removeMenu()
+    // Deliberately keeps the window menu (unlike StreamWindow, which stays
+    // menu-free for clean capture): on Windows/Linux this is what surfaces
+    // the app-level "Open Config Folder" item (#86).
 
     this.win.on('close', (event) => this.emit('close', event))
 
@@ -54,6 +63,20 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
         return
       }
       this.emit('ydoc', update)
+    })
+
+    ipcMain.handle('control:first-run-info', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      return configInfo
+    })
+
+    ipcMain.handle('control:open-config-folder', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      shell.openPath(dirname(configInfo.configPath))
     })
   }
 

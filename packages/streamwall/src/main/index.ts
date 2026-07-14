@@ -41,6 +41,7 @@ import {
   applyLayoutPreset,
   buildLayoutPreset,
 } from './layoutPresets'
+import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
@@ -375,6 +376,14 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     join(app.getPath('userData'), 'streamwall-storage.json'),
   )
 
+  // Recomputes the same path parseArgs() already read from - fs.existsSync
+  // here (rather than threading a flag through the yargs config) keeps this
+  // check local to where it's needed, for the "Open Config Folder" menu item
+  // and the control UI's first-run hint (#86).
+  const userConfigPath = join(app.getPath('userData'), 'config.toml')
+  const hasUserConfig = fs.existsSync(userConfigPath)
+  installApplicationMenu(userConfigPath)
+
   console.debug('Creating StreamWindow...')
   const idGen = new StreamIDGenerator()
 
@@ -408,7 +417,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     stalledTimeout: argv.retry['stalled-timeout'] * 1000,
   }
   const streamWindow = new StreamWindow(streamWindowConfig, retryConfig)
-  const controlWindow = new ControlWindow()
+  const controlWindow = new ControlWindow({
+    configPath: userConfigPath,
+    hasUserConfig,
+  })
 
   let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null

@@ -16,18 +16,32 @@ class FakeBrowserWindow extends EventEmitter {
   }
 }
 
+type IpcHandler = (event: { sender: unknown }, ...args: unknown[]) => unknown
+
+const ipcHandlers = new Map<string, IpcHandler>()
+const handle = vi.fn((channel: string, handler: IpcHandler) => {
+  ipcHandlers.set(channel, handler)
+})
+const openPath = vi.fn()
+
 vi.mock('electron', () => ({
   BrowserWindow: FakeBrowserWindow,
-  ipcMain: { handle: vi.fn() },
+  ipcMain: { handle },
+  shell: { openPath },
 }))
 
 vi.mock('./loadHTML', () => ({ loadHTML: vi.fn() }))
 
 const { default: ControlWindow } = await import('./ControlWindow')
 
+const configInfo = {
+  configPath: '/home/test/.config/Streamwall/config.toml',
+  hasUserConfig: false,
+}
+
 describe('ControlWindow close', () => {
   it('forwards the underlying Electron close event so callers can preventDefault', () => {
-    const controlWindow = new ControlWindow()
+    const controlWindow = new ControlWindow(configInfo)
     const closeListener = vi.fn()
     controlWindow.on('close', closeListener)
 
@@ -38,10 +52,65 @@ describe('ControlWindow close', () => {
   })
 
   it('keeps the native close control enabled so the quit/hide behavior wired through the close event is reachable from the window chrome', () => {
-    const controlWindow = new ControlWindow()
+    const controlWindow = new ControlWindow(configInfo)
 
     expect(
       (controlWindow.win as unknown as FakeBrowserWindow).options.closable,
     ).not.toBe(false)
+  })
+
+  it('does not strip the window menu, so the app-level "Open Config Folder" menu item stays reachable on Windows/Linux', () => {
+    const controlWindow = new ControlWindow(configInfo)
+
+    expect(
+      (controlWindow.win as unknown as FakeBrowserWindow).removeMenu,
+    ).not.toHaveBeenCalled()
+  })
+})
+
+describe('ControlWindow first-run info', () => {
+  it('returns the config path/existence to the renderer that owns the window', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+
+    const result = ipcHandlers.get('control:first-run-info')!({ sender })
+
+    expect(result).toEqual(configInfo)
+  })
+
+  it('ignores requests from a sender other than its own window', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    void controlWindow
+
+    const result = ipcHandlers.get('control:first-run-info')!({
+      sender: { send: vi.fn() },
+    })
+
+    expect(result).toBeUndefined()
+  })
+})
+
+describe('ControlWindow open-config-folder', () => {
+  it('opens the directory containing the config file', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+
+    ipcHandlers.get('control:open-config-folder')!({ sender })
+
+    expect(openPath).toHaveBeenCalledWith('/home/test/.config/Streamwall')
+  })
+
+  it('ignores requests from a sender other than its own window', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    void controlWindow
+    openPath.mockClear()
+
+    ipcHandlers.get('control:open-config-folder')!({
+      sender: { send: vi.fn() },
+    })
+
+    expect(openPath).not.toHaveBeenCalled()
   })
 })
