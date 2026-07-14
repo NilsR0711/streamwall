@@ -87,13 +87,15 @@ const normalStreamKinds = new Set(['video', 'audio', 'web'])
 function filterStreams(
   streams: StreamData[],
   wallStreamIds: Set<string>,
+  favoriteLinks: ReadonlySet<string>,
   filter: string,
 ) {
   const wallStreams = []
   const liveStreams = []
   const otherStreams = []
+  const favoriteStreams = []
   for (const stream of streams) {
-    const { _id, kind, status, label, source, state, city } = stream
+    const { _id, kind, status, label, source, state, city, link } = stream
     if (kind && !normalStreamKinds.has(kind)) {
       continue
     }
@@ -105,6 +107,9 @@ function filterStreams(
     ) {
       continue
     }
+    if (favoriteLinks.has(link)) {
+      favoriteStreams.push(stream)
+    }
     if (wallStreamIds.has(_id)) {
       wallStreams.push(stream)
     } else if ((kind && kind !== 'video') || status === 'Live') {
@@ -113,7 +118,7 @@ function filterStreams(
       otherStreams.push(stream)
     }
   }
-  return [wallStreams, liveStreams, otherStreams]
+  return [wallStreams, liveStreams, otherStreams, favoriteStreams]
 }
 
 export { useYDoc } from './useYDoc.ts'
@@ -143,6 +148,7 @@ export interface StreamwallConnection {
   delayState: StreamDelayStatus | null | undefined
   authState?: StreamwallState['auth']
   layoutPresets: LayoutPreset[]
+  favorites: string[]
   dataSourceHealth: DataSourceHealth[]
 }
 
@@ -159,6 +165,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         delayState: undefined,
         authState: undefined,
         layoutPresets: [],
+        favorites: [],
         dataSourceHealth: [],
       }
     }
@@ -171,6 +178,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       views: stateViews,
       streamdelay,
       layoutPresets,
+      favorites,
       dataSourceHealth,
     } = state
     const stateIdxMap = new Map()
@@ -220,6 +228,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       customStreams,
       stateIdxMap,
       layoutPresets,
+      favorites,
       dataSourceHealth,
     }
   }, [state])
@@ -246,6 +255,7 @@ export function ControlUI({
     authState,
     role,
     layoutPresets,
+    favorites,
     dataSourceHealth,
   } = connection
   const {
@@ -558,6 +568,19 @@ export function ControlUI({
     [send],
   )
 
+  const favoritesSet = useMemo(() => new Set(favorites), [favorites])
+
+  const handleToggleFavorite = useCallback(
+    (url: string) => {
+      if (favoritesSet.has(url)) {
+        send({ type: 'remove-favorite', url })
+      } else {
+        send({ type: 'add-favorite', url })
+      }
+    },
+    [send, favoritesSet],
+  )
+
   const preventLinkClick = useCallback((ev: Event) => {
     ev.preventDefault()
   }, [])
@@ -665,10 +688,13 @@ export function ControlUI({
       ),
     [sharedState],
   )
-  const [wallStreams, liveStreams, otherStreams] = useMemo(
-    () => filterStreams(streams, wallStreamIds, streamFilter),
-    [streams, wallStreamIds, streamFilter],
+  const [wallStreams, liveStreams, otherStreams, favoriteStreams] = useMemo(
+    () => filterStreams(streams, wallStreamIds, favoritesSet, streamFilter),
+    [streams, wallStreamIds, favoritesSet, streamFilter],
   )
+  const toggleFavoriteHandler = roleCan(role, 'add-favorite')
+    ? handleToggleFavorite
+    : undefined
   return (
     <AppShell className="app-shell">
       <Stack className="grid-container">
@@ -957,12 +983,24 @@ export function ControlUI({
                 placeholder="Quellen filtern…"
               />
               <h3>
+                Favorites <span className="ct">{favoriteStreams.length}</span>
+              </h3>
+              <StreamList
+                rows={favoriteStreams}
+                disabled={!roleCan(role, 'mutate-state-doc')}
+                onClickId={handleClickId}
+                favorites={favoritesSet}
+                onToggleFavorite={toggleFavoriteHandler}
+              />
+              <h3>
                 Viewing <span className="ct">{wallStreams.length}</span>
               </h3>
               <StreamList
                 rows={wallStreams}
                 disabled={!roleCan(role, 'mutate-state-doc')}
                 onClickId={handleClickId}
+                favorites={favoritesSet}
+                onToggleFavorite={toggleFavoriteHandler}
               />
               <h3>
                 Live <span className="ct">{liveStreams.length}</span>
@@ -971,6 +1009,8 @@ export function ControlUI({
                 rows={liveStreams}
                 disabled={!roleCan(role, 'mutate-state-doc')}
                 onClickId={handleClickId}
+                favorites={favoritesSet}
+                onToggleFavorite={toggleFavoriteHandler}
               />
               <h3>
                 Offline / Unknown{' '}
@@ -980,6 +1020,8 @@ export function ControlUI({
                 rows={otherStreams}
                 disabled={!roleCan(role, 'mutate-state-doc')}
                 onClickId={handleClickId}
+                favorites={favoritesSet}
+                onToggleFavorite={toggleFavoriteHandler}
               />
             </div>
           ) : (

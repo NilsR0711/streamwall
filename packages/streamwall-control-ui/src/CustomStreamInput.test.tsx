@@ -68,6 +68,7 @@ function makeConnection(customStreams: StreamData[]): StreamwallConnection {
     delayState,
     authState: undefined,
     layoutPresets: [],
+    favorites: [],
     dataSourceHealth: [],
   }
 }
