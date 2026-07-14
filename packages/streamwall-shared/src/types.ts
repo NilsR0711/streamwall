@@ -1,3 +1,4 @@
+import type { Delta } from 'jsondiffpatch'
 import type { ViewContent, ViewPos } from './geometry.ts'
 import type { StreamwallRole } from './roles.ts'
 
@@ -168,3 +169,42 @@ export type ControlUpdate = {
 export type ControlCommandMessage = MessageMeta & ControlCommand
 
 export type ControlUpdateMessage = MessageMeta & ControlUpdate
+
+/** Sent to a `/client/ws` socket once, immediately after it connects. */
+export type ClientStateMessage = {
+  type: 'state'
+  state: StreamwallState
+}
+
+/** An incremental jsondiffpatch delta applied to a client's last-known state. */
+export type ClientStateDeltaMessage = {
+  type: 'state-delta'
+  delta: Delta
+}
+
+/** A connection-level rejection, sent before a client session is ever established. */
+export type ClientErrorMessage = {
+  error: string
+}
+
+/**
+ * The server's reply to a specific client-issued command, correlated by the
+ * client-supplied `id`. `error` is present only when the command was
+ * rejected; a successful `create-invite` additionally returns the minted
+ * token's `name`/`secret`/`tokenId`.
+ */
+export type ClientCommandResponse = {
+  response: true
+  id?: number
+  error?: string
+  name?: string
+  secret?: string
+  tokenId?: string
+}
+
+/** Every message shape the control server sends over a `/client/ws` socket. */
+export type ServerToClientMessage =
+  | ClientStateMessage
+  | ClientStateDeltaMessage
+  | ClientErrorMessage
+  | ClientCommandResponse
