@@ -993,8 +993,8 @@ export function ControlUI({
       const isListening = stateIdxMap.get(idx)?.isListening ?? false
       handleSetListening(idx, !isListening)
     },
-    // This enables hotkeys when input elements are focused, and affects all hotkeys, not just this one.
-    { filter: () => true },
+    // This enables the hotkey while a grid input is focused.
+    { enableOnFormTags: true },
     [stateIdxMap],
   )
   useHotkeys(
