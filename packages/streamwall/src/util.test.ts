@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { ensureValidURL, findRequestBlockReason } from './util'
+import {
+  createSessionHostResolver,
+  ensureValidURL,
+  findRequestBlockReason,
+} from './util'
 
 // Deterministic resolver stubs so the DNS-dependent paths can be exercised
 // without touching the network.
@@ -323,6 +327,93 @@ test('findRequestBlockReason allows a wss: request to a public host resolving to
 test('findRequestBlockReason fails open for a ws: request when the host does not resolve', async () => {
   assert.equal(
     await findRequestBlockReason('ws://cdn.example/socket', resolveFails),
+    null,
+  )
+})
+
+// createSessionHostResolver adapts a session's own DNS resolver (the one
+// Chromium actually uses to connect) into a HostAddressResolver, so
+// ensureValidURL/findRequestBlockReason can be checked against the exact
+// resolution the request will reuse — narrowing the DNS-rebinding
+// time-of-check/time-of-use gap tracked in #169, instead of validating
+// against a second, wholly independent lookup via Node's `dns.lookup`.
+
+const fakeSessionResolving =
+  (...endpoints: { address: string; family: 'ipv4' | 'ipv6' }[]) =>
+  (): {
+    resolveHost: (host: string) => Promise<{ endpoints: typeof endpoints }>
+  } => ({
+    resolveHost: async () => ({ endpoints }),
+  })
+
+test('createSessionHostResolver resolves a hostname via session.resolveHost', async () => {
+  const calls: string[] = []
+  const session = {
+    resolveHost: async (host: string) => {
+      calls.push(host)
+      return {
+        endpoints: [{ address: '93.184.216.34', family: 'ipv4' as const }],
+      }
+    },
+  }
+  const resolve = createSessionHostResolver(session)
+  assert.deepEqual(await resolve('stream.example.com'), ['93.184.216.34'])
+  assert.deepEqual(calls, ['stream.example.com'])
+})
+
+test('createSessionHostResolver flattens every resolved endpoint address', async () => {
+  const session = fakeSessionResolving(
+    { address: '93.184.216.34', family: 'ipv4' },
+    { address: '2606:4700:4700::1111', family: 'ipv6' },
+  )()
+  const resolve = createSessionHostResolver(session)
+  assert.deepEqual(await resolve('stream.example.com'), [
+    '93.184.216.34',
+    '2606:4700:4700::1111',
+  ])
+})
+
+test('createSessionHostResolver resolves to an empty list when the session finds no endpoints', async () => {
+  const resolve = createSessionHostResolver(fakeSessionResolving()())
+  assert.deepEqual(await resolve('empty.example'), [])
+})
+
+test('ensureValidURL rejects a hostname the session resolver reports as private', async () => {
+  const resolve = createSessionHostResolver(
+    fakeSessionResolving({ address: '10.1.2.3', family: 'ipv4' })(),
+  )
+  await assert.rejects(
+    ensureValidURL('http://rebind.example/', resolve),
+    /private-network/,
+  )
+})
+
+test('ensureValidURL allows a hostname the session resolver reports as public', async () => {
+  const resolve = createSessionHostResolver(
+    fakeSessionResolving({ address: '93.184.216.34', family: 'ipv4' })(),
+  )
+  await assert.doesNotReject(
+    ensureValidURL('http://stream.example.com/', resolve),
+  )
+})
+
+test('findRequestBlockReason blocks a sub-resource host the session resolver reports as private', async () => {
+  const resolve = createSessionHostResolver(
+    fakeSessionResolving({ address: '169.254.169.254', family: 'ipv4' })(),
+  )
+  const reason = await findRequestBlockReason(
+    'http://metadata.evil.example/0.ts',
+    resolve,
+  )
+  assert.match(String(reason), /private-network/)
+})
+
+test('findRequestBlockReason allows a sub-resource host the session resolver reports as public', async () => {
+  const resolve = createSessionHostResolver(
+    fakeSessionResolving({ address: '93.184.216.34', family: 'ipv4' })(),
+  )
+  assert.equal(
+    await findRequestBlockReason('http://cdn.example/0.ts', resolve),
     null,
   )
 })

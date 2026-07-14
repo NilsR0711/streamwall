@@ -18,7 +18,7 @@ import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
-import { ensureValidURL } from '../util'
+import { createSessionHostResolver, ensureValidURL } from '../util'
 import { ConfigError, parseConfigToml, validateConfig } from './config'
 import ControlWindow from './ControlWindow'
 import {
@@ -503,7 +503,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       if (msg.type === 'browse') {
         console.debug('Attempting to browse URL:', msg.url)
         try {
-          await ensureValidURL(msg.url)
+          await ensureValidURL(
+            msg.url,
+            createSessionHostResolver(browseWindow.webContents.session),
+          )
           browseWindow.loadURL(msg.url)
         } catch (error) {
           console.error('Invalid URL:', msg.url)

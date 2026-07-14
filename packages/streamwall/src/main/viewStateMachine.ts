@@ -12,7 +12,7 @@ import {
   ContentViewInfo,
 } from 'streamwall-shared/src/types'
 import { Actor, assign, fromPromise, setup } from 'xstate'
-import { ensureValidURL } from '../util'
+import { createSessionHostResolver, ensureValidURL } from '../util'
 import { loadHTML } from './loadHTML'
 
 // Safety net for the whole loading phase (navigate -> waitForInit -> waitForVideo).
@@ -235,8 +235,8 @@ const viewStateMachine = setup({
       }) => {
         assert(content !== null)
 
-        await ensureValidURL(content.url)
         const wc = view.webContents
+        await ensureValidURL(content.url, createSessionHostResolver(wc.session))
         wc.audioMuted = true
         wc.executeJavaScript(`
           Object.defineProperty(document, 'visibilityState', {
