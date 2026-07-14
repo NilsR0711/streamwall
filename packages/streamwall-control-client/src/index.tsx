@@ -11,6 +11,7 @@ import {
 } from 'streamwall-control-ui'
 import {
   type ControlCommand,
+  isSocketOpen,
   stateDiff,
   type StreamwallState,
 } from 'streamwall-shared'
@@ -40,6 +41,12 @@ function useStreamwallWebsocketConnection(
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 1000 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.1,
+      // The server pushes a full 'state' message (and full Yjs doc) as soon
+      // as a client (re)connects, so anything queued while disconnected is
+      // stale by the time it could be delivered. Disable the library's
+      // default unbounded queue rather than let it buffer indefinitely while
+      // the control server is unreachable.
+      maxEnqueuedMessages: 0,
     })
     ws.binaryType = 'arraybuffer'
     ws.addEventListener('close', () => {
@@ -110,7 +117,11 @@ function useStreamwallWebsocketConnection(
       if (origin === 'server') {
         return
       }
-      wsRef.current?.ws.send(update)
+      const { ws } = wsRef.current ?? {}
+      if (!ws || !isSocketOpen(ws)) {
+        return
+      }
+      ws.send(update)
     }
 
     function receiveUpdate(ev: MessageEvent) {
