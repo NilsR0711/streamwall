@@ -1,6 +1,7 @@
 import { ipcRenderer, webFrame } from 'electron'
 import throttle from 'lodash/throttle'
 import { ContentDisplayOptions } from 'streamwall-shared'
+import { VolumeController } from './volumeController'
 
 const SCAN_THROTTLE = 500
 const INITIAL_TIMEOUT = 10 * 1000
@@ -280,20 +281,21 @@ async function main() {
   const viewInit = ipcRenderer.invoke('view-init')
   const pageReady = new Promise((resolve) => process.once('loaded', resolve))
 
-  const [{ content, options: initialOptions }] = await Promise.all([
-    viewInit,
-    pageReady,
-  ])
+  const [{ content, options: initialOptions, volume: initialVolume }] =
+    await Promise.all([viewInit, pageReady])
 
   const snapshotController = new SnapshotController()
 
   let rotationController: RotationController | undefined
+  let volumeController: VolumeController | undefined
+  let latestVolume = initialVolume ?? 1
   async function acquireMedia(elementTimeout: number) {
     let snapshotInterval: number | undefined
 
     const media = await findMedia(content.kind, elementTimeout)
     console.log('media acquired', media)
 
+    volumeController = new VolumeController(media, latestVolume)
     ipcRenderer.send('view-loaded')
 
     if (content.kind === 'video' && media instanceof HTMLVideoElement) {
@@ -341,6 +343,12 @@ async function main() {
   }
   ipcRenderer.on('options', (ev, options) => updateOptions(options))
   updateOptions(initialOptions)
+
+  function updateVolume(volume: number) {
+    latestVolume = volume
+    volumeController?.setVolume(volume)
+  }
+  ipcRenderer.on('volume', (ev, volume) => updateVolume(volume))
 }
 
 main().catch((error) => {

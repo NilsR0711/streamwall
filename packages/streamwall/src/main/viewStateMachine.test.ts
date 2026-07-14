@@ -41,6 +41,7 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
       unmuteAudio: noop,
       openDevTools: noop,
       sendViewOptions: noop,
+      sendViewVolume: noop,
       logError: noop,
     },
     actors: {
@@ -294,5 +295,88 @@ describe('viewStateMachine error handling and auto-retry', () => {
     const snapshot = actor.getSnapshot()
     expect(matchesState('displaying.error', snapshot.value)).toBe(true)
     expect(snapshot.context.error).toMatch(/timed out/i)
+  })
+})
+
+describe('viewStateMachine volume control', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Same setup as makeActor, but with a spy on sendViewVolume so tests can
+  // assert on what was forwarded to the view's webContents.
+  function makeActorWithVolumeSpy(retry: RetryConfig) {
+    const sendViewVolume = vi.fn()
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView: noop,
+        positionView: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: {} as never,
+        win: {} as never,
+        offscreenWin: {} as never,
+        retry,
+      },
+    })
+    return { actor, sendViewVolume }
+  }
+
+  it('defaults volume to 1', () => {
+    const { actor } = makeActorWithVolumeSpy(makeRetry())
+    actor.start()
+
+    expect(actor.getSnapshot().context.volume).toBe(1)
+  })
+
+  it('updates context.volume and forwards it to the view on SET_VOLUME', () => {
+    const { actor, sendViewVolume } = makeActorWithVolumeSpy(makeRetry())
+    actor.start()
+    display(actor)
+
+    actor.send({ type: 'SET_VOLUME', volume: 0.4 })
+
+    expect(actor.getSnapshot().context.volume).toBe(0.4)
+    expect(sendViewVolume).toHaveBeenCalledTimes(1)
+    expect(sendViewVolume).toHaveBeenCalledWith(expect.anything(), {
+      volume: 0.4,
+    })
+  })
+
+  it('applies SET_VOLUME while running, independent of the mute state', async () => {
+    const { actor, sendViewVolume } = makeActorWithVolumeSpy(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'SET_VOLUME', volume: 0.7 })
+
+    expect(actor.getSnapshot().context.volume).toBe(0.7)
+    expect(sendViewVolume).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not resend to the view when the volume is unchanged', () => {
+    const { actor, sendViewVolume } = makeActorWithVolumeSpy(makeRetry())
+    actor.start()
+    display(actor)
+
+    actor.send({ type: 'SET_VOLUME', volume: 0.5 })
+    actor.send({ type: 'SET_VOLUME', volume: 0.5 })
+
+    expect(sendViewVolume).toHaveBeenCalledTimes(1)
   })
 })
