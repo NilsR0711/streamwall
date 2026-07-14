@@ -60,6 +60,12 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
 }
 
 const CONTENT = { url: 'https://example.com/stream', kind: 'video' as const }
+// Distinct from CONTENT so DISPLAY-while-running is recognized as a content
+// swap (playlist advance / drag-to-place reassignment) rather than a noop.
+const OTHER_CONTENT = {
+  url: 'https://example.com/other-stream',
+  kind: 'video' as const,
+}
 const POS = { x: 0, y: 0, width: 100, height: 100, spaces: [0] }
 
 function display(actor: ReturnType<typeof makeActor>) {
@@ -712,6 +718,234 @@ describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
       true,
     )
 
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.background',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a listening view listening across an automatic stalled reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'UNMUTE' })
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000) // stalledTimeout -> reload
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a blurred view blurred across an automatic stalled reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BLUR' })
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000) // stalledTimeout -> reload
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a listening view listening across an automatic error-retry reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'UNMUTE' })
+
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(1000) // delay * 2^0 -> back to loading
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a blurred view blurred across an automatic error-retry reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BLUR' })
+
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    await vi.advanceTimersByTimeAsync(1000) // delay * 2^0 -> back to loading
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a backgrounded view backgrounded across an automatic error-retry reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BACKGROUND' })
+
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    await vi.advanceTimersByTimeAsync(1000) // delay * 2^0 -> back to loading
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.background',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a listening view listening across a manual RELOAD', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'UNMUTE' })
+
+    actor.send({ type: 'RELOAD' })
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a blurred view blurred across a manual RELOAD', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BLUR' })
+
+    actor.send({ type: 'RELOAD' })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a listening view listening across a content swap while running', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'UNMUTE' })
+
+    // A playlist advance / drag-to-place reassignment: same cell, new content.
+    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a blurred view blurred across a content swap while running', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BLUR' })
+
+    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a backgrounded view backgrounded across a content swap while running', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BACKGROUND' })
+
+    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
     await vi.advanceTimersByTimeAsync(0)
     actor.send({ type: 'VIEW_INIT' })
     actor.send({ type: 'VIEW_LOADED' })
