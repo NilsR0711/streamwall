@@ -106,10 +106,17 @@ supported by design.
 
 ## Hotkeys
 
-The following hotkeys are available with the "control" webpage focused:
+The following hotkeys are available with a "control" webpage focused, whether
+that's the Electron control UI or the standalone web control client:
 
-- **alt+[1...9]**: Listen to the numbered stream
-- **alt+shift+[1...9]**: Toggle blur on the numbered stream
+- **alt+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Listen to the corresponding stream
+  (20 grid positions, in that key order)
+- **alt+shift+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Toggle blur on the
+  corresponding stream
 - **alt+s**: Select the currently focused stream box to be swapped
 - **alt+c**: Activate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode
 - **alt+shift+c**: Deactivate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode
+
+The overlay window has its own hotkey:
+
+- **ctrl+shift+i**: Open devtools for the overlay
