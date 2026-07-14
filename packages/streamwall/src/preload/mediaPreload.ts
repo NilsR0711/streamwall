@@ -1,10 +1,17 @@
 import { ipcRenderer, webFrame } from 'electron'
 import throttle from 'lodash/throttle'
 import { ContentDisplayOptions } from 'streamwall-shared'
+import { installVisibilityOverride } from './visibilityOverride'
 import { VolumeController } from './volumeController'
 
 const SCAN_THROTTLE = 500
 const INITIAL_TIMEOUT = 10 * 1000
+
+// Runs before any of the page's own scripts (preload semantics), unlike the
+// previous approach of calling executeJavaScript on the webContents just
+// before navigating, which targeted the pre-navigation document and was
+// discarded once loadURL navigated away (see #25).
+installVisibilityOverride(webFrame)
 
 const VIDEO_OVERRIDE_STYLE = `
   * {
