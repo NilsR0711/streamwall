@@ -59,6 +59,7 @@ import {
 import { createGlobalStyle, styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
+import { copyTextToClipboard } from './clipboard.ts'
 import { createErrorSurfacingSend } from './commandError.ts'
 import { CommandErrorBanner } from './CommandErrorBanner.tsx'
 import { DataSourceHealthBanner } from './DataSourceHealthBanner.tsx'
@@ -1079,11 +1080,7 @@ export function ControlUI({
         return
       }
 
-      try {
-        navigator.clipboard.writeText(streamId)
-      } catch (err) {
-        console.warn('Unable to copy stream id to clipboard:', err)
-      }
+      copyTextToClipboard(streamId)
 
       const targetIdx = resolveTargetViewIdx({
         views: sharedState.views,
