@@ -1,107 +1,21 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import type { AddressInfo } from 'node:net'
 import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
-import { buildTestApp } from './testHelpers.ts'
+import type { StreamwallRole } from 'streamwall-shared'
+import {
+  buildTestApp,
+  connectStreamwallUplink,
+  listenTestApp,
+  messageCollector,
+  mintUplinkToken,
+  redeemInviteAndConnectClient,
+  VALID_STATE,
+} from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
-
-const VALID_STATE = {
-  identity: { role: 'admin' },
-  config: {
-    cols: 3,
-    rows: 3,
-    width: 1920,
-    height: 1080,
-    frameless: false,
-    activeColor: '#fff',
-    backgroundColor: '#000',
-  },
-  auth: { invites: [], sessions: [] },
-  streams: [],
-  customStreams: [],
-  views: [],
-  streamdelay: null,
-}
-
-/**
- * Buffers every JSON (text) frame from a socket and lets a test await one
- * matching a predicate. Already-received frames satisfy `waitFor`, so there is
- * no race between attaching a listener and a frame arriving. Binary Yjs frames
- * are ignored.
- */
-function recordJsonMessages(ws: WebSocket) {
-  const messages: any[] = []
-  const waiters: {
-    predicate: (m: any) => boolean
-    resolve: (m: any) => void
-  }[] = []
-
-  ws.on('message', (data, isBinary) => {
-    if (isBinary) {
-      return
-    }
-    let msg: any
-    try {
-      msg = JSON.parse(data.toString())
-    } catch {
-      return
-    }
-    messages.push(msg)
-    for (let i = waiters.length - 1; i >= 0; i--) {
-      if (waiters[i].predicate(msg)) {
-        waiters[i].resolve(msg)
-        waiters.splice(i, 1)
-      }
-    }
-  })
-
-  return {
-    messages,
-    waitFor(predicate: (m: any) => boolean, timeoutMs = 2000): Promise<any> {
-      const existing = messages.find(predicate)
-      if (existing) {
-        return Promise.resolve(existing)
-      }
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error('timed out waiting for matching ws message')),
-          timeoutMs,
-        )
-        waiters.push({
-          predicate,
-          resolve: (m) => {
-            clearTimeout(timer)
-            resolve(m)
-          },
-        })
-      })
-    },
-  }
-}
-
-/**
- * Captures the first app-level message from the moment the socket is created,
- * so an error the server sends immediately on connect is never missed to a
- * listener-attachment race. `next(timeoutMs)` resolves with that message or
- * null if none arrives within the window.
- */
-function messageCollector(ws: WebSocket) {
-  let first: unknown | undefined
-  const received = new Promise<void>((resolve) => {
-    ws.once('message', (data) => {
-      first = JSON.parse(data.toString())
-      resolve()
-    })
-  })
-  return async (timeoutMs: number): Promise<unknown | null> => {
-    await Promise.race([received, delay(timeoutMs)])
-    return first === undefined ? null : first
-  }
-}
 
 /** Temporarily replaces `console.warn`, capturing every call made while active. */
 function spyOnConsoleWarn() {
@@ -130,48 +44,23 @@ async function bootServerWithUplink() {
 
   const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
   after(() => app.close())
-  await app.listen({ port: 0, host: '127.0.0.1' })
-  const { port } = app.server.address() as AddressInfo
+  const port = await listenTestApp(app)
 
-  const swToken = await auth.createToken({
-    kind: 'streamwall',
-    role: 'admin',
-    name: 'uplink',
-  })
-  const streamwallWs = new WebSocket(
-    `ws://127.0.0.1:${port}/streamwall/${swToken.tokenId}/ws`,
-    { headers: { authorization: `Bearer ${swToken.secret}` } },
+  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink<any>(
+    auth,
+    port,
   )
-  const streamwall = recordJsonMessages(streamwallWs)
-  after(() => streamwallWs.terminate())
-  await once(streamwallWs, 'open')
-
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
   await delay(150)
 
-  async function connectClient(role: 'admin' | 'operator' | 'monitor') {
-    const invite = await auth.createToken({
-      kind: 'invite',
+  async function connectClient(role: StreamwallRole) {
+    const { ws: clientWs, client } = await redeemInviteAndConnectClient<any>(
+      app,
+      auth,
+      port,
+      BASE_URL,
       role,
-      name: `${role} client`,
-    })
-    const redeem = await app.inject({
-      method: 'POST',
-      url: `/invite/${invite.tokenId}`,
-      headers: { 'content-type': 'application/json' },
-      payload: { token: invite.secret },
-    })
-    const rawCookie = redeem.headers['set-cookie']
-    const cookie = (
-      Array.isArray(rawCookie) ? rawCookie[0] : String(rawCookie)
-    ).split(';')[0]
-
-    const clientWs = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
-      headers: { Cookie: cookie, Origin: BASE_URL },
-    })
-    const client = recordJsonMessages(clientWs)
-    after(() => clientWs.terminate())
-    await once(clientWs, 'open')
+    )
     return { clientWs, client }
   }
 
@@ -358,15 +247,8 @@ async function startUplinkServer() {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
   const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
   after(() => app.close())
-  await app.listen({ port: 0, host: '127.0.0.1' })
-  const { port } = app.server.address() as AddressInfo
-
-  const { tokenId, secret } = await auth.createToken({
-    kind: 'streamwall',
-    role: 'admin',
-    name: 'uplink',
-  })
-  const base = `ws://127.0.0.1:${port}/streamwall/${tokenId}/ws`
+  const port = await listenTestApp(app)
+  const { base, secret } = await mintUplinkToken(auth, port)
   return { app, auth, port, base, secret }
 }
 
@@ -426,28 +308,12 @@ test('a state message sent immediately on connect is not dropped while auth vali
   await once(streamwallWs, 'open')
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
 
-  const invite = await auth.createToken({
-    kind: 'invite',
-    role: 'admin',
-    name: 'client',
-  })
-  const redeem = await app.inject({
-    method: 'POST',
-    url: `/invite/${invite.tokenId}`,
-    headers: { 'content-type': 'application/json' },
-    payload: { token: invite.secret },
-  })
-  const rawCookie = redeem.headers['set-cookie']
-  const cookie = (
-    Array.isArray(rawCookie) ? rawCookie[0] : String(rawCookie)
-  ).split(';')[0]
-
-  const clientWs = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
-    headers: { Cookie: cookie, Origin: BASE_URL },
-  })
-  after(() => clientWs.terminate())
-  const client = recordJsonMessages(clientWs)
-  await once(clientWs, 'open')
+  const { client } = await redeemInviteAndConnectClient<any>(
+    app,
+    auth,
+    port,
+    BASE_URL,
+  )
 
   const stateMsg = await client.waitFor((m) => m.type === 'state')
   assert.deepEqual(
