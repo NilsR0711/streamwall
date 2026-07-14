@@ -204,9 +204,14 @@ The following hotkeys are available with a "control" webpage focused, whether
 that's the Electron control UI or the standalone web control client:
 
 - **alt+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Listen to the corresponding stream
-  (20 grid positions, in that key order)
+  (grid positions 0-19, in that key order)
+- **alt+ctrl+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Listen to the corresponding
+  stream (grid positions 20-39, same key order, for grids larger than 20 cells)
 - **alt+shift+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Toggle blur on the
-  corresponding stream
+  corresponding stream (grid positions 0-19, in that key order)
+- **alt+ctrl+shift+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Toggle blur on the
+  corresponding stream (grid positions 20-39, same key order, for grids larger
+  than 20 cells)
 - **alt+s**: Select the currently focused stream box to be swapped
 - **alt+c**: Activate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode
 - **alt+shift+c**: Deactivate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode
