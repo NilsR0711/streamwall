@@ -2,18 +2,8 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import type { StreamData } from 'streamwall-shared'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { OverlayViewTile } from './OverlayViewTile'
-
-// Unlike react-icons and styled-components (see vitest.config.ts),
-// svg-loaders-react ships CJS only, so it has no ESM build for Vite's
-// resolver to route through the `react` -> `preact/compat` alias - it always
-// resolves the real `react` package, which crashes when preact/compat's
-// forwardRef-wrapped `styled(TailSpin)` renders it. Stub it out so the
-// tile's own rendering logic can be exercised in isolation.
-vi.mock('svg-loaders-react', () => ({
-  TailSpin: () => null,
-}))
 
 let container: HTMLDivElement | undefined
 
@@ -101,7 +91,30 @@ describe('OverlayViewTile', () => {
     expect(tile.textContent).not.toContain('Stream error')
     expect(tile.textContent).not.toContain('Stream unavailable')
     expect(tile.textContent).toContain('Example Stream')
-    expect(tile.querySelector('svg')).toBeNull()
+    // The loading spinner is always present in the DOM (visibility is
+    // toggled via CSS, see the isLoading tests below); it's the only svg
+    // expected here since the URL doesn't match a known platform icon.
+    const svgs = tile.querySelectorAll('svg')
+    expect(svgs).toHaveLength(1)
+    expect(svgs[0].querySelector('circle')).not.toBeNull()
+  })
+
+  test('shows the loading spinner while isLoading is true', () => {
+    const tile = renderTile({ isLoading: true })
+
+    const spinner = tile.querySelector('svg circle')?.closest('svg')
+    expect(spinner).not.toBeNull()
+    expect(getComputedStyle(spinner!).opacity).toBe('0.5')
+    expect(getComputedStyle(spinner!).visibility).toBe('visible')
+  })
+
+  test('hides the loading spinner while isLoading is false', () => {
+    const tile = renderTile({ isLoading: false })
+
+    const spinner = tile.querySelector('svg circle')?.closest('svg')
+    expect(spinner).not.toBeNull()
+    expect(getComputedStyle(spinner!).opacity).toBe('0')
+    expect(getComputedStyle(spinner!).visibility).toBe('hidden')
   })
 
   test('does not leak custom styled-component props onto the DOM nodes (#152)', () => {
