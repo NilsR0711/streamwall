@@ -15,7 +15,9 @@
 #active-color = "#fff"
 
 [grid]
-#count = 3
+# Number of columns and rows in the stream grid (default: 3x3, each 1-8)
+#cols = 3
+#rows = 3
 
 [control]
 # Address to serve control server from
