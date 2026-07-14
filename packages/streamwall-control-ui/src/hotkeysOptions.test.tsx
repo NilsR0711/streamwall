@@ -56,7 +56,7 @@ function renderControlUI(): HTMLDivElement {
   }
 
   const connection: StreamwallConnection = {
-    isConnected: true,
+    connectionStatus: 'connected',
     role: 'operator',
     send: () => {},
     sharedState: { views: {} },
