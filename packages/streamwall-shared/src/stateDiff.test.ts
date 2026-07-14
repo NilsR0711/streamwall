@@ -40,6 +40,7 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
       width: 800,
       height: 600,
       frameless: false,
+      fullscreen: false,
       activeColor: '#fff',
       backgroundColor: '#000',
     },

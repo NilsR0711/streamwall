@@ -9,6 +9,7 @@ vi.mock('electron', () => ({
   WebContentsView: class {},
   WebContents: class {},
   ipcMain: { handle: () => {}, on: () => {} },
+  screen: { getAllDisplays: () => [] },
   app: {},
 }))
 
@@ -23,6 +24,7 @@ function makeConfig(
     width: 1920,
     height: 1080,
     frameless: false,
+    fullscreen: false,
     activeColor: '#fff',
     backgroundColor: '#000',
     ...overrides,

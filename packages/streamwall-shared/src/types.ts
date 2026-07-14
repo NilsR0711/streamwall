@@ -9,6 +9,9 @@ export interface StreamWindowConfig {
   x?: number
   y?: number
   frameless: boolean
+  fullscreen: boolean
+  /** 0-based index of the display the wall opens on, if pinned to one. */
+  display?: number
   activeColor: string
   backgroundColor: string
 }

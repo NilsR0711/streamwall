@@ -52,6 +52,11 @@ const streamwallConfigSchema = z.object({
     width: positiveInt,
     height: positiveInt,
     frameless: z.boolean(),
+    fullscreen: z.boolean(),
+    // 0-based index into Electron's display list; selects the monitor the wall
+    // opens on. Validated at runtime against the detected displays (the list is
+    // unknown at parse time), so only the shape is checked here.
+    display: z.number().int().nonnegative().optional(),
     'background-color': z.string(),
     'active-color': z.string(),
   }),

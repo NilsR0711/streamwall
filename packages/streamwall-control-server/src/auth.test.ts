@@ -304,6 +304,7 @@ function makeState(): StreamwallState {
       width: 1920,
       height: 1080,
       frameless: false,
+      fullscreen: false,
       activeColor: '#ffffff',
       backgroundColor: '#000000',
     },
