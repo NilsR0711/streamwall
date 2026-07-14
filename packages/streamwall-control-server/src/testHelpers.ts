@@ -13,7 +13,8 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import { type AppOptions, initApp } from './index.ts'
-import type { StoredData } from './storage.ts'
+import type { SentryCaptureClient } from './sentry.ts'
+import type { StorageDB, StoredData } from './storage.ts'
 
 /**
  * Creates a throwaway directory containing a minimal index.html so that
@@ -40,7 +41,13 @@ export function inMemoryDb(): Low<StoredData> {
  * Builds a fully-wired app instance backed by in-memory storage and throwaway
  * static assets, ready for `app.inject()` or `app.listen()` in tests.
  */
-export function buildTestApp(overrides: Partial<AppOptions> = {}) {
+export function buildTestApp(
+  overrides: Partial<AppOptions> & {
+    db?: StorageDB
+    sentryEnabled?: boolean
+    sentryClient?: SentryCaptureClient
+  } = {},
+) {
   return initApp({
     baseURL: 'http://localhost:3000',
     clientStaticPath: makeStaticDir(),
