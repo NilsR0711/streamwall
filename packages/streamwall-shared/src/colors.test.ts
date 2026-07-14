@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hashText, idColor } from './colors.ts'
+import { Color, hashText, idColor } from './colors.ts'
 
 describe('hashText', () => {
   it('returns a fixed hash for a fixed input', () => {
@@ -79,5 +79,16 @@ describe('idColor', () => {
       expect(s).toBeLessThan(60)
       expect(l).toBe(50)
     }
+  })
+
+  // Consumers in other workspaces (e.g. streamwall-control-ui) re-wrap this
+  // value with `Color(...)` themselves. That only works if they construct
+  // their own `Color` from this same re-exported constructor rather than
+  // importing the `color` package directly — otherwise the two modules are
+  // physically different copies (see the monorepo's per-workspace
+  // node_modules layout in package-lock.json), and `Color`'s `instanceof`
+  // fast path fails, throwing "Unable to parse color from object".
+  it('returns an instance recognized by the re-exported Color constructor', () => {
+    expect(idColor('streamwall')).toBeInstanceOf(Color)
   })
 })

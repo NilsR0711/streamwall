@@ -1,21 +1,6 @@
-import Color from 'color'
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-
-// `idColor` (from streamwall-shared) returns a `Color` instance built from
-// *that* package's own `color` module copy — the monorepo doesn't dedupe it
-// against this package's copy (see packages/streamwall-shared/node_modules/color
-// vs packages/streamwall-control-ui/node_modules/color in package-lock.json).
-// `GridInput`'s styled component then re-wraps it via `Color($color)...` using
-// *this* package's copy, which can't parse an instance from the other copy.
-// That's an unrelated, pre-existing cross-package bug (tracked separately);
-// stub `idColor` here with a same-copy `Color` instance so this test isolates
-// the pointer-event wiring this file is actually about.
-vi.mock('streamwall-shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('streamwall-shared')>()
-  return { ...actual, idColor: () => Color('white') }
-})
 
 import { GridInput } from './index.tsx'
 
