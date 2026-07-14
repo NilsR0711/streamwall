@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { ensureValidURL } from './util'
+import { ensureValidURL, findRequestBlockReason } from './util'
 
 // Deterministic resolver stubs so the DNS-dependent paths can be exercised
 // without touching the network.
@@ -177,4 +177,106 @@ test('rejects the localhost hostname with a trailing dot', async () => {
 
 test('rejects a *.localhost hostname with a trailing dot', async () => {
   await assert.rejects(ensureValidURL('http://admin.localhost./'), /loopback/)
+})
+
+// findRequestBlockReason is the network-layer counterpart of ensureValidURL:
+// it is applied to *every* request a view's session issues (redirects and
+// sub-resources included), returns a reason string when a request must be
+// cancelled or null when it is allowed, and — unlike ensureValidURL — only
+// governs http(s) and fails *open* on resolution failure (so a transient DNS
+// hiccup on a legitimate public host does not cancel its traffic).
+
+test('findRequestBlockReason allows a public host resolving to a public address', async () => {
+  assert.equal(
+    await findRequestBlockReason(
+      'https://cdn.example/segment0.ts',
+      resolvesTo('93.184.216.34'),
+    ),
+    null,
+  )
+})
+
+test('findRequestBlockReason allows non-http requests (file/data/blob)', async () => {
+  assert.equal(await findRequestBlockReason('file:///app/playHLS.html'), null)
+  assert.equal(await findRequestBlockReason('data:text/plain,hi'), null)
+  assert.equal(await findRequestBlockReason('blob:https://x/abc'), null)
+})
+
+test('findRequestBlockReason allows an unparseable URL', async () => {
+  assert.equal(await findRequestBlockReason('::not a url::'), null)
+})
+
+test('findRequestBlockReason blocks the cloud-metadata literal address', async () => {
+  const reason = await findRequestBlockReason(
+    'http://169.254.169.254/latest/meta-data/',
+  )
+  assert.match(String(reason), /private-network/)
+})
+
+test('findRequestBlockReason blocks a literal loopback address', async () => {
+  assert.match(
+    String(await findRequestBlockReason('http://127.0.0.1/')),
+    /private-network/,
+  )
+})
+
+test('findRequestBlockReason blocks the localhost hostname', async () => {
+  assert.match(
+    String(await findRequestBlockReason('http://localhost:8404/')),
+    /loopback/,
+  )
+})
+
+test('findRequestBlockReason blocks a *.localhost hostname with a trailing dot', async () => {
+  assert.match(
+    String(await findRequestBlockReason('http://admin.localhost./')),
+    /loopback/,
+  )
+})
+
+test('findRequestBlockReason blocks a public host resolving to a private address', async () => {
+  const reason = await findRequestBlockReason(
+    'http://segments.evil.example/0.ts',
+    resolvesTo('10.1.2.3'),
+  )
+  assert.match(String(reason), /private-network/)
+})
+
+test('findRequestBlockReason blocks when any resolved address is private', async () => {
+  const reason = await findRequestBlockReason(
+    'http://mixed.example/0.ts',
+    resolvesTo('93.184.216.34', '169.254.169.254'),
+  )
+  assert.match(String(reason), /private-network/)
+})
+
+test('findRequestBlockReason blocks an IPv4-mapped IPv6 loopback literal', async () => {
+  assert.match(
+    String(await findRequestBlockReason('http://[::ffff:127.0.0.1]/0.ts')),
+    /private-network/,
+  )
+})
+
+test('findRequestBlockReason fails open when the host does not resolve', async () => {
+  // Unlike ensureValidURL (fail-closed for the top-level load), the per-request
+  // hook must not cancel a legitimate public sub-resource on a transient DNS
+  // failure it cannot positively classify as private.
+  assert.equal(
+    await findRequestBlockReason('http://cdn.example/0.ts', resolveFails),
+    null,
+  )
+})
+
+test('findRequestBlockReason fails open when the host resolves to no addresses', async () => {
+  assert.equal(
+    await findRequestBlockReason('http://cdn.example/0.ts', resolvesTo()),
+    null,
+  )
+})
+
+test('findRequestBlockReason allows a public IPv6-literal request', async () => {
+  assert.equal(
+    await findRequestBlockReason('http://[2606:4700:4700::1111]/0.ts'),
+    null,
+  )
 })

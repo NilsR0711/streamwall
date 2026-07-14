@@ -5,7 +5,13 @@ import {
   BROWSE_PARTITION,
   createPartitionAllocator,
   hardenSession,
+  installRequestSSRFGuard,
 } from './partitions'
+
+type RequestListener = (
+  details: { url: string },
+  callback: (response: { cancel: boolean }) => void,
+) => void
 
 type PermissionHandler = (
   webContents: unknown,
@@ -15,9 +21,15 @@ type PermissionHandler = (
 
 function fakeSession() {
   let handler: PermissionHandler | null = null
+  let requestListener: RequestListener | null = null
   return {
     setPermissionRequestHandler(next: PermissionHandler | null) {
       handler = next
+    },
+    webRequest: {
+      onBeforeRequest(listener: RequestListener) {
+        requestListener = listener
+      },
     },
     request(permission: string): boolean {
       assert.ok(handler, 'a permission request handler must be registered')
@@ -27,6 +39,18 @@ function fakeSession() {
       })
       assert.notEqual(granted, undefined, 'handler must invoke the callback')
       return granted!
+    },
+    async requestURL(url: string): Promise<boolean> {
+      assert.ok(requestListener, 'a request listener must be registered')
+      let cancel: boolean | undefined
+      await new Promise<void>((resolve) => {
+        requestListener!({ url }, (response) => {
+          cancel = response.cancel
+          resolve()
+        })
+      })
+      assert.notEqual(cancel, undefined, 'listener must invoke the callback')
+      return cancel!
     },
   }
 }
@@ -109,4 +133,74 @@ test('hardened session rejects every permission request', () => {
       `permission "${permission}" must be denied`,
     )
   }
+})
+
+test('hardenSession also installs the network-layer SSRF guard', async () => {
+  const session = fakeSession()
+  hardenSession(session)
+  assert.equal(
+    await session.requestURL('http://169.254.169.254/latest/meta-data/'),
+    true,
+    'a request to the cloud-metadata endpoint must be cancelled',
+  )
+  assert.equal(
+    await session.requestURL('https://cdn.twitch.tv/'),
+    false,
+    'a public request must be allowed',
+  )
+})
+
+// A resolver stub keeps the guard tests off the network and deterministic.
+const guardWith = (
+  reasons: Record<string, string | null>,
+  allowedOrigins?: readonly string[],
+) => {
+  const session = fakeSession()
+  installRequestSSRFGuard(session, {
+    allowedOrigins,
+    findBlockReason: async (url) => reasons[url] ?? null,
+  })
+  return session
+}
+
+test('installRequestSSRFGuard cancels requests the reason lookup flags', async () => {
+  const session = guardWith({
+    'http://segments.evil.example/0.ts': 'resolves to private address 10.0.0.5',
+  })
+  assert.equal(
+    await session.requestURL('http://segments.evil.example/0.ts'),
+    true,
+  )
+})
+
+test('installRequestSSRFGuard allows requests the reason lookup clears', async () => {
+  const session = guardWith({ 'https://cdn.example/0.ts': null })
+  assert.equal(await session.requestURL('https://cdn.example/0.ts'), false)
+})
+
+test('installRequestSSRFGuard allows an explicitly allowed origin without consulting the reason lookup', async () => {
+  // The dev server lives on loopback; it must stay reachable for the HLS
+  // renderer page even though findBlockReason would otherwise flag it.
+  const session = guardWith(
+    { 'http://localhost:5173/src/renderer/playHLS.html': 'loopback host' },
+    ['http://localhost:5173'],
+  )
+  assert.equal(
+    await session.requestURL('http://localhost:5173/src/renderer/playHLS.html'),
+    false,
+  )
+})
+
+test('installRequestSSRFGuard fails open if the reason lookup itself throws', async () => {
+  const session = fakeSession()
+  installRequestSSRFGuard(session, {
+    findBlockReason: async () => {
+      throw new Error('boom')
+    },
+  })
+  assert.equal(
+    await session.requestURL('https://cdn.example/0.ts'),
+    false,
+    'an internal guard error must not cancel legitimate traffic',
+  )
 })

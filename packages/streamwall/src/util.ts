@@ -107,3 +107,67 @@ export async function ensureValidURL(
     }
   }
 }
+
+/**
+ * Network-layer counterpart of {@link ensureValidURL}, meant to run on every
+ * request a view's session issues — including HTTP redirects and sub-resources
+ * (e.g. HLS variant/segment fetches) that never pass through the initial
+ * string check. Returns a short reason when the request must be cancelled, or
+ * null when it is allowed.
+ *
+ * It reuses the same non-public-address classification but differs from
+ * `ensureValidURL` in two deliberate ways that suit a per-request hook:
+ *   - Only http(s) is governed. Other schemes (file:, data:, blob:, devtools:,
+ *     ws:, …) are the app's own machinery and are always allowed; an
+ *     unparseable URL is likewise left for the network stack to reject.
+ *   - It fails *open* on a resolution failure. Only a positive match — a
+ *     loopback hostname or an address that classifies as non-public — blocks a
+ *     request, so a transient DNS hiccup on a legitimate public host does not
+ *     cancel its traffic.
+ */
+export async function findRequestBlockReason(
+  urlStr: string,
+  resolveAddresses: HostAddressResolver = resolveHostAddresses,
+): Promise<string | null> {
+  let url: URL
+  try {
+    url = new URL(urlStr)
+  } catch {
+    return null
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return null
+  }
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '')
+  if (hostname === '') {
+    return null
+  }
+
+  if (isLoopbackHostname(hostname)) {
+    return `blocking request to loopback host '${urlStr}'`
+  }
+
+  if (isIP(hostname) !== 0) {
+    return isBlockedAddress(hostname)
+      ? `blocking request to private-network address '${urlStr}'`
+      : null
+  }
+
+  let addresses: string[]
+  try {
+    addresses = await resolveAddresses(hostname)
+  } catch {
+    // Fail open: an unresolvable host cannot be positively classified as
+    // private, and the network stack will fail the request on its own if the
+    // name is genuinely dead.
+    return null
+  }
+  for (const address of addresses) {
+    if (isBlockedAddress(address)) {
+      return `blocking request to private-network URL '${urlStr}' (${hostname} resolves to ${address})`
+    }
+  }
+  return null
+}

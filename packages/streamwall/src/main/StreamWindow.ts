@@ -16,7 +16,7 @@ import {
   ViewState,
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
-import { loadHTML } from './loadHTML'
+import { devServerOrigin, loadHTML } from './loadHTML'
 import { secureStreamView } from './navigationSecurity'
 import { allocateViewPartition, hardenSession } from './partitions'
 import viewStateMachine, {
@@ -188,7 +188,12 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         partition: allocateViewPartition(),
       },
     })
-    hardenSession(view.webContents.session)
+    hardenSession(view.webContents.session, {
+      // In development the HLS renderer page and its assets are served from the
+      // Vite dev server on loopback; allow that origin so the SSRF request guard
+      // does not cancel them.
+      allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+    })
     view.setBackgroundColor(backgroundColor)
 
     const viewId = view.webContents.id
