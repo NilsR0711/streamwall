@@ -1393,26 +1393,3 @@ const StyledStatusBar = styled.div`
     accent-color: var(--accent);
   }
 `
-
-// TODO: reuse for server
-/*
-export function main() {
-  const script = document.getElementById('main-script')
-  const wsEndpoint =
-    typeof script?.dataset?.wsEndpoint === 'string'
-      ? script.dataset.wsEndpoint
-      : 'defaultWsEndpoint'
-  const role =
-    typeof script?.dataset?.role === 'string'
-      ? (script.dataset.role as StreamwallRole)
-      : null
-
-  render(
-    <>
-      <GlobalStyle />
-      <App wsEndpoint={wsEndpoint} role={role} />
-    </>,
-    document.body,
-  )
-}
-*/
