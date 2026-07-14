@@ -87,11 +87,35 @@ describe('alt+<n> listen-toggle hotkey', () => {
         typeof keys === 'string' &&
         keys
           .split(',')
-          .every((k) => k.startsWith('alt+') && !k.includes('shift')),
+          .every(
+            (k) =>
+              k.startsWith('alt+') &&
+              !k.includes('shift') &&
+              !k.includes('ctrl'),
+          ),
     )
 
     expect(listenToggleCall).toBeDefined()
     const options = listenToggleCall?.[2]
+    expect(options).toEqual({ enableOnFormTags: true })
+  })
+})
+
+describe('alt+ctrl+<n> second-layer listen-toggle hotkey (#240)', () => {
+  test('registers an alt+ctrl chord layer covering the same 20 trigger keys', () => {
+    renderControlUI()
+
+    const secondLayerCall = useHotkeysMock.mock.calls.find(
+      ([keys]) =>
+        typeof keys === 'string' &&
+        keys.split(',').every((k) => k.startsWith('alt+ctrl+')),
+    )
+
+    expect(secondLayerCall).toBeDefined()
+    const [keys, , options] = secondLayerCall ?? []
+    // Same 20 trigger keys as the base layer, just chorded with ctrl.
+    expect((keys as string).split(',')).toHaveLength(20)
+    // Must stay usable while a grid input is focused, like the base layer.
     expect(options).toEqual({ enableOnFormTags: true })
   })
 })

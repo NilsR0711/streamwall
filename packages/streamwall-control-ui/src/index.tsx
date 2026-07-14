@@ -130,14 +130,43 @@ const hotkeyTriggers = [
 ]
 
 /**
- * Label for the `alt+<key>` hotkey that toggles audio on grid cell `idx`, or
- * `undefined` if `idx` falls outside hotkeyTriggers' fixed 20-slot range
- * (grids can have up to GRID_MAX * GRID_MAX = 64 cells, so not every cell has
- * an assigned hotkey).
+ * Audio-listen hotkeys are laid out in "layers": each layer maps the same 20
+ * trigger keys to a block of grid cells, distinguished by an extra modifier.
+ * Layer 0 (`alt+<key>`) covers cells 0-19; layer 1 (`alt+ctrl+<key>`) covers
+ * cells 20-39. `alt+shift+<key>` is already taken by the blur toggle, so the
+ * second audio layer stacks `ctrl` instead. (Caveat: on Windows international
+ * layouts `Ctrl+Alt` acts as AltGr; acceptable since the control UI runs
+ * primarily in the Electron control window and the handler preventDefault()s.)
+ *
+ * Grids can have up to GRID_MAX * GRID_MAX = 64 cells, but cells 40-63 (only
+ * reachable on 7x7/8x8 grids) are intentionally left without a hotkey rather
+ * than introducing a fragile triple-modifier layer that conflicts with OS
+ * shortcuts.
+ */
+const hotkeyLayers = [
+  { prefix: 'alt', label: 'Alt' },
+  { prefix: 'alt+ctrl', label: 'Alt+Ctrl' },
+] as const
+
+/** The `alt+<...>+<key>` combos each layer binds, e.g. `alt+1,alt+2,...`. */
+const hotkeyLayerBindings = hotkeyLayers.map((layer) =>
+  hotkeyTriggers.map((k) => `${layer.prefix}+${k}`).join(','),
+)
+
+/**
+ * Label for the audio-toggle hotkey assigned to grid cell `idx` (e.g. `Alt+1`
+ * or `Alt+Ctrl+1`), or `undefined` if `idx` falls outside every hotkey layer.
  */
 export function getHotkeyLabel(idx: number): string | undefined {
-  const key = hotkeyTriggers[idx]
-  return key === undefined ? undefined : `Alt+${key.toUpperCase()}`
+  if (idx < 0) {
+    return undefined
+  }
+  const layer = hotkeyLayers[Math.floor(idx / hotkeyTriggers.length)]
+  const key = hotkeyTriggers[idx % hotkeyTriggers.length]
+  if (layer === undefined || key === undefined) {
+    return undefined
+  }
+  return `${layer.label}+${key.toUpperCase()}`
 }
 
 /**
@@ -1176,17 +1205,37 @@ export function ControlUI({
   }, [])
 
   // Set up keyboard shortcuts.
-  useHotkeys(
-    hotkeyTriggers.map((k) => `alt+${k}`).join(','),
-    (ev, { hotkey }) => {
-      ev.preventDefault()
-      const idx = hotkeyTriggers.indexOf(hotkey[hotkey.length - 1])
+  const toggleListening = useCallback(
+    (idx: number) => {
       const isListening = stateIdxMap.get(idx)?.isListening ?? false
       handleSetListening(idx, !isListening)
     },
-    // This enables the hotkey while a grid input is focused.
+    [stateIdxMap, handleSetListening],
+  )
+  // Audio-listen toggle, layer 0: alt+<key> -> cells 0-19. `enableOnFormTags`
+  // keeps the hotkey live while a grid input is focused.
+  useHotkeys(
+    hotkeyLayerBindings[0],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleListening(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]))
+    },
     { enableOnFormTags: true },
-    [stateIdxMap],
+    [toggleListening],
+  )
+  // Audio-listen toggle, layer 1: alt+ctrl+<key> -> cells 20-39 (see
+  // `hotkeyLayers`). Same trigger keys, offset by one layer of 20 cells.
+  useHotkeys(
+    hotkeyLayerBindings[1],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleListening(
+        hotkeyTriggers.length +
+          hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+      )
+    },
+    { enableOnFormTags: true },
+    [toggleListening],
   )
   useHotkeys(
     hotkeyTriggers.map((k) => `alt+shift+${k}`).join(','),

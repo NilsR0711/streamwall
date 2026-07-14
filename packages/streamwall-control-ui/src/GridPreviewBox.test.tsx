@@ -119,9 +119,19 @@ describe('GridPreviewBox', () => {
     )
   })
 
-  test('omits the hotkey tooltip for a cell beyond the fixed 20-slot hotkey range (#84)', () => {
+  test('surfaces the chorded hotkey for a cell in the second (alt+ctrl) layer (#240)', () => {
     const box = renderBox({
       pos: { x: 0, y: 0, width: 100, height: 100, spaces: [20] },
+    })
+
+    expect(box.firstElementChild?.getAttribute('title')).toBe(
+      'Alt+Ctrl+1 toggles audio',
+    )
+  })
+
+  test('omits the hotkey tooltip for a cell beyond both hotkey layers (#240)', () => {
+    const box = renderBox({
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [40] },
     })
 
     expect(box.firstElementChild?.hasAttribute('title')).toBe(false)
