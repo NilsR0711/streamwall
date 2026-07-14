@@ -112,6 +112,15 @@ See
 for environment variable configuration (hostname/port, storage location, rate
 limits) and a production deployment walkthrough.
 
+**Known limitation:** grid edits (swap, drag-move, resize) sync as
+independent per-cell updates in the shared Yjs document. If two operators
+swap or move overlapping tiles at nearly the same instant, the last-writer-wins
+merge can duplicate one stream into both tiles while dropping the other,
+instead of leaving a consistent swap. This is inherent to modeling the grid as
+independent per-cell values rather than one atomically-swapped unit, and is
+low-impact in practice since concurrent operators rarely target the same
+cells simultaneously.
+
 ## Data sources
 
 Streamwall can load stream data from both JSON APIs and TOML files. Data sources can be specified in a config file (see `example.config.toml` for an example) or the command line:
