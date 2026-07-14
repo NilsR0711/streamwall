@@ -89,6 +89,13 @@ const viewStateMachine = setup({
       error: string | null
       // Number of automatic reloads already spent on the current failure streak.
       retryCount: number
+      // The MUTE/UNMUTE/BACKGROUND state most recently requested for this
+      // view. Tracked independent of `displaying.running.audio` so a request
+      // made while the view is still loading (or recovering from an error) is
+      // applied as soon as `running` is (re-)entered instead of being dropped.
+      desiredAudio: 'muted' | 'listening' | 'background'
+      // Same idea as `desiredAudio`, for BLUR/UNBLUR.
+      desiredBlurred: boolean
     },
 
     events: {} as
@@ -226,6 +233,12 @@ const viewStateMachine = setup({
     // Whether the view is still allowed to reload itself automatically.
     canRetry: ({ context }) =>
       context.retry.enabled && context.retryCount < context.retry.maxRetries,
+
+    desiredAudioIsListening: ({ context }) =>
+      context.desiredAudio === 'listening',
+    desiredAudioIsBackground: ({ context }) =>
+      context.desiredAudio === 'background',
+    desiredVideoIsBlurred: ({ context }) => context.desiredBlurred,
   },
 
   delays: {
@@ -282,6 +295,8 @@ const viewStateMachine = setup({
     error: null,
     retryCount: 0,
     volume: 1,
+    desiredAudio: 'muted',
+    desiredBlurred: false,
   }),
   on: {
     DISPLAY: {
@@ -373,6 +388,18 @@ const viewStateMachine = setup({
       states: {
         loading: {
           initial: 'navigate',
+          // MUTE/UNMUTE/BACKGROUND/UNBACKGROUND/BLUR/UNBLUR only change
+          // behavior once `running`'s own `audio`/`video` regions exist (see
+          // below). Record the request instead of silently dropping it, so it
+          // is applied as soon as `running` is reached.
+          on: {
+            MUTE: { actions: assign({ desiredAudio: 'muted' }) },
+            UNMUTE: { actions: assign({ desiredAudio: 'listening' }) },
+            BACKGROUND: { actions: assign({ desiredAudio: 'background' }) },
+            UNBACKGROUND: { actions: assign({ desiredAudio: 'muted' }) },
+            BLUR: { actions: assign({ desiredBlurred: true }) },
+            UNBLUR: { actions: assign({ desiredBlurred: false }) },
+          },
           // If the whole loading phase stalls (e.g. the renderer never sends
           // VIEW_INIT/VIEW_LOADED), fail the view instead of hanging forever.
           after: {
@@ -497,14 +524,39 @@ const viewStateMachine = setup({
             audio: {
               initial: 'muted',
               on: {
-                MUTE: '.muted',
-                UNMUTE: '.listening',
-                BACKGROUND: '.background',
-                UNBACKGROUND: '.muted',
+                MUTE: {
+                  target: '.muted',
+                  actions: assign({ desiredAudio: 'muted' }),
+                },
+                UNMUTE: {
+                  target: '.listening',
+                  actions: assign({ desiredAudio: 'listening' }),
+                },
+                BACKGROUND: {
+                  target: '.background',
+                  actions: assign({ desiredAudio: 'background' }),
+                },
+                UNBACKGROUND: {
+                  target: '.muted',
+                  actions: assign({ desiredAudio: 'muted' }),
+                },
               },
               states: {
                 muted: {
                   entry: 'muteAudio',
+                  // Applies a MUTE/UNMUTE/BACKGROUND requested while the view
+                  // was still loading (or recovering from an error), instead
+                  // of leaving it stuck muted until explicitly toggled again.
+                  always: [
+                    {
+                      target: 'listening',
+                      guard: 'desiredAudioIsListening',
+                    },
+                    {
+                      target: 'background',
+                      guard: 'desiredAudioIsBackground',
+                    },
+                  ],
                 },
                 listening: {
                   entry: 'unmuteAudio',
@@ -521,17 +573,41 @@ const viewStateMachine = setup({
             video: {
               initial: 'normal',
               on: {
-                BLUR: '.blurred',
-                UNBLUR: '.normal',
+                BLUR: {
+                  target: '.blurred',
+                  actions: assign({ desiredBlurred: true }),
+                },
+                UNBLUR: {
+                  target: '.normal',
+                  actions: assign({ desiredBlurred: false }),
+                },
               },
               states: {
-                normal: {},
+                normal: {
+                  // Applies a BLUR requested while the view was still loading
+                  // (or recovering from an error).
+                  always: {
+                    target: 'blurred',
+                    guard: 'desiredVideoIsBlurred',
+                  },
+                },
                 blurred: {},
               },
             },
           },
         },
         error: {
+          // MUTE/UNMUTE/BACKGROUND/UNBACKGROUND/BLUR/UNBLUR requested while
+          // recovering from an error are recorded the same way as in
+          // `loading` (see above) and applied once `running` is reached.
+          on: {
+            MUTE: { actions: assign({ desiredAudio: 'muted' }) },
+            UNMUTE: { actions: assign({ desiredAudio: 'listening' }) },
+            BACKGROUND: { actions: assign({ desiredAudio: 'background' }) },
+            UNBACKGROUND: { actions: assign({ desiredAudio: 'muted' }) },
+            BLUR: { actions: assign({ desiredBlurred: true }) },
+            UNBLUR: { actions: assign({ desiredBlurred: false }) },
+          },
           // Automatically reload after the backoff delay until the retry budget
           // is spent; then this is a terminal state surfaced to the operator.
           after: {
