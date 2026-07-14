@@ -1,15 +1,17 @@
 import { Low, Memory } from 'lowdb'
 import { JSONFilePreset } from 'lowdb/node'
-import { StreamDataContent } from 'streamwall-shared'
+import { LayoutPreset, StreamDataContent } from 'streamwall-shared'
 
 export interface StreamwallStoredData {
   stateDoc: string
   localStreamData: StreamDataContent[]
+  layoutPresets: LayoutPreset[]
 }
 
 const defaultData: StreamwallStoredData = {
   stateDoc: '',
   localStreamData: [],
+  layoutPresets: [],
 }
 
 export type StorageDB = Low<StreamwallStoredData>

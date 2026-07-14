@@ -1,11 +1,20 @@
+import { mkdtempSync, rmSync } from 'fs'
 import { Low, Memory } from 'lowdb'
-import { describe, expect, it, vi } from 'vitest'
-import { flushStorage, StorageDB, StreamwallStoredData } from './storage'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { describe, expect, it, test, vi } from 'vitest'
+import {
+  flushStorage,
+  loadStorage,
+  StorageDB,
+  StreamwallStoredData,
+} from './storage'
 
 function makeDB(initial: Partial<StreamwallStoredData> = {}): StorageDB {
   return new Low<StreamwallStoredData>(new Memory(), {
     stateDoc: '',
     localStreamData: [],
+    layoutPresets: [],
     ...initial,
   })
 }
@@ -49,5 +58,39 @@ describe('flushStorage', () => {
     expect(persisted?.localStreamData).toEqual([
       { _id: 'a', kind: 'video', link: 'https://example.test' },
     ])
+  })
+})
+
+describe('loadStorage', () => {
+  test('defaults layoutPresets to an empty array for a fresh db', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'streamwall-storage-test-'))
+    try {
+      const dbPath = join(dir, 'storage.json')
+      const db = await loadStorage(dbPath)
+
+      expect(db.data.layoutPresets).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('db.update persists a saved layout preset onto db.data', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'streamwall-storage-test-'))
+    try {
+      const dbPath = join(dir, 'storage.json')
+      const db = await loadStorage(dbPath)
+
+      await db.update((data) => {
+        data.layoutPresets = [
+          { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },
+        ]
+      })
+
+      expect(db.data.layoutPresets).toEqual([
+        { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

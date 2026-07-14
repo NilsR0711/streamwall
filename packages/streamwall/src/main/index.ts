@@ -3,6 +3,7 @@ import { BrowserWindow, app } from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
+import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
@@ -35,6 +36,11 @@ import {
   watchDataFile,
 } from './data'
 import { applyGridResize } from './gridResize'
+import {
+  addLayoutPreset,
+  applyLayoutPreset,
+  buildLayoutPreset,
+} from './layoutPresets'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
@@ -414,6 +420,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     customStreams: [],
     views: [],
     streamdelay: null,
+    layoutPresets: db.data.layoutPresets,
   }
 
   function updateViewsFromStateDoc() {
@@ -594,6 +601,49 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       // the new dimensions (issue #15) — so no explicit updateViewsFromStateDoc()
       // call is needed here.
       updateState({})
+    } else if (msg.type === 'save-layout-preset') {
+      console.debug('Saving layout preset:', msg.name)
+      const preset = buildLayoutPreset(
+        {
+          viewsState,
+          cols: streamWindowConfig.cols,
+          rows: streamWindowConfig.rows,
+        },
+        randomUUID(),
+        msg.name,
+      )
+      const layoutPresets = addLayoutPreset(clientState.layoutPresets, preset)
+      db.update((data) => {
+        data.layoutPresets = layoutPresets
+      })
+      updateState({ layoutPresets })
+    } else if (msg.type === 'load-layout-preset') {
+      const preset = clientState.layoutPresets.find(
+        (p) => p.id === msg.presetId,
+      )
+      if (preset) {
+        console.debug('Loading layout preset:', preset.name)
+        applyLayoutPreset(
+          {
+            viewsState,
+            transact: (fn) => stateDoc.transact(fn),
+            setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
+          },
+          preset,
+        )
+        // See the set-grid-size branch above: broadcast the shared config
+        // object via updateState({}) rather than detaching a copy.
+        updateState({})
+      }
+    } else if (msg.type === 'delete-layout-preset') {
+      console.debug('Deleting layout preset:', msg.presetId)
+      const layoutPresets = clientState.layoutPresets.filter(
+        (p) => p.id !== msg.presetId,
+      )
+      db.update((data) => {
+        data.layoutPresets = layoutPresets
+      })
+      updateState({ layoutPresets })
     }
   }
 
