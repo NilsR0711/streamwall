@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
  * apply the shared LAYER_FRAME_SANDBOX policy to their iframe.
  */
 describe('layer renderer iframe sandbox', () => {
-  for (const file of ['overlay.tsx', 'background.tsx']) {
+  for (const file of ['OverlayRoot.tsx', 'background.tsx']) {
     const source = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')
 
     it(`${file} does not hardcode the ineffective allow-same-origin sandbox`, () => {
