@@ -9,3 +9,21 @@ source = "woke.net"
 kind  = "web"
 label = "zombocom"
 link  = "https://html5zombo.com"
+
+[[streams]]
+# A phone stream held sideways: rotate it upright and label the bottom-right
+# corner instead of the default top-left.
+city          = "Portland"
+state         = "OR"
+label         = "on the ground"
+labelPosition = "bottom-right"
+link          = "https://twitch.tv/example-mobile-stream"
+rotation      = 90
+source        = "example.net"
+
+[[streams]]
+# An "overlay" stream is loaded as a full-screen <iframe> layered over the
+# whole wall (e.g. a scoreboard or alert widget) instead of a grid tile.
+# See "Security: overlay and background streams" in the README.
+kind = "overlay"
+link = "https://example.com/scoreboard-widget"
