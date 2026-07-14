@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import type { ViewContent } from './geometry.ts'
 import {
+  boxesFromViewContentMap,
   clampGridDimension,
   GRID_MAX,
   GRID_MIN,
@@ -13,6 +15,24 @@ import {
 describe('idxToCoords', () => {
   it('maps an index to grid coordinates', () => {
     expect(idxToCoords(3, 4)).toEqual({ x: 1, y: 1 })
+  })
+})
+
+describe('boxesFromViewContentMap', () => {
+  it('sorts a box spaces numerically so spaces[0] stays the top-left cell', () => {
+    // 8 cols: a box spanning (x=2,y=0) and (x=2,y=1) covers indices 2 and 10.
+    // A lexicographic sort would order these as ["10", "2"] -> [10, 2],
+    // making spaces[0] (used as the box's "top-left" index) wrong.
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([
+      ['2', content],
+      ['10', content],
+    ])
+
+    const boxes = boxesFromViewContentMap(8, 8, viewContentMap)
+
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].spaces).toEqual([2, 10])
   })
 })
 

@@ -73,7 +73,7 @@ export function boxesFromViewContentMap(
     }
     const w = cx - x
     const h = maxY - y
-    spaces.sort()
+    spaces.sort((a, b) => a - b)
     return { content, x, y, w, h, spaces }
   }
 
