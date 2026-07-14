@@ -61,6 +61,7 @@ import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
+import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
 import { initializeViewsState } from './viewsStateInit'
 import {
   shouldHideInsteadOfQuit,
@@ -839,7 +840,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     })
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
-        Y.applyUpdate(stateDoc, new Uint8Array(ev.data))
+        Y.applyUpdate(stateDoc, new Uint8Array(ev.data), UPLINK_ORIGIN)
         return
       }
 
@@ -872,8 +873,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       }
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
     })
-    stateDoc.on('update', (update) => {
-      if (!isSocketOpen(ws)) {
+    stateDoc.on('update', (update, origin) => {
+      if (!shouldForwardUpdateToUplink(origin) || !isSocketOpen(ws)) {
         return
       }
       ws.send(update)
