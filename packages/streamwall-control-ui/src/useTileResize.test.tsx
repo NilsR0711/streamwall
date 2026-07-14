@@ -71,8 +71,15 @@ function fakePointerDown(button = 0): PointerEvent {
   } as unknown as PointerEvent
 }
 
-function fakeKeyDown(key: string): KeyboardEvent {
-  return { key, preventDefault: () => {} } as unknown as KeyboardEvent
+function fakeKeyDown(
+  key: string,
+  options: { shiftKey?: boolean } = {},
+): KeyboardEvent {
+  return {
+    key,
+    shiftKey: options.shiftKey ?? false,
+    preventDefault: () => {},
+  } as unknown as KeyboardEvent
 }
 
 // 2-column grid. sharedState views mirror the doc's seeded assignments.
@@ -122,6 +129,19 @@ function Harness({
         }
       >
         keyboard-resize-anchor-0-e-down
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          handleResizeKeyDown(
+            0,
+            'e',
+            [0],
+            fakeKeyDown('ArrowRight', { shiftKey: true }),
+          )
+        }
+      >
+        keyboard-resize-anchor-0-e-right-shift
       </button>
     </div>
   )
@@ -378,6 +398,51 @@ describe('useTileResize keyboard resize', () => {
     click('keyboard-resize-anchor-0-e-right')
 
     expect(readViews(doc).get(1)).toBeUndefined()
+  })
+
+  test('blocks an arrow-key step that would overwrite another stream, without confirming', () => {
+    const confirmSpy = vi.fn()
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('keyboard-resize-anchor-0-e-right')
+
+    expect(readViews(doc).get(1)).toBe('stream-b')
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  test('commits the step when Shift explicitly overrides the overwrite block', () => {
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('keyboard-resize-anchor-0-e-right-shift')
+
+    expect(readViews(doc).get(1)).toBe('stream-a')
   })
 })
 
