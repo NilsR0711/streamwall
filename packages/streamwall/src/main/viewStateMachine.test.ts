@@ -490,3 +490,65 @@ describe('viewStateMachine content swap while running', () => {
     expect(actor.getSnapshot().context.retryCount).toBe(0)
   })
 })
+
+describe('viewStateMachine loadPage navigation', () => {
+  // Unlike the other describe blocks, this exercises the real `loadPage`
+  // actor instead of overriding it, so it can assert on what the navigate
+  // step actually does to the webContents.
+  function makeActorWithRealLoadPage(retry: RetryConfig) {
+    const executeJavaScript = vi.fn()
+    const loadURL = vi.fn().mockResolvedValue(undefined)
+    const resolveHost = vi
+      .fn()
+      .mockResolvedValue({ endpoints: [{ address: '93.184.216.34' }] })
+
+    const view = {
+      webContents: {
+        session: { resolveHost },
+        executeJavaScript,
+        loadURL,
+        audioMuted: false,
+      },
+    }
+
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView: noop,
+        positionView: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        logError: noop,
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: view as never,
+        win: {} as never,
+        offscreenWin: {} as never,
+        retry,
+      },
+    })
+    return { actor, view, executeJavaScript, loadURL }
+  }
+
+  it('navigates via loadURL without running any script against the pre-navigation document', async () => {
+    const { actor, view, executeJavaScript, loadURL } =
+      makeActorWithRealLoadPage(makeRetry())
+    actor.start()
+    display(actor)
+
+    await vi.waitFor(() => expect(loadURL).toHaveBeenCalled())
+
+    expect(loadURL).toHaveBeenCalledWith(CONTENT.url)
+    expect(view.webContents.audioMuted).toBe(true)
+    // The visibility spoof used to run here via executeJavaScript against
+    // the pre-navigation document, which loadURL immediately discards
+    // (see #25). It now lives in mediaPreload.ts instead, so navigate
+    // should not touch executeJavaScript at all.
+    expect(executeJavaScript).not.toHaveBeenCalled()
+  })
+})
