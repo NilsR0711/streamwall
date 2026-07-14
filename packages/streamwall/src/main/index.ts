@@ -29,6 +29,7 @@ import {
   sentryEnabledSwitchValue,
 } from '../sentryConfig'
 import { createSessionHostResolver, ensureValidURL } from '../util'
+import { dispatchCommand } from './commandDispatch'
 import {
   ConfigError,
   findUnknownConfigKeys,
@@ -743,7 +744,9 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   // Control -> main
   controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
-  controlWindow.on('command', (command) => onCommand(command, 'local'))
+  controlWindow.on('command', (command) =>
+    dispatchCommand(onCommand, command, 'local'),
+  )
 
   // Closing either top-level window quits the app, except on macOS where the
   // convention is to hide the window and keep the app (and its dock icon)
@@ -865,7 +868,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         return
       }
 
-      onCommand(msg, 'uplink')
+      dispatchCommand(onCommand, msg, 'uplink')
     })
     stateEmitter.on('state', () => {
       if (!isSocketOpen(ws)) {
