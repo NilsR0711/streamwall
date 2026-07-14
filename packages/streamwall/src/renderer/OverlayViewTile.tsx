@@ -12,7 +12,7 @@ import {
 import { RiKickFill, RiTwitterXFill } from 'react-icons/ri'
 import type { StreamData } from 'streamwall-shared'
 import { styled } from 'styled-components'
-import { TailSpin } from 'svg-loaders-react'
+import { TailSpin } from './TailSpin'
 
 // Extracted from overlay.tsx so it can be rendered and tested in isolation,
 // without pulling in the module-level `render(<App />, document.body)` call.

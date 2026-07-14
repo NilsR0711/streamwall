@@ -15,10 +15,10 @@ import { defineConfig } from 'vitest/config'
 // react-icons (`Cannot add property __, object is not extensible`, a frozen
 // React element hitting Preact's reconciler) and makes styled-components
 // render elements with their generated class name as the tag instead of the
-// real DOM tag. `svg-loaders-react` (used via `styled(TailSpin)` in
-// OverlayViewTile) has no ESM build, so this fix doesn't reach it - see the
-// `vi.mock('svg-loaders-react', ...)` in OverlayViewTile.test.tsx for the
-// remaining workaround.
+// real DOM tag. `svg-loaders-react` used to have the same CJS-only problem
+// (see issue #182); it was replaced with a first-party inlined component
+// (see OverlayViewTile.tsx's TailSpin import) rather than extending this fix
+// to a third dependency.
 export default defineConfig({
   esbuild: {
     jsx: 'automatic',
