@@ -69,9 +69,14 @@ Open Config Folder** in the app menu at any time to open that directory.
 ### Telemetry
 
 Streamwall reports uncaught errors to a Sentry project run by the maintainers
-(`telemetry.sentry`, default `true`). To opt out, set `sentry = false` under
-`[telemetry]` in your config file (see `example.config.toml`) or pass
-`--telemetry.sentry=false` on the command line.
+(`telemetry.sentry`, default `true`). This covers the main process and every
+renderer the app fully authors (the control window, and the background and
+overlay layers); it deliberately does **not** cover the per-stream views or
+the "browse" window, since those load arbitrary third-party URLs and
+attaching error reporting there would leak that content's context to Sentry.
+To opt out, set `sentry = false` under `[telemetry]` in your config file (see
+`example.config.toml`) or pass `--telemetry.sentry=false` on the command
+line.
 
 ## Remote control server
 
