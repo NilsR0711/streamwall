@@ -32,6 +32,34 @@ export function isPrimaryButton(button: number): boolean {
  * is `undefined`), has not travelled past the drag threshold, or is back over
  * the origin cell.
  */
+/**
+ * Resolve which grid cell a pointer at (x, y) within a grid box of the given
+ * size is hovering, or `undefined` when the position is outside the box.
+ *
+ * Mouse hover tracking relies on `mouseleave` to clear the hovered cell once
+ * the pointer leaves the grid mid-drag. Touch pointers are implicitly
+ * captured to their `pointerdown` target, so no boundary events (including
+ * `pointerleave`) fire on the grid while a finger drags outside its bounds.
+ * This bounds check reproduces that "off grid" signal from raw coordinates
+ * so a touch drag released outside the grid can't commit against whatever
+ * cell the out-of-bounds coordinates happen to floor to.
+ */
+export function computeHoveringIdx(
+  cols: number,
+  rows: number,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): number | undefined {
+  if (x < 0 || y < 0 || x >= width || y >= height) {
+    return undefined
+  }
+  const spaceWidth = width / cols
+  const spaceHeight = height / rows
+  return Math.floor(y / spaceHeight) * cols + Math.floor(x / spaceWidth)
+}
+
 export function resolveMoveTarget(
   moveStart: MoveStart | undefined,
   hoveringIdx: number | undefined,

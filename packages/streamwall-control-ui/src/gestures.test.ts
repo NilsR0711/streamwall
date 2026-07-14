@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  computeHoveringIdx,
   DRAG_THRESHOLD_PX,
   isPrimaryButton,
   resolveMoveTarget,
@@ -61,5 +62,54 @@ describe('resolveMoveTarget', () => {
   it('honours a custom threshold', () => {
     expect(resolveMoveTarget(moveStart, 8, 120, 100, 50)).toBeUndefined()
     expect(resolveMoveTarget(moveStart, 8, 160, 100, 50)).toBe(8)
+  })
+})
+
+describe('computeHoveringIdx', () => {
+  // A 4x2 grid (cols=4, rows=2) over a 400x200 box, so each cell is 100x100.
+  const cols = 4
+  const rows = 2
+  const width = 400
+  const height = 200
+
+  it('resolves the top-left cell', () => {
+    expect(computeHoveringIdx(cols, rows, width, height, 0, 0)).toBe(0)
+  })
+
+  it('resolves a cell in the middle of the grid', () => {
+    expect(computeHoveringIdx(cols, rows, width, height, 250, 150)).toBe(6)
+  })
+
+  it('resolves the bottom-right-most in-bounds pixel', () => {
+    expect(computeHoveringIdx(cols, rows, width, height, 399, 199)).toBe(7)
+  })
+
+  it('returns undefined when x is negative (pointer left of the grid)', () => {
+    // Regression: touch pointers are implicitly captured to their pointerdown
+    // target, so `pointerleave` never fires while a finger drags outside the
+    // grid's bounds the way `mouseleave` does for a mouse. Without this
+    // bounds check a drag released off-grid would commit against whatever
+    // cell the out-of-bounds coordinates happened to floor to.
+    expect(
+      computeHoveringIdx(cols, rows, width, height, -1, 50),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined when y is negative (pointer above the grid)', () => {
+    expect(
+      computeHoveringIdx(cols, rows, width, height, 50, -1),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined when x is at or past the right edge', () => {
+    expect(
+      computeHoveringIdx(cols, rows, width, height, 400, 50),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined when y is at or past the bottom edge', () => {
+    expect(
+      computeHoveringIdx(cols, rows, width, height, 50, 200),
+    ).toBeUndefined()
   })
 })

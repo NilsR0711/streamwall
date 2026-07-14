@@ -57,7 +57,11 @@ import {
 import { createGlobalStyle, styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
-import { isPrimaryButton, resolveMoveTarget } from './gestures'
+import {
+  computeHoveringIdx,
+  isPrimaryButton,
+  resolveMoveTarget,
+} from './gestures'
 import './index.css'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
@@ -637,7 +641,7 @@ export function ControlUI({
 
   const [hoveringIdx, setHoveringIdx] = useState<number>()
   const updateHoveringIdx = useCallback(
-    (ev: MouseEvent) => {
+    (ev: PointerEvent) => {
       if (
         cols == null ||
         rows == null ||
@@ -647,26 +651,32 @@ export function ControlUI({
       }
       const { width, height, left, top } =
         ev.currentTarget.getBoundingClientRect()
-      const x = Math.floor(ev.clientX - left)
-      const y = Math.floor(ev.clientY - top)
-      const spaceWidth = width / cols
-      const spaceHeight = height / rows
-      const idx =
-        Math.floor(y / spaceHeight) * cols + Math.floor(x / spaceWidth)
-      setHoveringIdx(idx)
+      setHoveringIdx(
+        computeHoveringIdx(
+          cols,
+          rows,
+          width,
+          height,
+          ev.clientX - left,
+          ev.clientY - top,
+        ),
+      )
     },
     [setHoveringIdx, cols, rows],
   )
   // Clear the hovered cell when the pointer leaves the grid so a gesture
-  // released off-grid can't commit against a stale cell.
+  // released off-grid can't commit against a stale cell. This only fires for
+  // mouse pointers — a touch pointer is implicitly captured to its
+  // `pointerdown` target and never dispatches boundary events while
+  // dragging, so `updateHoveringIdx`'s own bounds check covers that case.
   const clearHoveringIdx = useCallback(() => setHoveringIdx(undefined), [])
   const [moveStart, setMoveStart] = useState<
     { idx: number; x: number; y: number } | undefined
   >()
   const [moveTargetIdx, setMoveTargetIdx] = useState<number | undefined>()
 
-  const handleGridMouseDown = useCallback(
-    (ev: MouseEvent) => {
+  const handleGridPointerDown = useCallback(
+    (ev: PointerEvent) => {
       if (!isPrimaryButton(ev.button) || hoveringIdx == null) {
         return
       }
@@ -688,23 +698,31 @@ export function ControlUI({
   }, [moveStart, hoveringIdx])
 
   useLayoutEffect(() => {
-    function endMove(ev: MouseEvent) {
+    function endMove(ev: PointerEvent) {
       if (moveStart == null) {
         return
       }
-      const targetIdx = resolveMoveTarget(
-        moveStart,
-        hoveringIdx,
-        ev.clientX,
-        ev.clientY,
-      )
-      if (targetIdx != null) {
-        swapBoxes(moveStart.idx, targetIdx)
+      // pointercancel means the gesture was interrupted (e.g. a system
+      // gesture taking over on touch) — abort without committing.
+      if (ev.type !== 'pointercancel') {
+        const targetIdx = resolveMoveTarget(
+          moveStart,
+          hoveringIdx,
+          ev.clientX,
+          ev.clientY,
+        )
+        if (targetIdx != null) {
+          swapBoxes(moveStart.idx, targetIdx)
+        }
       }
       setMoveStart(undefined)
     }
-    window.addEventListener('mouseup', endMove)
-    return () => window.removeEventListener('mouseup', endMove)
+    window.addEventListener('pointerup', endMove)
+    window.addEventListener('pointercancel', endMove)
+    return () => {
+      window.removeEventListener('pointerup', endMove)
+      window.removeEventListener('pointercancel', endMove)
+    }
   }, [moveStart, hoveringIdx, swapBoxes])
 
   const [resize, setResize] = useState<
@@ -712,7 +730,7 @@ export function ControlUI({
   >()
 
   const handleResizeStart = useCallback(
-    (anchorIdx: number, ev: MouseEvent) => {
+    (anchorIdx: number, ev: PointerEvent) => {
       if (!isPrimaryButton(ev.button)) {
         return
       }
@@ -728,11 +746,12 @@ export function ControlUI({
   )
 
   useLayoutEffect(() => {
-    function endResize() {
+    function endResize(ev: PointerEvent) {
       // A resize only commits while the pointer is over the grid; released
-      // off-grid `hoveringIdx` is cleared (mouseleave), so this aborts instead
-      // of snapping to a stale cell.
+      // off-grid `hoveringIdx` is cleared, so this aborts instead of
+      // snapping to a stale cell. A pointercancel likewise aborts.
       if (
+        ev.type === 'pointercancel' ||
         resize == null ||
         cols == null ||
         rows == null ||
@@ -751,8 +770,12 @@ export function ControlUI({
       })
       setResize(undefined)
     }
-    window.addEventListener('mouseup', endResize)
-    return () => window.removeEventListener('mouseup', endResize)
+    window.addEventListener('pointerup', endResize)
+    window.addEventListener('pointercancel', endResize)
+    return () => {
+      window.removeEventListener('pointerup', endResize)
+      window.removeEventListener('pointercancel', endResize)
+    }
   }, [resize, cols, rows, hoveringIdx, stateDoc])
 
   const [focusedInputIdx, setFocusedInputIdx] = useState<number | undefined>()
@@ -1031,7 +1054,7 @@ export function ControlUI({
     [handleSwapView, focusedInputIdx],
   )
   // Escape cancels an in-progress drag-move or resize without committing. The
-  // window mouseup listeners are no-ops once these are cleared.
+  // window pointerup/pointercancel listeners are no-ops once these are cleared.
   useHotkeys(
     `escape`,
     () => {
@@ -1127,8 +1150,8 @@ export function ControlUI({
           {cols != null && rows != null && (
             <StyledGridContainer
               className="grid"
-              onMouseMove={updateHoveringIdx}
-              onMouseLeave={clearHoveringIdx}
+              onPointerMove={updateHoveringIdx}
+              onPointerLeave={clearHoveringIdx}
               $windowWidth={windowWidth}
               $windowHeight={windowHeight}
             >
@@ -1164,7 +1187,7 @@ export function ControlUI({
                         onChangeSpace={handleSetView}
                         isHighlighted={isHighlighted}
                         role={role}
-                        onMouseDown={handleGridMouseDown}
+                        onPointerDown={handleGridPointerDown}
                         onFocus={setFocusedInputIdx}
                         onBlur={handleBlurInput}
                       />
@@ -1200,15 +1223,21 @@ export function ControlUI({
                       <StyledResizeHandles>
                         <div
                           className="handle e"
-                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                          onPointerDown={(ev) =>
+                            handleResizeStart(anchorIdx, ev)
+                          }
                         />
                         <div
                           className="handle s"
-                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                          onPointerDown={(ev) =>
+                            handleResizeStart(anchorIdx, ev)
+                          }
                         />
                         <div
                           className="handle se"
-                          onMouseDown={(ev) => handleResizeStart(anchorIdx, ev)}
+                          onPointerDown={(ev) =>
+                            handleResizeStart(anchorIdx, ev)
+                          }
                         />
                       </StyledResizeHandles>
                     </div>
@@ -1294,7 +1323,7 @@ export function ControlUI({
                       onRotateView={handleRotateStream}
                       onBrowse={handleBrowse}
                       onDevTools={handleDevTools}
-                      onMouseDown={handleGridMouseDown}
+                      onPointerDown={handleGridPointerDown}
                     />
                   )
                 },
@@ -1658,12 +1687,20 @@ const StyledResizeHandles = styled.div`
   .handle {
     position: absolute;
     pointer-events: auto;
+    touch-action: none;
     background: var(--accent, #e23);
     opacity: 0;
     transition: opacity 0.1s;
   }
   &:hover .handle {
     opacity: 0.6;
+  }
+  /* Touch/pen devices have no hover state to reveal the handles, so keep
+     them visible without it — otherwise they're impossible to find. */
+  @media (hover: none), (pointer: coarse) {
+    .handle {
+      opacity: 0.6;
+    }
   }
   .handle.e {
     top: 20%;
@@ -1827,19 +1864,19 @@ function GridSizeControls({
   )
 }
 
-function GridInput({
+export function GridInput({
   style,
   idx,
   onChangeSpace,
   spaceValue,
   isHighlighted,
   role,
-  onMouseDown,
+  onPointerDown,
   onFocus,
   onBlur,
 }: {
   style: JSX.HTMLAttributes['style']
-  onMouseDown: JSX.MouseEventHandler<HTMLInputElement>
+  onPointerDown: JSX.PointerEventHandler<HTMLInputElement>
   idx: number
   onChangeSpace: (idx: number, value: string) => void
   spaceValue: string
@@ -1869,7 +1906,7 @@ function GridInput({
         disabled={!roleCan(role, 'mutate-state-doc')}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        onMouseDown={onMouseDown}
+        onPointerDown={onPointerDown}
         onChange={handleChange}
         isEager
       />
@@ -1896,7 +1933,7 @@ function GridControls({
   onRotateView,
   onBrowse,
   onDevTools,
-  onMouseDown,
+  onPointerDown,
 }: {
   idx: number
   streamId: string
@@ -1919,7 +1956,7 @@ function GridControls({
   onRotateView: (streamId: string) => void
   onBrowse: (streamId: string) => void
   onDevTools: (idx: number) => void
-  onMouseDown: JSX.MouseEventHandler<HTMLDivElement>
+  onPointerDown: JSX.PointerEventHandler<HTMLDivElement>
 }) {
   // TODO: Refactor callbacks to use streamID instead of idx.
   // We should probably also switch the view-state-changing RPCs to use a view id instead of idx like they do currently.
@@ -1960,7 +1997,7 @@ function GridControls({
     [idx, onDevTools],
   )
   return (
-    <StyledGridControlsContainer style={style} onMouseDown={onMouseDown}>
+    <StyledGridControlsContainer style={style} onPointerDown={onPointerDown}>
       {isDisplaying && (
         <StyledGridButtons $side="left">
           {showDebug ? (
@@ -2379,6 +2416,7 @@ const StyledGridInputs = styled.div`
 
 const StyledGridInputContainer = styled.div`
   position: absolute;
+  touch-action: none;
 `
 
 const StyledGridButtons = styled.div<{ $side?: 'left' | 'right' }>`
@@ -2419,6 +2457,7 @@ const StyledGridInput = styled(LazyChangeInput)<{
 const StyledGridControlsContainer = styled.div`
   position: absolute;
   user-select: none;
+  touch-action: none;
 
   & > * {
     z-index: 1001; // Above StyledGridInfo
