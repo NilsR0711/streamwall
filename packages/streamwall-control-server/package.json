@@ -23,13 +23,13 @@
     "jsondiffpatch": "^0.7.6",
     "lowdb": "^7.0.1",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
     "ws": "^8.21.0",
     "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@tsconfig/node-ts": "^23.6.4",
     "@tsconfig/node22": "^22.0.5",
-    "@tsconfig/recommended": "^1.0.13"
+    "@tsconfig/recommended": "^1.0.13",
+    "typescript": "^6.0.3"
   }
 }
