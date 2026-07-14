@@ -552,3 +552,152 @@ describe('viewStateMachine loadPage navigation', () => {
     expect(executeJavaScript).not.toHaveBeenCalled()
   })
 })
+
+describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('defaults desiredAudio to muted and desiredBlurred to false', () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+
+    expect(actor.getSnapshot().context.desiredAudio).toBe('muted')
+    expect(actor.getSnapshot().context.desiredBlurred).toBe(false)
+  })
+
+  it('applies a deferred UNMUTE requested while still loading once running is reached', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    actor.send({ type: 'UNMUTE' })
+    // Still loading: the audio region doesn't exist yet, so nothing visible
+    // changes yet -- the request is only recorded.
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('applies a deferred BACKGROUND requested while still loading once running is reached', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+
+    actor.send({ type: 'BACKGROUND' })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.background',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('applies a deferred BLUR requested while still loading once running is reached', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+
+    actor.send({ type: 'BLUR' })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.video.blurred',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('applies a deferred UNMUTE requested while recovering from an error', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    actor.send({ type: 'UNMUTE' })
+
+    await vi.advanceTimersByTimeAsync(1000) // delay * 2^0 -> back to loading
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.listening',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a backgrounded view backgrounded across an automatic stalled reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BACKGROUND' })
+    expect(
+      matchesState(
+        'displaying.running.audio.background',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000) // stalledTimeout -> reload
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.audio.background',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('still ignores MUTE while backgrounded and keeps the desired state as background', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'BACKGROUND' })
+
+    actor.send({ type: 'MUTE' })
+
+    const snapshot = actor.getSnapshot()
+    expect(
+      matchesState('displaying.running.audio.background', snapshot.value),
+    ).toBe(true)
+    expect(snapshot.context.desiredAudio).toBe('background')
+  })
+})
