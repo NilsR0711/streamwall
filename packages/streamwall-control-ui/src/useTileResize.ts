@@ -6,6 +6,7 @@ import { isPrimaryButton } from './gestures'
 import {
   computeKeyboardResizeHoverIdx,
   computeResizeAssignments,
+  resizeWouldOverwriteOtherStream,
   type ResizeHandle,
 } from './gridInteractions'
 
@@ -128,6 +129,30 @@ export function useTileResize({
         setResize(undefined)
         return
       }
+      // Growing a tile over part of a neighbor silently claims those cells
+      // and fragments the rest of the neighbor into smaller boxes — warn
+      // before that happens, mirroring handleSetGridSize's confirm.
+      const currentAssignments = new Map<number, string | undefined>()
+      for (const [idx, view] of Object.entries(sharedState?.views ?? {})) {
+        currentAssignments.set(Number(idx), view.streamId)
+      }
+      if (
+        resizeWouldOverwriteOtherStream(
+          cols,
+          resize.anchorIdx,
+          hoveringIdx,
+          resize.streamId,
+          resize.handle,
+          resize.originalSpaces,
+          currentAssignments,
+        ) &&
+        !window.confirm(
+          'Resizing this tile will overwrite part of another tile. Continue?',
+        )
+      ) {
+        setResize(undefined)
+        return
+      }
       stateDoc.transact(() => {
         const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
         const assignments = computeResizeAssignments(
@@ -150,7 +175,7 @@ export function useTileResize({
       window.removeEventListener('pointerup', endResize)
       window.removeEventListener('pointercancel', endResize)
     }
-  }, [resize, cols, rows, hoveringIdx, stateDoc])
+  }, [resize, cols, rows, hoveringIdx, stateDoc, sharedState])
 
   // Escape cancels an in-progress resize without committing. The window
   // pointerup/pointercancel listener above is a no-op once resize is

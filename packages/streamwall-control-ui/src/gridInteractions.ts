@@ -210,6 +210,41 @@ export function computeKeyboardResizeHoverIdx(
   return cols * newMaxY + newMaxX
 }
 
+/**
+ * Reports whether committing a resize gesture would overwrite any cell that
+ * currently belongs to a stream other than the one being resized. Growing a
+ * tile over part of a neighbor silently claims those cells (see
+ * {@link computeResizeAssignments}) and fragments the remainder of the
+ * neighbor into smaller boxes — callers use this to gate the commit behind a
+ * confirmation, mirroring the grid-shrink confirm in `handleSetGridSize`.
+ */
+export function resizeWouldOverwriteOtherStream(
+  cols: number,
+  anchorIdx: number,
+  hoverIdx: number,
+  streamId: string,
+  handle: ResizeHandle,
+  originalSpaces: number[],
+  currentAssignments: Map<number, string | undefined>,
+): boolean {
+  const { minX, maxX, minY, maxY } = computeResizeBox(
+    cols,
+    anchorIdx,
+    hoverIdx,
+    handle,
+    originalSpaces,
+  )
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const existing = currentAssignments.get(cols * y + x)
+      if (existing !== undefined && existing !== '' && existing !== streamId) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 export function computeResizeAssignments(
   cols: number,
   anchorIdx: number,
