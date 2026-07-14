@@ -1,3 +1,4 @@
+import { useId } from 'preact/hooks'
 import type { SVGProps } from 'react'
 
 // Inlined from svg-loaders-react's TailSpin (MIT, Copyright (c) 2014 Sam
@@ -8,6 +9,10 @@ import type { SVGProps } from 'react'
 // keeps the visuals identical while making it a plain function component
 // that resolves correctly in both the app and its tests.
 export function TailSpin(props: SVGProps<SVGSVGElement>) {
+  // Multiple tiles can be loading at once (see overlay.tsx), so the gradient
+  // id must be unique per instance rather than a hardcoded string (#212).
+  const gradientId = `tailSpinGradient-${useId()}`
+
   return (
     <svg width={38} height={38} viewBox="0 0 38 38" {...props}>
       <defs>
@@ -16,7 +21,7 @@ export function TailSpin(props: SVGProps<SVGSVGElement>) {
           y1="0%"
           x2="65.682%"
           y2="23.865%"
-          id="tailSpinGradient"
+          id={gradientId}
         >
           <stop stopColor="#fff" stopOpacity={0} offset="0%" />
           <stop stopColor="#fff" stopOpacity={0.631} offset="63.146%" />
@@ -26,7 +31,7 @@ export function TailSpin(props: SVGProps<SVGSVGElement>) {
       <g transform="translate(1 1)" fill="none" fillRule="evenodd">
         <path
           d="M36 18c0-9.94-8.06-18-18-18"
-          stroke="url(#tailSpinGradient)"
+          stroke={`url(#${gradientId})`}
           strokeWidth={2}
         >
           <animateTransform
