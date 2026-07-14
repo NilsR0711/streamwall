@@ -19,7 +19,11 @@ import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { loadHTML } from './loadHTML'
 import { secureStreamView } from './navigationSecurity'
 import { allocateViewPartition, hardenSession } from './partitions'
-import viewStateMachine, { ViewActor } from './viewStateMachine'
+import viewStateMachine, {
+  DEFAULT_RETRY_CONFIG,
+  RetryConfig,
+  ViewActor,
+} from './viewStateMachine'
 
 function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   if (!stream) {
@@ -38,14 +42,19 @@ export interface StreamWindowEventMap {
 
 export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   config: StreamWindowConfig
+  retryConfig: RetryConfig
   win: BrowserWindow
   backgroundView: WebContentsView
   overlayView: WebContentsView
   views: Map<number, ViewActor>
 
-  constructor(config: StreamWindowConfig) {
+  constructor(
+    config: StreamWindowConfig,
+    retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG,
+  ) {
     super()
     this.config = config
+    this.retryConfig = retryConfig
     this.views = new Map()
 
     const { width, height, x, y, frameless, backgroundColor } = this.config
@@ -201,6 +210,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         view,
         win,
         offscreenWin,
+        retry: this.retryConfig,
       },
     })
 
@@ -248,6 +258,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
           content: context.content,
           info: context.info,
           pos: context.pos,
+          error: context.error,
         },
       } satisfies ViewState
     })

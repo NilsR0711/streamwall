@@ -16,6 +16,13 @@ function baseConfig() {
     data: { interval: 30, 'json-url': [], 'toml-file': [] },
     streamdelay: { endpoint: 'http://localhost:8404', key: null },
     control: { endpoint: null },
+    retry: {
+      enabled: true,
+      delay: 5,
+      'max-delay': 60,
+      'max-retries': 5,
+      'stalled-timeout': 30,
+    },
     twitch: {
       channel: null,
       username: null,
@@ -128,6 +135,30 @@ describe('validateConfig', () => {
   test('rejects a non-string window color', () => {
     const config = baseConfig()
     ;(config.window as Record<string, unknown>)['background-color'] = 123
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('accepts retry disabled with zeroed timings', () => {
+    const config = baseConfig()
+    config.retry = {
+      enabled: false,
+      delay: 0,
+      'max-delay': 0,
+      'max-retries': 0,
+      'stalled-timeout': 0,
+    }
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('rejects a negative retry delay', () => {
+    const config = baseConfig()
+    config.retry.delay = -1
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('rejects a fractional retry max-retries', () => {
+    const config = baseConfig()
+    config.retry['max-retries'] = 2.5
     expect(() => validateConfig(config)).toThrow(ConfigError)
   })
 })

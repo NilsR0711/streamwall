@@ -66,6 +66,13 @@ const streamwallConfigSchema = z.object({
   control: z.object({
     endpoint: z.string().nullable(),
   }),
+  retry: z.object({
+    enabled: z.boolean(),
+    delay: nonNegativeNumber,
+    'max-delay': nonNegativeNumber,
+    'max-retries': z.number().int().nonnegative(),
+    'stalled-timeout': nonNegativeNumber,
+  }),
   twitch: z.object({
     channel: z.string().nullable(),
     username: z.string().nullable(),

@@ -92,6 +92,13 @@ export interface StreamwallConfig {
   control: {
     endpoint: string
   }
+  retry: {
+    enabled: boolean
+    delay: number
+    'max-delay': number
+    'max-retries': number
+    'stalled-timeout': number
+  }
   twitch: {
     channel: string | null
     username: string | null
@@ -212,6 +219,41 @@ function parseArgs(): StreamwallConfig {
     })
     .group(
       [
+        'retry.enabled',
+        'retry.delay',
+        'retry.max-delay',
+        'retry.max-retries',
+        'retry.stalled-timeout',
+      ],
+      'Auto-retry',
+    )
+    .option('retry.enabled', {
+      describe: 'Automatically reload views that error or stall',
+      boolean: true,
+      default: true,
+    })
+    .option('retry.delay', {
+      describe: 'Base backoff (in seconds) before the first reload',
+      number: true,
+      default: 5,
+    })
+    .option('retry.max-delay', {
+      describe: 'Maximum backoff (in seconds) between reloads',
+      number: true,
+      default: 60,
+    })
+    .option('retry.max-retries', {
+      describe: 'Maximum number of automatic reloads before giving up',
+      number: true,
+      default: 5,
+    })
+    .option('retry.stalled-timeout', {
+      describe: 'How long (in seconds) a view may stall before it is reloaded',
+      number: true,
+      default: 30,
+    })
+    .group(
+      [
         'twitch.channel',
         'twitch.username',
         'twitch.token',
@@ -310,7 +352,16 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     activeColor: argv.window['active-color'],
     backgroundColor: argv.window['background-color'],
   }
-  const streamWindow = new StreamWindow(streamWindowConfig)
+  // The state machine works in milliseconds; the config is in seconds for
+  // consistency with the other interval options.
+  const retryConfig = {
+    enabled: argv.retry.enabled,
+    delay: argv.retry.delay * 1000,
+    maxDelay: argv.retry['max-delay'] * 1000,
+    maxRetries: argv.retry['max-retries'],
+    stalledTimeout: argv.retry['stalled-timeout'] * 1000,
+  }
+  const streamWindow = new StreamWindow(streamWindowConfig, retryConfig)
   const controlWindow = new ControlWindow()
 
   let browseWindow: BrowserWindow | null = null

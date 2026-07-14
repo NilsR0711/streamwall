@@ -60,6 +60,7 @@ export type ViewStateValue =
           }
         | {
             running: {
+              playback: 'playing' | 'stalled'
               video: 'normal' | 'blurred'
               audio: 'background' | 'muted' | 'listening'
             }
@@ -73,6 +74,8 @@ export interface ViewState {
     content: ViewContent | null
     info: ContentViewInfo | null
     pos: ViewPos | null
+    // Human-readable reason when the view is in displaying.error, else null.
+    error: string | null
   }
 }
 

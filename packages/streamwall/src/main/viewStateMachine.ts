@@ -20,6 +20,47 @@ import { loadHTML } from './loadHTML'
 // healthy streams are not cut off; only trips when the renderer never responds at all.
 const LOADING_TIMEOUT = 45 * 1000
 
+/**
+ * Tunables for automatically recovering views that fail to load or stall. A
+ * failed/stalled view is reloaded after an exponentially growing delay until it
+ * recovers or the attempt budget is exhausted, at which point it stays in the
+ * terminal error state (surfaced on the wall and in the control UI).
+ */
+export interface RetryConfig {
+  /** Whether error/stalled views are reloaded automatically at all. */
+  enabled: boolean
+  /** Base backoff before the first retry, in milliseconds. */
+  delay: number
+  /** Upper bound for the backoff, in milliseconds. */
+  maxDelay: number
+  /** Maximum number of automatic reloads before giving up. */
+  maxRetries: number
+  /** How long a view may stay stalled before it is reloaded, in milliseconds. */
+  stalledTimeout: number
+}
+
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  enabled: true,
+  delay: 5 * 1000,
+  maxDelay: 60 * 1000,
+  maxRetries: 5,
+  stalledTimeout: 30 * 1000,
+}
+
+/**
+ * Turns an arbitrary thrown value into a short, serializable reason that can be
+ * shown on the wall overlay and in the control UI.
+ */
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  return String(error)
+}
+
 const viewStateMachine = setup({
   types: {
     input: {} as {
@@ -27,6 +68,7 @@ const viewStateMachine = setup({
       view: WebContentsView
       win: BrowserWindow
       offscreenWin: BrowserWindow
+      retry: RetryConfig
     },
 
     context: {} as {
@@ -38,6 +80,11 @@ const viewStateMachine = setup({
       content: ViewContent | null
       options: ContentDisplayOptions | null
       info: ContentViewInfo | null
+      retry: RetryConfig
+      // Human-readable reason for the current error, or null when healthy.
+      error: string | null
+      // Number of automatic reloads already spent on the current failure streak.
+      retryCount: number
     },
 
     events: {} as
@@ -66,6 +113,26 @@ const viewStateMachine = setup({
     logError: (_, params: { error: unknown }) => {
       console.warn(params.error)
     },
+
+    // Store a serializable reason for the current failure so it can be surfaced
+    // on the wall overlay and in the control UI.
+    setError: assign({
+      error: (_, params: { error: unknown }) => formatError(params.error),
+    }),
+
+    // Begin another automatic reload: spend one attempt and clear the stale
+    // reason while the view loads again.
+    incrementRetry: assign({
+      retryCount: ({ context }) => context.retryCount + 1,
+      error: null,
+    }),
+
+    // Forget any prior failure streak: used when a view starts fresh (new
+    // content, manual reload) or recovers into the running state.
+    resetRetryState: assign({
+      retryCount: 0,
+      error: null,
+    }),
 
     muteAudio: ({ context }) => {
       context.view.webContents.audioMuted = true
@@ -141,6 +208,22 @@ const viewStateMachine = setup({
     ) => {
       return !isEqual(context.options, params.options)
     },
+
+    // Whether the view is still allowed to reload itself automatically.
+    canRetry: ({ context }) =>
+      context.retry.enabled && context.retryCount < context.retry.maxRetries,
+  },
+
+  delays: {
+    // Exponential backoff, capped, computed from how many attempts have already
+    // been spent on the current failure streak.
+    retryBackoff: ({ context }) =>
+      Math.min(
+        context.retry.delay * 2 ** context.retryCount,
+        context.retry.maxDelay,
+      ),
+
+    stalledTimeout: ({ context }) => context.retry.stalledTimeout,
   },
 
   actors: {
@@ -183,7 +266,7 @@ const viewStateMachine = setup({
 }).createMachine({
   id: 'view',
   initial: 'empty',
-  context: ({ input: { id, view, win, offscreenWin } }) => ({
+  context: ({ input: { id, view, win, offscreenWin, retry } }) => ({
     id,
     view,
     win,
@@ -192,6 +275,9 @@ const viewStateMachine = setup({
     content: null,
     options: null,
     info: null,
+    retry,
+    error: null,
+    retryCount: 0,
   }),
   on: {
     DISPLAY: {
@@ -207,7 +293,8 @@ const viewStateMachine = setup({
     displaying: {
       id: 'displaying',
       initial: 'loading',
-      entry: 'offscreenView',
+      // New content starts with a clean slate: no prior reason, full retry budget.
+      entry: ['offscreenView', 'resetRetryState'],
       on: {
         DISPLAY: {
           actions: assign({
@@ -233,7 +320,12 @@ const viewStateMachine = setup({
             params: ({ event: { options } }) => ({ options }),
           },
         },
-        RELOAD: '.loading',
+        // A manual reload is an operator override: reset the automatic retry
+        // budget so the view gets a fresh streak.
+        RELOAD: {
+          target: '.loading',
+          actions: 'resetRetryState',
+        },
         DEVTOOLS: {
           actions: {
             type: 'openDevTools',
@@ -242,10 +334,16 @@ const viewStateMachine = setup({
         },
         VIEW_ERROR: {
           target: '.error',
-          actions: {
-            type: 'logError',
-            params: ({ event: { error } }) => ({ error }),
-          },
+          actions: [
+            {
+              type: 'logError',
+              params: ({ event: { error } }) => ({ error }),
+            },
+            {
+              type: 'setError',
+              params: ({ event: { error } }) => ({ error }),
+            },
+          ],
         },
         VIEW_INFO: {
           actions: assign({
@@ -261,10 +359,16 @@ const viewStateMachine = setup({
           after: {
             [LOADING_TIMEOUT]: {
               target: '#view.displaying.error',
-              actions: {
-                type: 'logError',
-                params: { error: 'Timed out waiting for view to load' },
-              },
+              actions: [
+                {
+                  type: 'logError',
+                  params: { error: 'Timed out waiting for view to load' },
+                },
+                {
+                  type: 'setError',
+                  params: { error: 'Timed out waiting for view to load' },
+                },
+              ],
             },
           },
           states: {
@@ -277,10 +381,16 @@ const viewStateMachine = setup({
                 },
                 onError: {
                   target: '#view.displaying.error',
-                  actions: {
-                    type: 'logError',
-                    params: ({ event: { error } }) => ({ error }),
-                  },
+                  actions: [
+                    {
+                      type: 'logError',
+                      params: ({ event: { error } }) => ({ error }),
+                    },
+                    {
+                      type: 'setError',
+                      params: ({ event: { error } }) => ({ error }),
+                    },
+                  ],
                 },
               },
             },
@@ -298,7 +408,9 @@ const viewStateMachine = setup({
         },
         running: {
           type: 'parallel',
-          entry: 'positionView',
+          // Reaching running means the view recovered: clear any error streak so
+          // the next failure starts its backoff from scratch.
+          entry: ['positionView', 'resetRetryState'],
           on: {
             DISPLAY: [
               // Noop if nothing changed.
@@ -331,7 +443,18 @@ const viewStateMachine = setup({
               },
               states: {
                 playing: {},
-                stalled: {},
+                stalled: {
+                  // A view that stays stalled past the watchdog is reloaded
+                  // (as long as it still has retry budget). A stall that clears
+                  // on its own (VIEW_LOADED -> playing) simply cancels this.
+                  after: {
+                    stalledTimeout: {
+                      target: '#view.displaying.loading',
+                      guard: 'canRetry',
+                      actions: 'incrementRetry',
+                    },
+                  },
+                },
               },
             },
             audio: {
@@ -371,7 +494,17 @@ const viewStateMachine = setup({
             },
           },
         },
-        error: {},
+        error: {
+          // Automatically reload after the backoff delay until the retry budget
+          // is spent; then this is a terminal state surfaced to the operator.
+          after: {
+            retryBackoff: {
+              target: '#view.displaying.loading',
+              guard: 'canRetry',
+              actions: 'incrementRetry',
+            },
+          },
+        },
       },
     },
   },
