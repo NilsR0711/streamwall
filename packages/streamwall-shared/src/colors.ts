@@ -19,7 +19,9 @@ export function hashText(text: string, range: number) {
     val += charVal
   }
 
-  return (val + range) % range
+  // val can wrap into large negative values due to the 32-bit `<<` above, so
+  // reduce it into (-range, range) before shifting into [0, range).
+  return ((val % range) + range) % range
 }
 
 export function idColor(id: string) {
