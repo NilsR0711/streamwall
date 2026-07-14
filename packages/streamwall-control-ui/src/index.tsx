@@ -1162,17 +1162,8 @@ export function ControlUI({
   }
 
   return (
-    <Stack
-      $flex="1"
-      $direction="row"
-      $gap={16}
-      style={{ height: '100vh', minHeight: 0, padding: 16, overflow: 'hidden' }}
-    >
-      <Stack
-        className="grid-container"
-        $flex="1"
-        style={{ minWidth: 0, minHeight: 0 }}
-      >
+    <AppShell className="app-shell">
+      <Stack className="grid-container">
         <StyledHeader>
           <div className="wm">
             STREAM<span>·</span>WALL
@@ -1426,12 +1417,7 @@ export function ControlUI({
           </span>
         </StyledStatusBar>
       </Stack>
-      <Stack
-        className="stream-list"
-        $scroll={true}
-        $minHeight={200}
-        style={{ flex: '0 0 340px' }}
-      >
+      <Stack className="stream-list" $scroll={true} $minHeight={200}>
         <StyledDataContainer $isConnected={isConnected}>
           {isConnected ? (
             <div>
@@ -1526,7 +1512,7 @@ export function ControlUI({
             )}
         </StyledDataContainer>
       </Stack>
-    </Stack>
+    </AppShell>
   )
 }
 
@@ -1543,6 +1529,57 @@ const Stack = styled.div<{
   ${({ $gap }) => $gap && `gap: ${$gap}px`};
   ${({ $scroll }) => $scroll && `overflow-y: auto`};
   ${({ $minHeight }) => $minHeight && `min-height: ${$minHeight}px`};
+`
+
+// Below this viewport width the side-by-side wall/stream-list layout stops
+// fitting, so the shell stacks the two regions vertically instead (see #81).
+// Shared with the header so both switch to their narrow layout together.
+const NARROW_BREAKPOINT = 820
+
+// Root layout. Desktop: the wall preview and the stream list sit side by side,
+// pinned to the viewport height with only the stream list scrolling. Narrow
+// screens (phones, small windows): the two regions stack and the whole page
+// scrolls. Layout that the media query needs to override lives here rather than
+// as inline styles on the children so the cascade can win cleanly.
+const AppShell = styled.div`
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  gap: 16px;
+  height: 100vh;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+
+  > .grid-container {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  > .stream-list {
+    flex: 0 0 340px;
+  }
+
+  @media (max-width: ${NARROW_BREAKPOINT}px) {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+
+    /* Stack both regions at their natural height and let the whole page
+       scroll, rather than pinning them to the viewport and competing for its
+       height (which collapses the wall region to nothing). */
+    > .grid-container {
+      flex: 0 0 auto;
+    }
+
+    > .stream-list {
+      flex: 0 0 auto;
+      min-width: 0;
+      overflow-y: visible;
+    }
+  }
 `
 
 function StreamDurationClock({ startTime }: { startTime: number }) {
@@ -2308,6 +2345,13 @@ const StyledHeader = styled.header`
   }
   .status .dot.off {
     background: var(--text-faint);
+  }
+
+  /* On narrow screens the header controls no longer fit on one line - let them
+     wrap instead of overflowing the viewport (see #81). */
+  @media (max-width: ${NARROW_BREAKPOINT}px) {
+    flex-wrap: wrap;
+    gap: 10px 14px;
   }
 `
 
