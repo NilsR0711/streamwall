@@ -7,15 +7,18 @@ import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
 
+import { parseGithubRepository } from './forge.publisher'
 import {
   getMacSigningConfig,
   getWindowsSigningConfig,
   isSigningConfigured,
 } from './forge.signing'
+import packageJson from './package.json'
 
 const macSigning = getMacSigningConfig(process.env)
 const windowsSigning = getWindowsSigningConfig(process.env)
 const signingConfigured = isSigningConfigured(process.env)
+const publishRepository = parseGithubRepository(packageJson.repository)
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -34,10 +37,7 @@ const config: ForgeConfig = {
     {
       name: '@electron-forge/publisher-github',
       config: {
-        repository: {
-          owner: 'streamwall',
-          name: 'streamwall',
-        },
+        repository: publishRepository,
         prerelease: true,
       },
     },

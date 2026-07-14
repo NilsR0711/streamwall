@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Least privilege by default; the publish job elevates to contents: write to
+# create the GitHub release.
+permissions:
+  contents: read
+
+# Never cancel a release mid-publish (unlike CI's PR runs).
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  publish:
+    name: Publish (${{ matrix.platform.name }})
+    needs: quality-gate
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: write # electron-forge's GitHub publisher creates/updates the release
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    # Signing is opt-in (see packages/streamwall/forge.signing.ts): builds
+    # stay unsigned, exactly as before, until these secrets are provisioned.
+    # `secrets` isn't available in step `if:` conditions, so the presence
+    # checks are hoisted into job-level env vars here.
+    env:
+      APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      APPLE_NOTARIZATION_CONFIGURED: ${{ secrets.APPLE_API_KEY_BASE64 != '' }}
+      WINDOWS_SIGNING_CONFIGURED: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Import macOS signing certificate
+        if: matrix.platform.name == 'macos' && env.APPLE_SIGNING_CONFIGURED == 'true'
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Write macOS notarization API key
+        if: matrix.platform.name == 'macos' && env.APPLE_NOTARIZATION_CONFIGURED == 'true'
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          key_path="$RUNNER_TEMP/apple-api-key.p8"
+          base64 --decode <<< "$APPLE_API_KEY_BASE64" > "$key_path"
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Write Windows signing certificate
+        if: matrix.platform.name == 'windows' && env.WINDOWS_SIGNING_CONFIGURED == 'true'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: |
+          cert_path="$RUNNER_TEMP/windows-cert.pfx"
+          base64 --decode <<< "$WINDOWS_CERTIFICATE_BASE64" > "$cert_path"
+          echo "WINDOWS_CERTIFICATE_FILE=$cert_path" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: npm -w streamwall run publish
