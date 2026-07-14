@@ -243,7 +243,7 @@ declare module 'fastify' {
  * This is useful for async validation of the connection before handling messages,
  * because awaiting before adding a message event listener can drop messages.
  */
-function queueWebSocketMessages(ws: WebSocket) {
+export function queueWebSocketMessages(ws: WebSocket) {
   let queue: WebSocket.Data[] = []
   let messageHandler: ((rawData: WebSocket.Data) => void) | null = null
 
