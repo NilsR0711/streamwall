@@ -11,9 +11,11 @@ import {
   LocalStreamData,
   markDataSource,
   pollDataURL,
+  presetDataSource,
   StreamIDGenerator,
   watchDataFile,
 } from './data'
+import type { PresetPack } from './presets'
 
 class FakeWatcher extends EventEmitter {
   close = vi.fn(async () => {})
@@ -677,5 +679,49 @@ describe('combineDataSources', () => {
     const { value } = await gen.next()
     expect(value).toHaveLength(0)
     expect(value?.byURL?.has('https://ghost.example/s')).toBe(false)
+  })
+})
+
+describe('presetDataSource', () => {
+  test('yields the pack entries once and stays open', async () => {
+    const pack: PresetPack = {
+      id: 'test-pack',
+      name: 'Test Pack',
+      entries: [{ link: 'https://a.example/s', kind: 'video', label: 'A' }],
+    }
+    const gen = presetDataSource(pack)
+    try {
+      const { value } = await gen.next()
+      expect(value).toEqual([
+        { link: 'https://a.example/s', kind: 'video', label: 'A' },
+      ])
+    } finally {
+      await gen.return?.(undefined)
+    }
+  })
+
+  test('combines with other sources via combineDataSources, tagged with the given source name', async () => {
+    const pack: PresetPack = {
+      id: 'de-tv',
+      name: 'German Free-TV',
+      entries: [
+        { link: 'https://ard.example/s', kind: 'video', label: 'ARD' },
+      ],
+    }
+    const idGen = new StreamIDGenerator()
+    // combineDataSources()'s .return() never resolves (Repeater.latest does
+    // not propagate return() to its contenders), so - matching the existing
+    // combineDataSources tests above - read a single value and let the
+    // generator get garbage-collected rather than tearing it down.
+    const iterator = combineDataSources(
+      [markDataSource(presetDataSource(pack), 'preset:de-tv')],
+      idGen,
+    )
+    const { value } = await iterator.next()
+    expect(value).toHaveLength(1)
+    expect(value?.[0]).toMatchObject({
+      link: 'https://ard.example/s',
+      _dataSource: 'preset:de-tv',
+    })
   })
 })
