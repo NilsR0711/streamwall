@@ -1,0 +1,145 @@
+[
+  {
+    "link": "https://daserste-live.ard-mcdn.de/daserste/live/hls/int/master.m3u8",
+    "kind": "video",
+    "label": "ARD (Das Erste)",
+    "source": "ARD",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://zdf-hls-15.akamaized.net/hls/live/2016498/de/high/master.m3u8",
+    "kind": "video",
+    "label": "ZDF",
+    "source": "ZDF",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://zdf-hls-16.akamaized.net/hls/live/2016499/de/high/master.m3u8",
+    "kind": "video",
+    "label": "ZDFneo",
+    "source": "ZDF",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://zdf-hls-17.akamaized.net/hls/live/2016500/de/high/master.m3u8",
+    "kind": "video",
+    "label": "ZDFinfo",
+    "source": "ZDF",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8",
+    "kind": "video",
+    "label": "tagesschau24",
+    "source": "ARD",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://zdf-hls-19.akamaized.net/hls/live/2016502/de/high/master.m3u8",
+    "kind": "video",
+    "label": "phoenix",
+    "source": "ZDF",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://zdf-hls-18.akamaized.net/hls/live/2016501/dach/high/master.m3u8",
+    "kind": "video",
+    "label": "3sat",
+    "source": "ZDF",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://kikahls.akamaized.net/hls/live/2022690/livetvkika_ww/master.m3u8",
+    "kind": "video",
+    "label": "KiKA",
+    "source": "KiKA",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://artesimulcast.akamaized.net/hls/live/2030993/artelive_de/index.m3u8",
+    "kind": "video",
+    "label": "arte",
+    "source": "arte",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://mcdn.br.de/br/fs/bfs_nord/hls/de/master.m3u8",
+    "kind": "video",
+    "label": "BR Fernsehen Nord",
+    "source": "BR",
+    "state": "Bayern",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://mcdn.br.de/br/fs/bfs_sued/hls/de/master.m3u8",
+    "kind": "video",
+    "label": "BR Fernsehen Süd",
+    "source": "BR",
+    "state": "Bayern",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8",
+    "kind": "video",
+    "label": "NDR Fernsehen",
+    "source": "NDR",
+    "state": "Niedersachsen",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://wdr-live.ard-mcdn.de/wdr/live/hls/de/master.m3u8",
+    "kind": "video",
+    "label": "WDR Fernsehen",
+    "source": "WDR",
+    "state": "Nordrhein-Westfalen",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8",
+    "kind": "video",
+    "label": "SWR Fernsehen Baden-Württemberg",
+    "source": "SWR",
+    "state": "Baden-Württemberg",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://swrrpd-hls.akamaized.net/hls/live/2018676/swrrpd/master.m3u8",
+    "kind": "video",
+    "label": "SWR Fernsehen Rheinland-Pfalz",
+    "source": "SWR",
+    "state": "Rheinland-Pfalz",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://hrhls.akamaized.net/hls/live/2024525/hrhls/index.m3u8",
+    "kind": "video",
+    "label": "HR Fernsehen",
+    "source": "HR",
+    "state": "Hessen",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://mdrtvsnhls.akamaized.net/hls/live/2016928/mdrtvsn/index.m3u8",
+    "kind": "video",
+    "label": "MDR Fernsehen Sachsen",
+    "source": "MDR",
+    "state": "Sachsen",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://rbb-hls-berlin.akamaized.net/hls/live/2017824/rbb_berlin/index.m3u8",
+    "kind": "video",
+    "label": "rbb Fernsehen Berlin",
+    "source": "rbb",
+    "state": "Berlin",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  },
+  {
+    "link": "https://srfs.akamaized.net/hls/live/689649/srfsgeo/index.m3u8",
+    "kind": "video",
+    "label": "SR Fernsehen",
+    "source": "SR",
+    "state": "Saarland",
+    "notes": "Public broadcaster live stream; verified reachable, segment playback may be geo-restricted to Germany."
+  }
+]
