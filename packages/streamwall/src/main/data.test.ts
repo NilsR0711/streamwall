@@ -1,17 +1,48 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { StreamDataContent } from 'streamwall-shared'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { pollDataURL, watchDataFile } from './data'
+
+class FakeWatcher extends EventEmitter {
+  close = vi.fn(async () => {})
+}
+
+let fakeWatcher: FakeWatcher | undefined
+
+vi.mock('chokidar', () => ({
+  watch: vi.fn(() => {
+    fakeWatcher = new FakeWatcher()
+    return fakeWatcher
+  }),
+}))
 
 function writeTomlFile(contents: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'sw-data-'))
   const file = path.join(dir, 'streams.toml')
   writeFileSync(file, contents)
   return file
+}
+
+// Async generator resumption (and therefore listener registration inside
+// the generator body) is not synchronous with the .next() call that
+// triggers it, so tests poll for the listener rather than emitting
+// immediately after calling next().
+async function waitForListener(
+  emitter: EventEmitter,
+  event: string,
+): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (emitter.listenerCount(event) > 0) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error(`listener for "${event}" was not registered in time`)
 }
 
 describe('watchDataFile', () => {
@@ -63,6 +94,126 @@ _dataSource = "attacker"
     try {
       const { value } = await gen.next()
       expect(value).toEqual([])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('re-reads on an unlink+add cycle instead of only on change', async () => {
+    const file = writeTomlFile(`
+[[streams]]
+link = "https://a.example/s"
+`)
+    const gen = watchDataFile(file)
+    try {
+      const first = await gen.next()
+      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://a.example/s',
+      ])
+
+      writeFileSync(
+        file,
+        `
+[[streams]]
+link = "https://b.example/s"
+`,
+      )
+      const watcher = fakeWatcher!
+      const next = gen.next()
+      await waitForListener(watcher, 'all')
+      // Simulate an atomic replace that chokidar reports as unlink+add
+      // rather than a single 'change' event.
+      watcher.emit('all', 'unlink', file)
+      watcher.emit('all', 'add', file)
+      const second = await next
+      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://b.example/s',
+      ])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('does not crash and keeps watching after a watcher error', async () => {
+    const file = writeTomlFile(`
+[[streams]]
+link = "https://a.example/s"
+`)
+    const gen = watchDataFile(file)
+    try {
+      await gen.next()
+      const watcher = fakeWatcher!
+
+      const next = gen.next()
+      await waitForListener(watcher, 'all')
+      watcher.emit('error', new Error('EPERM'))
+      writeFileSync(
+        file,
+        `
+[[streams]]
+link = "https://b.example/s"
+`,
+      )
+      watcher.emit('all', 'change', file)
+      const { value } = await next
+      expect(value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://b.example/s',
+      ])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('keeps the last known-good streams when a read fails after a successful read', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'sw-data-'))
+    const file = path.join(dir, 'streams.toml')
+    writeFileSync(
+      file,
+      `
+[[streams]]
+link = "https://a.example/s"
+`,
+    )
+    const gen = watchDataFile(file)
+    try {
+      const first = await gen.next()
+      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://a.example/s',
+      ])
+
+      // Delete the file so the next read fails, then notify the watcher.
+      // A single outstanding next() call spans both the failed re-read
+      // (which must not surface an empty/wiped list) and the eventual
+      // successful re-read below.
+      rmSync(file)
+      const watcher = fakeWatcher!
+      const pendingNext = gen.next()
+      await waitForListener(watcher, 'all')
+      watcher.emit('all', 'unlink', file)
+
+      // The failed re-read must not surface a wiped-out empty list:
+      // pendingNext should still be unresolved at this point.
+      const stillPending = Symbol('pending')
+      const raceResult = await Promise.race([
+        pendingNext,
+        new Promise((resolve) => setTimeout(() => resolve(stillPending), 50)),
+      ])
+      expect(raceResult).toBe(stillPending)
+
+      writeFileSync(
+        file,
+        `
+[[streams]]
+link = "https://b.example/s"
+`,
+      )
+      await waitForListener(watcher, 'all')
+      watcher.emit('all', 'add', file)
+
+      const second = await pendingNext
+      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://b.example/s',
+      ])
     } finally {
       await gen.return(undefined)
     }
