@@ -48,6 +48,7 @@ import { GridPreviewBox } from './GridPreviewBox.tsx'
 import { GridSizeControls } from './GridSizeControls.tsx'
 import { hotkeyLayerBindings, hotkeyTriggers } from './hotkeyLabel.ts'
 import './index.css'
+import { type Invite, parseInviteResponse } from './invite.ts'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { ResizeHandles } from './ResizeHandles.tsx'
 import {
@@ -75,12 +76,6 @@ export interface ViewInfo {
   isBlurred: boolean
   volume: number
   spaces: number[]
-}
-
-interface Invite {
-  tokenId: string
-  name: string
-  secret: string
 }
 
 const normalStreamKinds = new Set(['video', 'audio', 'web'])
@@ -502,11 +497,18 @@ export function ControlUI({
           role,
         },
         (msg) => {
-          setNewInvite(msg as Invite) // TODO: validate w/ Zod
+          const invite = parseInviteResponse(msg)
+          if (!invite) {
+            setCommandError(
+              'Received a malformed invite response from the server',
+            )
+            return
+          }
+          setNewInvite(invite)
         },
       )
     },
-    [send],
+    [send, setCommandError],
   )
 
   const handleDeleteToken = useCallback(
