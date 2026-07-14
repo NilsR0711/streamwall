@@ -564,7 +564,7 @@ export async function initApp({
               client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
               client.lastStateSent = stateView
             } catch (err) {
-              console.error('failed to send client state delta', client)
+              console.error('failed to send client state delta', client, err)
               reportCaughtError(err)
             }
           }
@@ -578,7 +578,7 @@ export async function initApp({
         try {
           ws.send(update)
         } catch (err) {
-          console.error('Failed to send Streamwall doc update')
+          console.error('Failed to send Streamwall doc update', err)
           reportCaughtError(err)
         }
         for (const client of clients.values()) {
@@ -588,7 +588,7 @@ export async function initApp({
           try {
             client.ws.send(update)
           } catch (err) {
-            console.error('Failed to send client doc update:', client)
+            console.error('Failed to send client doc update:', client, err)
             reportCaughtError(err)
           }
         }
