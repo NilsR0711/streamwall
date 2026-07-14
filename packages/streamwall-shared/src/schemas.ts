@@ -44,6 +44,14 @@ const rotationSchema = z.number().min(0).max(MAX_ROTATION)
 const viewIdxSchema = z.number().int().min(0).max(MAX_VIEW_IDX)
 const gridDimensionSchema = z.number().int().min(GRID_MIN).max(GRID_MAX)
 
+/** Longest allowed name for a saved layout preset. */
+export const MAX_LAYOUT_PRESET_NAME_LENGTH = 100
+const layoutPresetNameSchema = z
+  .string()
+  .min(1)
+  .max(MAX_LAYOUT_PRESET_NAME_LENGTH)
+const layoutPresetIdSchema = z.string().min(1).max(100)
+
 /** Optional descriptive fields shared by every stream-data shape. */
 const streamMetaFields = {
   label: z.string().optional(),
@@ -179,6 +187,18 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('set-grid-size'),
     cols: gridDimensionSchema,
     rows: gridDimensionSchema,
+  }),
+  z.object({
+    type: z.literal('save-layout-preset'),
+    name: layoutPresetNameSchema,
+  }),
+  z.object({
+    type: z.literal('load-layout-preset'),
+    presetId: layoutPresetIdSchema,
+  }),
+  z.object({
+    type: z.literal('delete-layout-preset'),
+    presetId: layoutPresetIdSchema,
   }),
 ])
 

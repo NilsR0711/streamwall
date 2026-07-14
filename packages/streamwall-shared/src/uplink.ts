@@ -27,6 +27,9 @@ const UPLINK_ALLOWED_COMMANDS: ReadonlySet<ControlCommand['type']> = new Set<
   'set-stream-censored',
   'set-stream-running',
   'set-grid-size',
+  'save-layout-preset',
+  'load-layout-preset',
+  'delete-layout-preset',
 ])
 
 /**

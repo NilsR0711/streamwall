@@ -296,6 +296,67 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
+  test('accepts a save-layout-preset command with a non-empty name', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'save-layout-preset',
+        name: 'My Layout',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects save-layout-preset with an empty or overlong name', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'save-layout-preset',
+        name: '',
+      }).success,
+    ).toBe(false)
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'save-layout-preset',
+        name: 'x'.repeat(101),
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts load-layout-preset and delete-layout-preset with a non-empty presetId', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'load-layout-preset',
+        presetId: 'preset-1',
+      }).success,
+    ).toBe(true)
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'delete-layout-preset',
+        presetId: 'preset-1',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects load-layout-preset and delete-layout-preset with an empty presetId', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'load-layout-preset',
+        presetId: '',
+      }).success,
+    ).toBe(false)
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'delete-layout-preset',
+        presetId: '',
+      }).success,
+    ).toBe(false)
+  })
+
   test('parsed commands remain assignable to the ControlCommand type', () => {
     const result = controlCommandMessageSchema.safeParse({
       id: 7,

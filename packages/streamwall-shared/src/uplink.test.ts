@@ -17,6 +17,12 @@ describe('isCommandAllowedFromUplink', () => {
     expect(isCommandAllowedFromUplink('set-grid-size')).toBe(true)
   })
 
+  test('allows layout preset commands', () => {
+    expect(isCommandAllowedFromUplink('save-layout-preset')).toBe(true)
+    expect(isCommandAllowedFromUplink('load-layout-preset')).toBe(true)
+    expect(isCommandAllowedFromUplink('delete-layout-preset')).toBe(true)
+  })
+
   test('rejects code-execution commands from the uplink', () => {
     expect(isCommandAllowedFromUplink('browse')).toBe(false)
     expect(isCommandAllowedFromUplink('dev-tools')).toBe(false)

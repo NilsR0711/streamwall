@@ -98,6 +98,16 @@ export interface AuthTokenInfo {
   name: string
 }
 
+/** A named, saved grid layout: its dimensions and per-cell stream assignments. */
+export interface LayoutPreset {
+  id: string
+  name: string
+  cols: number
+  rows: number
+  /** Sparse: only cells with an assigned stream are present. */
+  views: { [viewIdx: string]: { streamId: string } }
+}
+
 export interface StreamwallState {
   identity: {
     role: StreamwallRole
@@ -111,6 +121,7 @@ export interface StreamwallState {
   customStreams: StreamList
   views: ViewState[]
   streamdelay: StreamDelayStatus | null
+  layoutPresets: LayoutPreset[]
 }
 
 type MessageMeta = {
@@ -137,6 +148,9 @@ export type ControlCommand =
   | { type: 'create-invite'; role: string; name: string }
   | { type: 'delete-token'; tokenId: string }
   | { type: 'set-grid-size'; cols: number; rows: number }
+  | { type: 'save-layout-preset'; name: string }
+  | { type: 'load-layout-preset'; presetId: string }
+  | { type: 'delete-layout-preset'; presetId: string }
 
 export type ControlUpdate = {
   type: 'state'
