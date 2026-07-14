@@ -526,6 +526,9 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     } else if (msg.type === 'set-view-blurred') {
       console.debug('Setting view blurred:', msg.viewIdx, msg.blurred)
       streamWindow.setViewBlurred(msg.viewIdx, msg.blurred)
+    } else if (msg.type === 'set-view-volume') {
+      console.debug('Setting view volume:', msg.viewIdx, msg.volume)
+      streamWindow.setViewVolume(msg.viewIdx, msg.volume)
     } else if (msg.type === 'rotate-stream') {
       console.debug('Rotating stream:', msg.url, msg.rotation)
       overlayStreamData.update(msg.url, {

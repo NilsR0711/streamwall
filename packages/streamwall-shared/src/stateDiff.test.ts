@@ -25,6 +25,7 @@ function makeView(id: number, overrides: Partial<ViewState> = {}): ViewState {
       info: null,
       pos: null,
       error: null,
+      volume: 1,
     },
     ...overrides,
   }
@@ -46,6 +47,7 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
     customStreams: [],
     views: [makeView(0), makeView(1)],
     streamdelay: null,
+    layoutPresets: [],
     ...overrides,
   }
 }

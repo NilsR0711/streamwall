@@ -81,6 +81,10 @@ const viewStateMachine = setup({
       options: ContentDisplayOptions | null
       info: ContentViewInfo | null
       retry: RetryConfig
+      // Per-tile playback volume, from 0 (silent) to 1 (full). Independent of
+      // the mute/listening state: it is the level applied once the tile is
+      // unmuted.
+      volume: number
       // Human-readable reason for the current error, or null when healthy.
       error: string | null
       // Number of automatic reloads already spent on the current failure streak.
@@ -89,6 +93,7 @@ const viewStateMachine = setup({
 
     events: {} as
       | { type: 'OPTIONS'; options: ContentDisplayOptions }
+      | { type: 'SET_VOLUME'; volume: number }
       | {
           type: 'DISPLAY'
           pos: ViewPos
@@ -157,6 +162,11 @@ const viewStateMachine = setup({
       view.webContents.send('options', params.options)
     },
 
+    sendViewVolume: ({ context }, params: { volume: number }) => {
+      const { view } = context
+      view.webContents.send('volume', params.volume)
+    },
+
     offscreenView: ({ context }) => {
       const { view, win, offscreenWin } = context
       win.contentView.removeChildView(view)
@@ -207,6 +217,10 @@ const viewStateMachine = setup({
       params: { options: ContentDisplayOptions },
     ) => {
       return !isEqual(context.options, params.options)
+    },
+
+    volumeChanged: ({ context }, params: { volume: number }) => {
+      return context.volume !== params.volume
     },
 
     // Whether the view is still allowed to reload itself automatically.
@@ -278,6 +292,7 @@ const viewStateMachine = setup({
     retry,
     error: null,
     retryCount: 0,
+    volume: 1,
   }),
   on: {
     DISPLAY: {
@@ -318,6 +333,21 @@ const viewStateMachine = setup({
           guard: {
             type: 'optionsChanged',
             params: ({ event: { options } }) => ({ options }),
+          },
+        },
+        SET_VOLUME: {
+          actions: [
+            assign({
+              volume: ({ event }) => event.volume,
+            }),
+            {
+              type: 'sendViewVolume',
+              params: ({ event: { volume } }) => ({ volume }),
+            },
+          ],
+          guard: {
+            type: 'volumeChanged',
+            params: ({ event: { volume } }) => ({ volume }),
           },
         },
         // A manual reload is an operator override: reset the automatic retry

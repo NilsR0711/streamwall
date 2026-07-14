@@ -78,3 +78,82 @@ describe('StreamWindow.setGridSize', () => {
     expect(config.height).toBe(1440)
   })
 })
+
+/**
+ * A minimal stand-in for a ViewActor: enough of the `getSnapshot()`/`send()`
+ * surface for setViewVolume/sendViewEvent/findViewByIdx to operate on,
+ * without a real XState actor or Electron WebContentsView.
+ */
+function makeFakeViewActor(pos: { spaces: number[] } | null, send = vi.fn()) {
+  return {
+    getSnapshot: () => ({ context: { pos } }),
+    send,
+  } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
+}
+
+describe('StreamWindow.setViewVolume', () => {
+  it('sends SET_VOLUME to the view occupying the given index', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const send = vi.fn()
+    sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
+
+    sw.setViewVolume(0, 0.5)
+
+    expect(send).toHaveBeenCalledWith({ type: 'SET_VOLUME', volume: 0.5 })
+  })
+
+  it('does nothing when no view occupies the given index', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const send = vi.fn()
+    sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
+
+    sw.setViewVolume(5, 0.5)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('StreamWindow.emitState', () => {
+  it('includes each view volume in the emitted state', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.views = new Map([
+      [
+        1,
+        makeFakeViewActorWithSnapshot({
+          value: 'empty',
+          context: {
+            id: 1,
+            content: null,
+            info: null,
+            pos: null,
+            error: null,
+            volume: 0.6,
+          },
+        }),
+      ],
+    ])
+    const emitted: unknown[] = []
+    sw.on('state', (states) => emitted.push(states))
+
+    sw.emitState()
+
+    expect(emitted).toEqual([
+      [
+        {
+          state: 'empty',
+          context: expect.objectContaining({ volume: 0.6 }),
+        },
+      ],
+    ])
+  })
+})
+
+function makeFakeViewActorWithSnapshot(snapshot: {
+  value: unknown
+  context: Record<string, unknown>
+}) {
+  return {
+    getSnapshot: () => snapshot,
+    send: vi.fn(),
+  } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
+}

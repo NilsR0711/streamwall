@@ -83,6 +83,7 @@ export interface ViewInfo {
   isListening: boolean
   isBackgroundListening: boolean
   isBlurred: boolean
+  volume: number
   spaces: number[]
 }
 
@@ -554,6 +555,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         isListening,
         isBackgroundListening,
         isBlurred,
+        volume: viewState.context.volume,
         spaces,
       }
       views.push(viewInfo)
@@ -877,6 +879,17 @@ export function ControlUI({
         type: 'set-view-blurred',
         viewIdx,
         blurred,
+      })
+    },
+    [send],
+  )
+
+  const handleSetVolume = useCallback(
+    (viewIdx: number, volume: number) => {
+      send({
+        type: 'set-view-volume',
+        viewIdx,
+        volume,
       })
     },
     [send],
@@ -1364,7 +1377,13 @@ export function ControlUI({
                 })}
               </StyledGridPreview>
               {views.map(
-                ({ state, isListening, isBackgroundListening, isBlurred }) => {
+                ({
+                  state,
+                  isListening,
+                  isBackgroundListening,
+                  isBlurred,
+                  volume,
+                }) => {
                   const { pos } = state.context
                   if (!pos) {
                     return null
@@ -1387,6 +1406,7 @@ export function ControlUI({
                       isListening={isListening}
                       isBackgroundListening={isBackgroundListening}
                       isBlurred={isBlurred}
+                      volume={volume}
                       isSwapping={
                         swapStartIdx != null &&
                         pos.spaces.includes(swapStartIdx)
@@ -1396,6 +1416,7 @@ export function ControlUI({
                       onSetListening={handleSetListening}
                       onSetBackgroundListening={handleSetBackgroundListening}
                       onSetBlurred={handleSetBlurred}
+                      onSetVolume={handleSetVolume}
                       onReloadView={handleReloadView}
                       onSwapView={handleSwapView}
                       onRotateView={handleRotateStream}
@@ -1992,7 +2013,7 @@ export function GridInput({
   )
 }
 
-function GridControls({
+export function GridControls({
   idx,
   streamId,
   style,
@@ -2000,12 +2021,14 @@ function GridControls({
   isListening,
   isBackgroundListening,
   isBlurred,
+  volume,
   isSwapping,
   showDebug,
   role,
   onSetListening,
   onSetBackgroundListening,
   onSetBlurred,
+  onSetVolume,
   onReloadView,
   onSwapView,
   onRotateView,
@@ -2020,6 +2043,7 @@ function GridControls({
   isListening: boolean
   isBackgroundListening: boolean
   isBlurred: boolean
+  volume: number
   isSwapping: boolean
   showDebug: boolean
   role: StreamwallRole | null
@@ -2029,6 +2053,7 @@ function GridControls({
     isBackgroundListening: boolean,
   ) => void
   onSetBlurred: (idx: number, isBlurred: boolean) => void
+  onSetVolume: (idx: number, volume: number) => void
   onReloadView: (idx: number) => void
   onSwapView: (idx: number) => void
   onRotateView: (streamId: string) => void
@@ -2056,6 +2081,12 @@ function GridControls({
   const handleBlurClick = useCallback(
     () => onSetBlurred(idx, !isBlurred),
     [idx, onSetBlurred, isBlurred],
+  )
+  const handleVolumeInput = useCallback<
+    JSX.InputEventHandler<HTMLInputElement>
+  >(
+    (ev) => onSetVolume(idx, Number(ev.currentTarget.value)),
+    [idx, onSetVolume],
   )
   const handleReloadClick = useCallback(
     () => onReloadView(idx),
@@ -2130,6 +2161,18 @@ function GridControls({
           >
             <FaVideoSlash />
           </StyledButton>
+        )}
+        {roleCan(role, 'set-view-volume') && (
+          <StyledVolumeSlider
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onInput={handleVolumeInput}
+            tabIndex={1}
+            aria-label="Volume"
+          />
         )}
         {roleCan(role, 'set-listening-view') && (
           <StyledButton
@@ -2370,6 +2413,14 @@ const StyledSmallButton = styled(StyledButton)`
     width: 14px;
     height: 14px;
   }
+`
+
+const StyledVolumeSlider = styled.input`
+  width: 54px;
+  height: 24px;
+  margin: 5px;
+  accent-color: var(--accent-2);
+  cursor: pointer;
 `
 
 const StyledGridPreview = styled.div`

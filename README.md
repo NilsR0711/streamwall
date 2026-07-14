@@ -19,7 +19,7 @@ Under the hood, think of Streamwall as a specialized web browser for mosaicing v
 
 - **Resizable grid** — arrange streams in an NxN grid; resize it at runtime from the control UI (column/row presets or exact counts), no restart required.
 - **Drag-to-place layout** — drag a tile onto another to swap their positions, or drop a stream from the list straight onto a grid cell.
-- **Per-tile audio** — listen to any single tile's audio at a time, switchable with a click or hotkey.
+- **Per-tile audio** — listen to any single tile's audio at a time, switchable with a click or hotkey, with a per-tile volume slider.
 - **Blur/censor** — blur individual tiles, or trigger a wall-wide [Streamdelay](https://github.com/chromakode/streamdelay) censor mode.
 - **Dark mode** — light, dark, or system-matched theme in the control UI.
 - **Remote control with roles** — an optional web-based control server lets operators run the wall from a browser, with **admin**, **operator**, and **monitor** roles gated by invite links.

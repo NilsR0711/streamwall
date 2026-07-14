@@ -76,6 +76,10 @@ export interface ViewState {
     pos: ViewPos | null
     // Human-readable reason when the view is in displaying.error, else null.
     error: string | null
+    // Per-tile playback volume, from 0 (silent) to 1 (full). Independent of
+    // the mute/listening state: it is the level applied once the tile is
+    // unmuted.
+    volume: number
   }
 }
 
@@ -137,6 +141,7 @@ export type ControlCommand =
       listening: boolean
     }
   | { type: 'set-view-blurred'; viewIdx: number; blurred: boolean }
+  | { type: 'set-view-volume'; viewIdx: number; volume: number }
   | { type: 'rotate-stream'; url: string; rotation: number }
   | { type: 'update-custom-stream'; url: string; data: LocalStreamData }
   | { type: 'delete-custom-stream'; url: string }

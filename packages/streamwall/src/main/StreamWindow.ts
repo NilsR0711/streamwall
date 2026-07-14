@@ -137,10 +137,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       const view = this.views.get(ev.sender.id)
       if (view) {
         view.send({ type: 'VIEW_INIT' })
-        const { content, options } = view.getSnapshot().context
+        const { content, options, volume } = view.getSnapshot().context
         return {
           content,
           options,
+          volume,
         }
       }
     })
@@ -270,6 +271,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
           info: context.info,
           pos: context.pos,
           error: context.error,
+          volume: context.volume,
         },
       } satisfies ViewState
     })
@@ -423,6 +425,10 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
   setViewBlurred(viewIdx: number, blurred: boolean) {
     this.sendViewEvent(viewIdx, { type: blurred ? 'BLUR' : 'UNBLUR' })
+  }
+
+  setViewVolume(viewIdx: number, volume: number) {
+    this.sendViewEvent(viewIdx, { type: 'SET_VOLUME', volume })
   }
 
   reloadView(viewIdx: number) {

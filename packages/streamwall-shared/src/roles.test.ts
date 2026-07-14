@@ -34,6 +34,7 @@ const operatorOnlyActions = [
   'save-layout-preset',
   'load-layout-preset',
   'delete-layout-preset',
+  'set-view-volume',
 ] as const satisfies readonly StreamwallAction[]
 
 // Available to every authenticated role down to monitor.
