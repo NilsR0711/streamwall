@@ -196,3 +196,41 @@ that's the Electron control UI or the standalone web control client:
 The overlay window has its own hotkey:
 
 - **ctrl+shift+i**: Open devtools for the overlay
+
+## Building & releasing the desktop app
+
+`npm run package` / `npm run make` / `npm run publish` (in
+`packages/streamwall`) build the Electron app with
+[Electron Forge](https://www.electronforge.io/). By default these produce
+**unsigned** binaries — fine for local development, but macOS and Windows
+both warn or outright block unsigned apps for end users, and Electron's
+auto-updater requires a signed app on macOS.
+
+To produce signed, notarized builds, set these environment variables before
+running `make`/`publish` (see `packages/streamwall/forge.signing.ts`):
+
+| Variable                       | Purpose                                                           |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `APPLE_TEAM_ID`                | Apple Developer Team ID                                           |
+| `APPLE_API_KEY`                | Path to an App Store Connect API key (`.p8`) used by `notarytool` |
+| `APPLE_API_KEY_ID`             | App Store Connect API Key ID                                      |
+| `APPLE_API_ISSUER`             | App Store Connect API Issuer ID                                   |
+| `WINDOWS_CERTIFICATE_FILE`     | Path to a Windows code-signing certificate (`.pfx`)               |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the certificate above                                |
+
+macOS signing additionally requires a Developer ID Application certificate to
+already be present in the signing machine's keychain (e.g. imported via
+[`apple-actions/import-codesign-certs`](https://github.com/Apple-Actions/import-codesign-certs-action)
+in CI). The macOS and Windows variables are independent — set either, both,
+or neither. Builds with none of these set are unsigned, exactly as before.
+
+**Until a release is signed:** macOS quarantines downloaded, unsigned apps
+and may refuse to open them ("Streamwall is damaged and can't be opened").
+Users can work around this by removing the quarantine attribute after
+downloading:
+
+```sh
+xattr -cr /Applications/Streamwall.app
+```
+
+or by right-clicking the app and choosing "Open" instead of double-clicking.

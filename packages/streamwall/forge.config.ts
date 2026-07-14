@@ -7,14 +7,25 @@ import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
 
+import {
+  getMacSigningConfig,
+  getWindowsSigningConfig,
+  isSigningConfigured,
+} from './forge.signing'
+
+const macSigning = getMacSigningConfig(process.env)
+const windowsSigning = getWindowsSigningConfig(process.env)
+const signingConfigured = isSigningConfigured(process.env)
+
 const config: ForgeConfig = {
   packagerConfig: {
     executableName: 'streamwall',
     asar: true,
+    ...macSigning,
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({ ...windowsSigning }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
@@ -68,8 +79,11 @@ const config: ForgeConfig = {
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
-      [FuseV1Options.OnlyLoadAppFromAsar]: false,
+      // ASAR integrity validation only holds up once the app itself is
+      // signed (otherwise the embedded hash can be stripped along with the
+      // signature), so only turn these on for signed builds.
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: signingConfigured,
+      [FuseV1Options.OnlyLoadAppFromAsar]: signingConfigured,
     }),
   ],
 }
