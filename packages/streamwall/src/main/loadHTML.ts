@@ -2,6 +2,24 @@ import { WebContents } from 'electron'
 import path from 'path'
 import querystring from 'querystring'
 
+/**
+ * Origin of the Vite dev server that serves the renderer HTML pages during
+ * development, or undefined in a packaged build (where those pages are loaded
+ * from disk via file://). The dev server lives on loopback, so the SSRF request
+ * guard must allow this origin explicitly or it would cancel the HLS renderer
+ * page and its bundled assets while developing.
+ */
+export function devServerOrigin(): string | undefined {
+  if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    return undefined
+  }
+  try {
+    return new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin
+  } catch {
+    return undefined
+  }
+}
+
 export function loadHTML(
   webContents: WebContents,
   name: 'background' | 'overlay' | 'playHLS' | 'control',

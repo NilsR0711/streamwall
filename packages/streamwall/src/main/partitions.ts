@@ -16,6 +16,7 @@
  */
 
 import type { Session } from 'electron'
+import { findRequestBlockReason } from '../util'
 
 const VIEW_PARTITION_PREFIX = 'view-'
 
@@ -46,17 +47,95 @@ export const allocateViewPartition = createPartitionAllocator(
   VIEW_PARTITION_PREFIX,
 )
 
+// Minimal structural view of the request-filtering surface a session exposes,
+// so the guard can be exercised without a running Electron app.
+type RequestListener = (
+  details: { url: string },
+  callback: (response: { cancel: boolean }) => void,
+) => void
+
+interface RequestFilteringSession {
+  webRequest: {
+    onBeforeRequest(listener: RequestListener): void
+  }
+}
+
+export interface RequestGuardOptions {
+  /**
+   * Origins that bypass the address check entirely (e.g. the Vite dev server on
+   * loopback, which serves the HLS renderer page). Empty in a packaged build.
+   */
+  allowedOrigins?: readonly string[]
+  /** Overridable for tests; defaults to the real address classifier. */
+  findBlockReason?: (url: string) => Promise<string | null>
+}
+
 /**
- * Applies baseline hardening to a session by denying every permission request
- * (camera, microphone, geolocation, notifications, etc.) from web content.
+ * Enforces the non-public-address policy at the network layer of a session, so
+ * that *every* request it issues is checked — not just the initial URL string.
+ * This closes the SSRF vectors a single up-front check structurally cannot
+ * cover: HTTP 3xx redirects (Chromium re-enters `onBeforeRequest` for each hop)
+ * and sub-resources named inside loaded content (e.g. HLS variant/segment URIs
+ * fetched by hls.js), both of which are issued *after* `ensureValidURL` has run.
  *
- * Permission handlers are per-session in Electron, so this must be called for
- * each isolated partition rather than once for a shared one.
+ * Blocked requests are cancelled; a cancelled main-frame navigation surfaces as
+ * a view error on the wall via the existing `did-fail-load` handler.
+ */
+export function installRequestSSRFGuard(
+  session: RequestFilteringSession,
+  {
+    allowedOrigins = [],
+    findBlockReason = findRequestBlockReason,
+  }: RequestGuardOptions = {},
+): void {
+  const allowed = new Set(allowedOrigins.filter(Boolean))
+  session.webRequest.onBeforeRequest((details, callback) => {
+    void (async () => {
+      try {
+        let origin: string | undefined
+        try {
+          origin = new URL(details.url).origin
+        } catch {
+          origin = undefined
+        }
+        if (origin !== undefined && allowed.has(origin)) {
+          callback({ cancel: false })
+          return
+        }
+        const reason = await findBlockReason(details.url)
+        if (reason !== null) {
+          console.warn(reason)
+          callback({ cancel: true })
+          return
+        }
+        callback({ cancel: false })
+      } catch (err) {
+        // Fail open on an internal guard error: the up-front ensureValidURL
+        // already vetted the top-level URL, and cancelling here would break
+        // legitimate traffic on an unexpected fault.
+        console.warn('SSRF request guard error:', err)
+        callback({ cancel: false })
+      }
+    })()
+  })
+}
+
+/**
+ * Applies baseline hardening to a session: denies every permission request
+ * (camera, microphone, geolocation, notifications, etc.) from web content and
+ * installs the network-layer SSRF guard so redirects and sub-resources are
+ * revalidated against the same non-public-address policy.
+ *
+ * Both handlers are per-session in Electron, so this must be called for each
+ * isolated partition rather than once for a shared one.
  */
 export function hardenSession(
-  session: Pick<Session, 'setPermissionRequestHandler'>,
+  session: Pick<Session, 'setPermissionRequestHandler'> &
+    RequestFilteringSession,
+  options: RequestGuardOptions = {},
 ): void {
   session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
+  installRequestSSRFGuard(session, options)
 }
