@@ -653,7 +653,7 @@ export function ControlUI({
   // since concurrent operators rarely target the same cells simultaneously.
   const swapBoxes = useCallback(
     (fromIdx: number, toIdx: number) => {
-      if (cols == null || rows == null) {
+      if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       stateDoc.transact(() => {
@@ -679,7 +679,7 @@ export function ControlUI({
         }
       })
     },
-    [stateDoc, stateIdxMap, cols, rows],
+    [stateDoc, stateIdxMap, cols, rows, role],
   )
 
   const handleSwap = useCallback(
@@ -731,7 +731,11 @@ export function ControlUI({
 
   const handleGridPointerDown = useCallback(
     (ev: PointerEvent) => {
-      if (!isPrimaryButton(ev.button) || hoveringIdx == null) {
+      if (
+        !isPrimaryButton(ev.button) ||
+        hoveringIdx == null ||
+        !roleCan(role, 'mutate-state-doc')
+      ) {
         return
       }
       if (swapStartIdx !== undefined) {
@@ -740,7 +744,7 @@ export function ControlUI({
       }
       setMoveStart({ idx: hoveringIdx, x: ev.clientX, y: ev.clientY })
     },
-    [hoveringIdx, swapStartIdx, handleSwap],
+    [hoveringIdx, swapStartIdx, handleSwap, role],
   )
 
   useLayoutEffect(() => {
@@ -796,7 +800,7 @@ export function ControlUI({
       originalSpaces: number[],
       ev: PointerEvent,
     ) => {
-      if (!isPrimaryButton(ev.button)) {
+      if (!isPrimaryButton(ev.button) || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       ev.preventDefault()
@@ -807,7 +811,7 @@ export function ControlUI({
       }
       setResize({ anchorIdx, streamId, handle, originalSpaces })
     },
-    [sharedState],
+    [sharedState, role],
   )
 
   // Keyboard equivalent of the pointer-drag resize above: each arrow-key
@@ -820,7 +824,7 @@ export function ControlUI({
       originalSpaces: number[],
       ev: KeyboardEvent,
     ) => {
-      if (cols == null || rows == null) {
+      if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       const hoverIdx = computeKeyboardResizeHoverIdx(
@@ -854,7 +858,7 @@ export function ControlUI({
         }
       })
     },
-    [cols, rows, sharedState, stateDoc],
+    [cols, rows, sharedState, stateDoc, role],
   )
 
   useLayoutEffect(() => {
@@ -1412,41 +1416,13 @@ export function ControlUI({
                         pointerEvents: 'none',
                       }}
                     >
-                      <StyledResizeHandles>
-                        <button
-                          type="button"
-                          className="handle e"
-                          aria-label="Resize right edge"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 'e', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 'e', pos.spaces, ev)
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="handle s"
-                          aria-label="Resize bottom edge"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 's', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 's', pos.spaces, ev)
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="handle se"
-                          aria-label="Resize bottom-right corner"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 'se', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 'se', pos.spaces, ev)
-                          }
-                        />
-                      </StyledResizeHandles>
+                      <ResizeHandles
+                        anchorIdx={anchorIdx}
+                        originalSpaces={pos.spaces}
+                        role={role}
+                        onResizeStart={handleResizeStart}
+                        onResizeKeyDown={handleResizeKeyDown}
+                      />
                     </div>
                   )
                 })}
@@ -2044,6 +2020,69 @@ const StyledResizeHandles = styled.div`
     border-radius: 2px;
   }
 `
+
+const RESIZE_HANDLES: {
+  handle: ResizeHandle
+  className: string
+  label: string
+}[] = [
+  { handle: 'e', className: 'handle e', label: 'Resize right edge' },
+  { handle: 's', className: 'handle s', label: 'Resize bottom edge' },
+  { handle: 'se', className: 'handle se', label: 'Resize bottom-right corner' },
+]
+
+export function ResizeHandles({
+  anchorIdx,
+  originalSpaces,
+  role,
+  onResizeStart,
+  onResizeKeyDown,
+}: {
+  anchorIdx: number
+  originalSpaces: number[]
+  role: StreamwallRole | null
+  onResizeStart: (
+    anchorIdx: number,
+    handle: ResizeHandle,
+    originalSpaces: number[],
+    ev: PointerEvent,
+  ) => void
+  onResizeKeyDown: (
+    anchorIdx: number,
+    handle: ResizeHandle,
+    originalSpaces: number[],
+    ev: KeyboardEvent,
+  ) => void
+}) {
+  // Gated the same way `GridInput` already is (issue #286): unlike a plain
+  // `disabled` attribute, this also short-circuits the callbacks themselves,
+  // so a monitor-role client can't start a resize gesture even if a
+  // pointerdown/keydown somehow still reached a disabled button.
+  const disabled = !roleCan(role, 'mutate-state-doc')
+  return (
+    <StyledResizeHandles>
+      {RESIZE_HANDLES.map(({ handle, className, label }) => (
+        <button
+          key={handle}
+          type="button"
+          className={className}
+          aria-label={label}
+          disabled={disabled}
+          onPointerDown={(ev) => {
+            if (!disabled) {
+              onResizeStart(anchorIdx, handle, originalSpaces, ev)
+            }
+          }}
+          onKeyDown={(ev) => {
+            if (!disabled) {
+              onResizeKeyDown(anchorIdx, handle, originalSpaces, ev)
+            }
+          }}
+        />
+      ))}
+    </StyledResizeHandles>
+  )
+}
 
 const StyledGridSizeControls = styled.div`
   display: flex;
