@@ -5,23 +5,14 @@ import type { StreamData } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { OverlayViewTile } from './OverlayViewTile'
 
-// react-icons renders through preact/compat's Context.Consumer, which
-// currently crashes under the happy-dom test environment (unrelated to the
-// markup under test here) - stub the icons out so the tile's own rendering
-// logic can be exercised in isolation.
-vi.mock('react-icons/fa', () => ({
-  FaExclamationTriangle: () => <i data-icon="warning" />,
-  FaFacebook: () => null,
-  FaInstagram: () => null,
-  FaMapMarkerAlt: () => null,
-  FaTiktok: () => null,
-  FaTwitch: () => null,
-  FaVolumeUp: () => null,
-  FaYoutube: () => null,
-}))
-vi.mock('react-icons/ri', () => ({
-  RiKickFill: () => null,
-  RiTwitterXFill: () => null,
+// Unlike react-icons and styled-components (see vitest.config.ts),
+// svg-loaders-react ships CJS only, so it has no ESM build for Vite's
+// resolver to route through the `react` -> `preact/compat` alias - it always
+// resolves the real `react` package, which crashes when preact/compat's
+// forwardRef-wrapped `styled(TailSpin)` renders it. Stub it out so the
+// tile's own rendering logic can be exercised in isolation.
+vi.mock('svg-loaders-react', () => ({
+  TailSpin: () => null,
 }))
 
 let container: HTMLDivElement | undefined
@@ -77,7 +68,7 @@ describe('OverlayViewTile', () => {
 
     expect(tile.textContent).toContain('Example Stream')
     expect(tile.textContent).toContain('Stream unavailable')
-    expect(tile.querySelector('[data-icon="warning"]')).not.toBeNull()
+    expect(tile.querySelector('svg')).not.toBeNull()
   })
 
   test('falls back to a generic label when the errored stream has no title', () => {
@@ -110,6 +101,6 @@ describe('OverlayViewTile', () => {
     expect(tile.textContent).not.toContain('Stream error')
     expect(tile.textContent).not.toContain('Stream unavailable')
     expect(tile.textContent).toContain('Example Stream')
-    expect(tile.querySelector('[data-icon="warning"]')).toBeNull()
+    expect(tile.querySelector('svg')).toBeNull()
   })
 })
