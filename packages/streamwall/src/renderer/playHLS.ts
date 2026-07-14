@@ -1,4 +1,13 @@
 import Hls, { ErrorTypes, Events, type ErrorData } from 'hls.js'
+import type { StreamwallMediaGlobal } from '../preload/mediaPreload'
+
+declare global {
+  interface Window {
+    // Exposed by mediaPreload.ts, this page's preload. Optional because the
+    // page can be rendered without the bridge (e.g. in unit tests).
+    streamwallMedia?: StreamwallMediaGlobal
+  }
+}
 
 // hls.js recommends bounding automatic recovery attempts: a stream that
 // keeps producing fatal errors after repeated retries is not going to
@@ -68,6 +77,14 @@ function loadNatively(videoEl: HTMLVideoElement, src: string) {
 }
 
 function loadHLS(src: string) {
+  // A rejected src never reaches a playback path (the sink guards in
+  // loadWithHlsJs/loadNatively would drop it), so report it here rather than
+  // letting the tile sit black until the load timeout.
+  if (!ALLOWED_SRC_PATTERN.test(src)) {
+    window.streamwallMedia?.reportError('src-rejected')
+    return
+  }
+
   if (Hls.isSupported()) {
     loadWithHlsJs(src)
     return
@@ -76,7 +93,12 @@ function loadHLS(src: string) {
   const videoEl = document.createElement('video')
   if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     loadNatively(videoEl, src)
+    return
   }
+
+  // Neither hls.js nor native HLS is available: no <video> will ever be
+  // created, so surface the specific cause immediately.
+  window.streamwallMedia?.reportError('hls-unsupported')
 }
 
 const searchParams = new URLSearchParams(location.search)

@@ -1,6 +1,7 @@
 import { render } from 'preact'
 import { useState } from 'preact/hooks'
 import { act } from 'preact/test-utils'
+import { type StreamwallRole } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import { useTileResize } from './useTileResize.ts'
@@ -72,9 +73,11 @@ function fakeKeyDown(key: string): KeyboardEvent {
 function Harness({
   doc,
   sharedState,
+  role = 'admin',
 }: {
   doc: Y.Doc
   sharedState: { views: { [idx: string]: { streamId: string | undefined } } }
+  role?: StreamwallRole | null
 }) {
   const [hoveringIdx, setHoveringIdx] = useState<number | undefined>()
   const { resize, handleResizeStart, handleResizeKeyDown } = useTileResize({
@@ -83,6 +86,7 @@ function Harness({
     hoveringIdx,
     stateDoc: doc,
     sharedState,
+    role,
   })
 
   return (
@@ -120,6 +124,7 @@ function Harness({
 function renderHarness(
   doc: Y.Doc,
   sharedState: { views: { [idx: string]: { streamId: string | undefined } } },
+  role: StreamwallRole | null = 'admin',
 ): {
   click: (label: string) => void
   resizing: () => string
@@ -127,7 +132,10 @@ function renderHarness(
   container = document.createElement('div')
   document.body.appendChild(container)
   act(() => {
-    render(<Harness doc={doc} sharedState={sharedState} />, container!)
+    render(
+      <Harness doc={doc} sharedState={sharedState} role={role} />,
+      container!,
+    )
   })
   const buttons = () =>
     Array.from(container!.querySelectorAll('button')) as HTMLButtonElement[]
@@ -284,6 +292,42 @@ describe('useTileResize keyboard resize', () => {
     const { click } = renderHarness(doc, {
       views: { '0': { streamId: undefined } },
     })
+
+    click('keyboard-resize-anchor-0-e-right')
+
+    expect(readViews(doc).get(1)).toBeUndefined()
+  })
+})
+
+describe('useTileResize role gating', () => {
+  test('a monitor role cannot start a pointer resize', () => {
+    const doc = new Y.Doc()
+    seedViews(doc, new Map([[0, 'stream-a']]))
+    const { click, resizing } = renderHarness(
+      doc,
+      { views: { '0': { streamId: 'stream-a' } } },
+      'monitor',
+    )
+
+    click('start-resize-anchor-0-e')
+
+    expect(resizing()).toBe('')
+  })
+
+  test('a monitor role cannot commit a keyboard resize', () => {
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, undefined],
+      ]),
+    )
+    const { click } = renderHarness(
+      doc,
+      { views: { '0': { streamId: 'stream-a' } } },
+      'monitor',
+    )
 
     click('keyboard-resize-anchor-0-e-right')
 

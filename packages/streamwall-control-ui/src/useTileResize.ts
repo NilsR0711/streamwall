@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { roleCan, type StreamwallRole } from 'streamwall-shared'
 import * as Y from 'yjs'
 import { isPrimaryButton } from './gestures'
 import {
@@ -25,12 +26,14 @@ export function useTileResize({
   hoveringIdx,
   stateDoc,
   sharedState,
+  role,
 }: {
   cols: number | null | undefined
   rows: number | null | undefined
   hoveringIdx: number | undefined
   stateDoc: Y.Doc
   sharedState: CollabViews | undefined
+  role: StreamwallRole | null
 }) {
   const [resize, setResize] = useState<
     | {
@@ -49,7 +52,7 @@ export function useTileResize({
       originalSpaces: number[],
       ev: PointerEvent,
     ) => {
-      if (!isPrimaryButton(ev.button)) {
+      if (!isPrimaryButton(ev.button) || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       ev.preventDefault()
@@ -60,7 +63,7 @@ export function useTileResize({
       }
       setResize({ anchorIdx, streamId, handle, originalSpaces })
     },
-    [sharedState],
+    [sharedState, role],
   )
 
   // Keyboard equivalent of the pointer-drag resize above: each arrow-key
@@ -73,7 +76,7 @@ export function useTileResize({
       originalSpaces: number[],
       ev: KeyboardEvent,
     ) => {
-      if (cols == null || rows == null) {
+      if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       const hoverIdx = computeKeyboardResizeHoverIdx(
@@ -107,7 +110,7 @@ export function useTileResize({
         }
       })
     },
-    [cols, rows, sharedState, stateDoc],
+    [cols, rows, sharedState, stateDoc, role],
   )
 
   useLayoutEffect(() => {

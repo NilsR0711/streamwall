@@ -1,5 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { type StreamwallRole } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import { useTileDrag } from './useTileDrag.ts'
@@ -72,7 +73,13 @@ function stubGridRect(el: HTMLElement): void {
     }) as DOMRect
 }
 
-function Harness({ doc }: { doc: Y.Doc }) {
+function Harness({
+  doc,
+  role = 'admin',
+}: {
+  doc: Y.Doc
+  role?: StreamwallRole | null
+}) {
   const stateIdxMap = new Map([
     [0, { spaces: [0] }],
     [1, { spaces: [1] }],
@@ -88,7 +95,7 @@ function Harness({ doc }: { doc: Y.Doc }) {
     clearHoveringIdx,
     handleSwapView,
     handleGridPointerDown,
-  } = useTileDrag({ cols: 2, rows: 2, stateDoc: doc, stateIdxMap })
+  } = useTileDrag({ cols: 2, rows: 2, stateDoc: doc, stateIdxMap, role })
 
   return (
     <div
@@ -108,7 +115,10 @@ function Harness({ doc }: { doc: Y.Doc }) {
   )
 }
 
-function renderHarness(doc: Y.Doc): {
+function renderHarness(
+  doc: Y.Doc,
+  role: StreamwallRole | null = 'admin',
+): {
   grid: HTMLDivElement
   hovering: () => string
   swapStart: () => string
@@ -118,7 +128,7 @@ function renderHarness(doc: Y.Doc): {
   container = document.createElement('div')
   document.body.appendChild(container)
   act(() => {
-    render(<Harness doc={doc} />, container!)
+    render(<Harness doc={doc} role={role} />, container!)
   })
   const grid = container.querySelector('[data-testid="grid"]') as HTMLDivElement
   stubGridRect(grid)
@@ -333,5 +343,49 @@ describe('useTileDrag move gesture', () => {
     expect(readViews(doc).get(0)).toBe('stream-a')
     expect(readViews(doc).get(3)).toBe('stream-d')
     expect(moveStartIdx()).toBe('')
+  })
+})
+
+describe('useTileDrag role gating', () => {
+  test('a monitor role cannot commit a swap', () => {
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { grid } = renderHarness(doc, 'monitor')
+
+    act(() => {
+      grid.querySelector('button')!.click()
+    })
+    pointerMoveAt(grid, 150, 50)
+    pointerDownAt(grid, 150, 50)
+
+    expect(readViews(doc).get(0)).toBe('stream-a')
+    expect(readViews(doc).get(1)).toBe('stream-b')
+  })
+
+  test('a monitor role cannot start a drag-move', () => {
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [3, 'stream-d'],
+      ]),
+    )
+    const { grid, moveStartIdx } = renderHarness(doc, 'monitor')
+
+    pointerMoveAt(grid, 50, 50)
+    pointerDownAt(grid, 50, 50)
+    pointerMoveAt(grid, 150, 150)
+    windowPointerUpAt(150, 150)
+
+    expect(moveStartIdx()).toBe('')
+    expect(readViews(doc).get(0)).toBe('stream-a')
+    expect(readViews(doc).get(3)).toBe('stream-d')
   })
 })

@@ -12,10 +12,12 @@ import {
   ControlCommand,
   DataSourceType,
   StreamwallState,
+  UplinkErrorReason,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
   isSocketOpen,
   parseControlEndpoint,
+  parseUplinkError,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -64,6 +66,19 @@ import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
+
+/**
+ * Human-readable explanation logged when the control server refuses the uplink
+ * connection. These `{error: '...'}` messages carry no command `type`, so
+ * without this they would otherwise be logged by `onCommand` as a misleading
+ * "disallowed command: undefined" (issue #300).
+ */
+const UPLINK_ERROR_MESSAGE: Record<UplinkErrorReason, string> = {
+  unauthorized:
+    'the control server rejected the uplink token (invalid or expired)',
+  'already-connected':
+    'another Streamwall instance is already connected to the control server',
+}
 
 /**
  * Builds a WebSocket subclass for the control uplink.
@@ -833,6 +848,19 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         msg = JSON.parse(ev.data)
       } catch (err) {
         log.warn('Failed to parse control WebSocket message:', err)
+        return
+      }
+
+      // The server sends `{error: '...'}` right before closing the uplink when
+      // it refuses the connection. These carry no command `type`, so surface
+      // the real reason here instead of letting onCommand's uplink allowlist
+      // reject them as a "disallowed command: undefined" (issue #300).
+      const uplinkError = parseUplinkError(msg)
+      if (uplinkError) {
+        log.warn(
+          'Control server refused the uplink connection:',
+          UPLINK_ERROR_MESSAGE[uplinkError],
+        )
         return
       }
 

@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { roleCan, type StreamwallRole } from 'streamwall-shared'
 import * as Y from 'yjs'
 import {
   computeHoveringIdx,
@@ -24,11 +25,13 @@ export function useTileDrag({
   rows,
   stateDoc,
   stateIdxMap,
+  role,
 }: {
   cols: number | null | undefined
   rows: number | null | undefined
   stateDoc: Y.Doc
   stateIdxMap: Map<number, TileInfo>
+  role: StreamwallRole | null
 }) {
   const [swapStartIdx, setSwapStartIdx] = useState<number | undefined>()
   const handleSwapView = useCallback(
@@ -61,7 +64,7 @@ export function useTileDrag({
   // since concurrent operators rarely target the same cells simultaneously.
   const swapBoxes = useCallback(
     (fromIdx: number, toIdx: number) => {
-      if (cols == null || rows == null) {
+      if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       stateDoc.transact(() => {
@@ -87,7 +90,7 @@ export function useTileDrag({
         }
       })
     },
-    [stateDoc, stateIdxMap, cols, rows],
+    [stateDoc, stateIdxMap, cols, rows, role],
   )
 
   const handleSwap = useCallback(
@@ -139,7 +142,11 @@ export function useTileDrag({
 
   const handleGridPointerDown = useCallback(
     (ev: PointerEvent) => {
-      if (!isPrimaryButton(ev.button) || hoveringIdx == null) {
+      if (
+        !isPrimaryButton(ev.button) ||
+        hoveringIdx == null ||
+        !roleCan(role, 'mutate-state-doc')
+      ) {
         return
       }
       if (swapStartIdx !== undefined) {
@@ -148,7 +155,7 @@ export function useTileDrag({
       }
       setMoveStart({ idx: hoveringIdx, x: ev.clientX, y: ev.clientY })
     },
-    [hoveringIdx, swapStartIdx, handleSwap],
+    [hoveringIdx, swapStartIdx, handleSwap, role],
   )
 
   useLayoutEffect(() => {

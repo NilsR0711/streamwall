@@ -1,4 +1,4 @@
-import { ipcRenderer, webFrame } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import throttle from 'lodash/throttle'
 import { ContentDisplayOptions } from 'streamwall-shared'
 import { VolumeController } from './volumeController'
@@ -300,6 +300,38 @@ async function findMedia(
 
   return video
 }
+
+// The locally-bundled HLS player page (renderer/playHLS.ts) loads under this
+// preload but, being page script under contextIsolation, has no direct
+// ipcRenderer access. When it decides up front that a stream can never play --
+// the engine supports neither hls.js nor native HLS, or a src is rejected by
+// its scheme allowlist -- it never creates a <video>, so findMedia() above sits
+// until the state machine's much longer load timeout fires a generic error.
+// Expose a minimal channel so the page can surface the specific cause at once.
+//
+// The reason is looked up in a closed vocabulary and only the mapped, fixed
+// message is ever sent -- never free-form text from the page. This preload is
+// also attached to untrusted remote stream views, so the strict mapping ensures
+// the worst a page can do here is put its own tile into an error state it could
+// already reach by simply failing to play.
+const MEDIA_ERROR_MESSAGES: Record<string, string> = {
+  'hls-unsupported': 'HLS playback is not supported',
+  'src-rejected': 'Stream source rejected (disallowed URL scheme)',
+}
+
+const mediaApi = {
+  reportError(reason: string) {
+    const message = MEDIA_ERROR_MESSAGES[reason]
+    if (message === undefined) {
+      return
+    }
+    ipcRenderer.send('view-error', { error: message })
+  },
+}
+
+export type StreamwallMediaGlobal = typeof mediaApi
+
+contextBridge.exposeInMainWorld('streamwallMedia', mediaApi)
 
 async function main() {
   const viewInit = ipcRenderer.invoke('view-init')

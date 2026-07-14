@@ -49,6 +49,7 @@ import { GridSizeControls } from './GridSizeControls.tsx'
 import { hotkeyLayerBindings, hotkeyTriggers } from './hotkeyLabel.ts'
 import './index.css'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
+import { ResizeHandles } from './ResizeHandles.tsx'
 import {
   CreateCustomStreamInput,
   CustomStreamInput,
@@ -279,13 +280,14 @@ export function ControlUI({
     clearHoveringIdx,
     handleSwapView,
     handleGridPointerDown,
-  } = useTileDrag({ cols, rows, stateDoc, stateIdxMap })
+  } = useTileDrag({ cols, rows, stateDoc, stateIdxMap, role })
   const { resize, handleResizeStart, handleResizeKeyDown } = useTileResize({
     cols,
     rows,
     hoveringIdx,
     stateDoc,
     sharedState,
+    role,
   })
 
   const [focusedInputIdx, setFocusedInputIdx] = useState<number | undefined>()
@@ -627,11 +629,11 @@ export function ControlUI({
   useHotkeys(
     `alt+s`,
     () => {
-      if (focusedInputIdx != null) {
+      if (focusedInputIdx != null && roleCan(role, 'mutate-state-doc')) {
         handleSwapView(focusedInputIdx)
       }
     },
-    [handleSwapView, focusedInputIdx],
+    [handleSwapView, focusedInputIdx, role],
   )
   // Undo/redo edits to the shared views doc (drag-move, swap, and destructive
   // grid-shrink remaps alike - see `useYDoc`'s `remoteOrigin` wiring).
@@ -812,41 +814,13 @@ export function ControlUI({
                         pointerEvents: 'none',
                       }}
                     >
-                      <StyledResizeHandles>
-                        <button
-                          type="button"
-                          className="handle e"
-                          aria-label="Resize right edge"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 'e', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 'e', pos.spaces, ev)
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="handle s"
-                          aria-label="Resize bottom edge"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 's', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 's', pos.spaces, ev)
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="handle se"
-                          aria-label="Resize bottom-right corner"
-                          onPointerDown={(ev) =>
-                            handleResizeStart(anchorIdx, 'se', pos.spaces, ev)
-                          }
-                          onKeyDown={(ev) =>
-                            handleResizeKeyDown(anchorIdx, 'se', pos.spaces, ev)
-                          }
-                        />
-                      </StyledResizeHandles>
+                      <ResizeHandles
+                        anchorIdx={anchorIdx}
+                        originalSpaces={pos.spaces}
+                        role={role}
+                        onResizeStart={handleResizeStart}
+                        onResizeKeyDown={handleResizeKeyDown}
+                      />
                     </div>
                   )
                 })}
@@ -1227,66 +1201,6 @@ function StreamDelayBox({
     </div>
   )
 }
-
-const StyledResizeHandles = styled.div`
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-
-  .handle {
-    position: absolute;
-    pointer-events: auto;
-    touch-action: none;
-    background: var(--accent, #e23);
-    opacity: 0;
-    transition: opacity 0.1s;
-    border: 0;
-    margin: 0;
-    padding: 0;
-    appearance: none;
-  }
-  &:hover .handle {
-    opacity: 0.6;
-  }
-  /* Touch/pen devices have no hover state to reveal the handles, so keep
-     them visible without it — otherwise they're impossible to find. */
-  @media (hover: none), (pointer: coarse) {
-    .handle {
-      opacity: 0.6;
-    }
-  }
-  /* A focused handle needs to be visible even without a hover, so it can be
-     found and operated by keyboard (arrow keys resize, see
-     handleResizeKeyDown). */
-  .handle:focus-visible {
-    opacity: 1;
-    outline: 2px solid var(--accent, #e23);
-    outline-offset: 2px;
-  }
-  .handle.e {
-    top: 20%;
-    bottom: 20%;
-    right: -3px;
-    width: 6px;
-    cursor: ew-resize;
-  }
-  .handle.s {
-    left: 20%;
-    right: 20%;
-    bottom: -3px;
-    height: 6px;
-    cursor: ns-resize;
-  }
-  .handle.se {
-    right: -4px;
-    bottom: -4px;
-    width: 10px;
-    height: 10px;
-    cursor: nwse-resize;
-    opacity: 0.8;
-    border-radius: 2px;
-  }
-`
 
 const StyledHeader = styled.header`
   display: flex;

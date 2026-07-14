@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { parseDisconnectReason } from './connectionStatus.ts'
+import { parseDisconnectReason, parseUplinkError } from './connectionStatus.ts'
 
 describe('parseDisconnectReason', () => {
   test('recognizes an unauthorized session', () => {
@@ -49,5 +49,45 @@ describe('parseDisconnectReason', () => {
 
   test('returns null when the error field is not a string', () => {
     expect(parseDisconnectReason({ error: 42 })).toBeNull()
+  })
+})
+
+describe('parseUplinkError', () => {
+  test('recognizes a rejected uplink token', () => {
+    expect(parseUplinkError({ error: 'unauthorized' })).toBe('unauthorized')
+  })
+
+  test('recognizes a conflicting Streamwall connection', () => {
+    expect(parseUplinkError({ error: 'streamwall already connected' })).toBe(
+      'already-connected',
+    )
+  })
+
+  test('returns null for a client-only disconnect reason', () => {
+    // 'streamwall disconnected' and 'rate limit exceeded' are only ever sent
+    // on the browser client socket, never on the desktop uplink.
+    expect(parseUplinkError({ error: 'streamwall disconnected' })).toBeNull()
+    expect(parseUplinkError({ error: 'rate limit exceeded' })).toBeNull()
+  })
+
+  test('returns null for a state push', () => {
+    expect(parseUplinkError({ type: 'state', state: {} })).toBeNull()
+  })
+
+  test('returns null for a command message', () => {
+    expect(
+      parseUplinkError({ type: 'set-view-blurred', viewIdx: 0, blurred: true }),
+    ).toBeNull()
+  })
+
+  test.each([null, undefined, 'unauthorized', 42, ['unauthorized'], true])(
+    'returns null for non-object input %p',
+    (input) => {
+      expect(parseUplinkError(input)).toBeNull()
+    },
+  )
+
+  test('returns null when the error field is not a string', () => {
+    expect(parseUplinkError({ error: 42 })).toBeNull()
   })
 })
