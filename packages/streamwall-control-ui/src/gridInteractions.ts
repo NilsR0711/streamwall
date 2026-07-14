@@ -166,6 +166,50 @@ export function isIdxInResizeBox(
  * rather than leaving a stale streamId that keeps rendering as part of the
  * (now smaller) box.
  */
+/**
+ * Compute the hover index a single arrow-key press would resize a box to, so
+ * a resize handle can be operated by keyboard as well as pointer drag. Each
+ * press moves one axis by one grid cell, mirroring the axis lock a pointer
+ * drag on the same handle already applies ('e' is width-only, 's' is
+ * height-only, 'se' moves whichever axis the pressed arrow names).
+ *
+ * Returns `undefined` — a no-op — when the key isn't an arrow key, names the
+ * handle's locked cross-axis, or would move past the anchor (shrinking below
+ * a 1-cell box) or past the grid's far edge.
+ */
+export function computeKeyboardResizeHoverIdx(
+  cols: number,
+  rows: number,
+  anchorIdx: number,
+  handle: ResizeHandle,
+  originalSpaces: number[],
+  key: string,
+): number | undefined {
+  const dx = key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0
+  const dy = key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0
+  if (dx === 0 && dy === 0) {
+    return undefined
+  }
+  if (handle === 'e' && dy !== 0) {
+    return undefined
+  }
+  if (handle === 's' && dx !== 0) {
+    return undefined
+  }
+
+  const { x: anchorX, y: anchorY } = idxToCoords(cols, anchorIdx)
+  const originalCoords = originalSpaces.map((idx) => idxToCoords(cols, idx))
+  const maxX = Math.max(...originalCoords.map(({ x }) => x))
+  const maxY = Math.max(...originalCoords.map(({ y }) => y))
+
+  const newMaxX = Math.min(cols - 1, Math.max(anchorX, maxX + dx))
+  const newMaxY = Math.min(rows - 1, Math.max(anchorY, maxY + dy))
+  if (newMaxX === maxX && newMaxY === maxY) {
+    return undefined
+  }
+  return cols * newMaxY + newMaxX
+}
+
 export function computeResizeAssignments(
   cols: number,
   anchorIdx: number,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  computeKeyboardResizeHoverIdx,
   computeResizeAssignments,
   computeSwap,
   isIdxInResizeBox,
@@ -242,6 +243,98 @@ describe('computeResizeAssignments', () => {
         [9, 'stream-a'],
       ]),
     )
+  })
+})
+
+describe('computeKeyboardResizeHoverIdx', () => {
+  // 4-col, 4-row grid; a 1x1 box anchored (and living) at idx 0.
+  const cols = 4
+  const rows = 4
+
+  it('grows the east handle one cell to the right on ArrowRight', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'e', [0], 'ArrowRight'),
+    ).toBe(1)
+  })
+
+  it('grows the south handle one cell down on ArrowDown', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 's', [0], 'ArrowDown'),
+    ).toBe(4)
+  })
+
+  it('shrinks a wider east box by one column on ArrowLeft', () => {
+    // Box anchored at idx 0 currently spans { 0, 1, 2 } (width 3).
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'e', [0, 1, 2], 'ArrowLeft'),
+    ).toBe(1)
+  })
+
+  it('ignores the cross-axis key for an east handle', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'e', [0], 'ArrowDown'),
+    ).toBeUndefined()
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'e', [0], 'ArrowUp'),
+    ).toBeUndefined()
+  })
+
+  it('ignores the cross-axis key for a south handle', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 's', [0], 'ArrowRight'),
+    ).toBeUndefined()
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 's', [0], 'ArrowLeft'),
+    ).toBeUndefined()
+  })
+
+  it('moves either axis, one cell at a time, for a se (corner) handle', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'se', [0], 'ArrowRight'),
+    ).toBe(1)
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'se', [0], 'ArrowDown'),
+    ).toBe(4)
+  })
+
+  it('clamps to the anchor and refuses to shrink past a 1-cell box', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'e', [0], 'ArrowLeft'),
+    ).toBeUndefined()
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 's', [0], 'ArrowUp'),
+    ).toBeUndefined()
+  })
+
+  it('clamps to the grid bounds and refuses to grow past the last column/row', () => {
+    // Box already spans the full width (cols=4: x 0..3).
+    expect(
+      computeKeyboardResizeHoverIdx(
+        cols,
+        rows,
+        0,
+        'e',
+        [0, 1, 2, 3],
+        'ArrowRight',
+      ),
+    ).toBeUndefined()
+    // Box already spans the full height (rows=4: y 0..3).
+    expect(
+      computeKeyboardResizeHoverIdx(
+        cols,
+        rows,
+        0,
+        's',
+        [0, 4, 8, 12],
+        'ArrowDown',
+      ),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for a non-arrow key', () => {
+    expect(
+      computeKeyboardResizeHoverIdx(cols, rows, 0, 'se', [0], 'Enter'),
+    ).toBeUndefined()
   })
 })
 
