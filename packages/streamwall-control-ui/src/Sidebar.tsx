@@ -57,21 +57,45 @@ const StyledStreamLine = styled.div`
   }
 `
 
+const StyledFavoriteButton = styled.button<{ $active: boolean }>`
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: ${({ $active }) => ($active ? '#f5c518' : 'var(--text-dim, #888)')};
+`
+
 function StreamLine({
   id,
   row: { label, source, link, notes, city, state, orientation },
   disabled,
   onClickId,
+  isFavorite,
+  onToggleFavorite,
 }: {
   id: string
   row: StreamData
   disabled: boolean
   onClickId: (id: string) => void
+  isFavorite: boolean
+  onToggleFavorite?: (link: string) => void
 }) {
   // Use mousedown instead of click event so a potential destination grid input stays focused.
   const handleMouseDownId = useCallback(() => {
     onClickId(id)
   }, [onClickId, id])
+  const handleToggleFavoriteClick = useCallback<
+    JSX.MouseEventHandler<HTMLButtonElement>
+  >(
+    (ev) => {
+      ev.stopPropagation()
+      onToggleFavorite?.(link)
+    },
+    [onToggleFavorite, link],
+  )
   return (
     <StyledStreamLine>
       <StyledId
@@ -81,6 +105,18 @@ function StreamLine({
       >
         {id}
       </StyledId>
+      {onToggleFavorite && (
+        <StyledFavoriteButton
+          type="button"
+          className="favorite-star"
+          $active={isFavorite}
+          onClick={handleToggleFavoriteClick}
+          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          {isFavorite ? '★' : '☆'}
+        </StyledFavoriteButton>
+      )}
       <div>
         {label ? (
           label
@@ -104,10 +140,14 @@ export function StreamList({
   rows,
   disabled,
   onClickId,
+  favorites,
+  onToggleFavorite,
 }: {
   rows: StreamData[]
   disabled: boolean
   onClickId: (id: string) => void
+  favorites: ReadonlySet<string>
+  onToggleFavorite?: (link: string) => void
 }) {
   return rows.map((row) => (
     <StreamLine
@@ -116,6 +156,8 @@ export function StreamList({
       row={row}
       disabled={disabled}
       onClickId={onClickId}
+      isFavorite={favorites.has(row.link)}
+      onToggleFavorite={onToggleFavorite}
     />
   ))
 }
