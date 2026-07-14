@@ -44,3 +44,25 @@ export function resolveWriteStreamId(
 ): string {
   return streams.some((stream) => stream._id === streamId) ? streamId : ''
 }
+
+/**
+ * The streamId to write for a per-keystroke (eager) input commit, or
+ * `undefined` when the keystroke shouldn't commit at all.
+ *
+ * Unlike `resolveWriteStreamId`, an unmatched non-empty value returns
+ * `undefined` rather than `''`: while typing a stream id character-by-
+ * character, every partial value is technically "unknown" until the final
+ * matching keystroke, and clearing the cell on each of those would tear
+ * down the view mid-type. Only an explicitly emptied box (the user select-
+ * all-deleted it) should clear the cell immediately.
+ */
+export function resolveEagerWriteStreamId(
+  streams: readonly { _id: string }[],
+  streamId: string,
+): string | undefined {
+  if (streamId === '') {
+    return ''
+  }
+  const resolved = resolveWriteStreamId(streams, streamId)
+  return resolved === '' ? undefined : resolved
+}
