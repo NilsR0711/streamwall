@@ -217,4 +217,106 @@ describe('useStreamwallWebsocketConnection', () => {
 
     expect(getConnection().isConnected).toBe(true)
   })
+
+  // A blip previously wiped `streamwallState` entirely on close, which
+  // unmounted the grid and blanked the sidebar in streamwall-control-ui
+  // (issue #37). These lock in that a reconnect only flips `isConnected`.
+  describe('state across a disconnect (issue #37)', () => {
+    it('keeps the last-known state instead of blanking it on close', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', stateMessage())
+      })
+      expect(getConnection().role).toBe('admin')
+
+      act(() => {
+        socket.dispatch('close')
+      })
+
+      expect(getConnection().isConnected).toBe(false)
+      expect(getConnection().role).toBe('admin')
+      expect(getConnection().config).toEqual(minimalState.config)
+    })
+
+    it('still swaps in a fresh Yjs doc on close, to avoid merging a local-only offline edit into the next resync', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      const docBeforeClose = getConnection().stateDoc
+
+      act(() => {
+        socket.dispatch('close')
+      })
+
+      expect(getConnection().stateDoc).not.toBe(docBeforeClose)
+    })
+  })
+
+  describe('disconnectReason (issue #37)', () => {
+    it('is null while connected', () => {
+      const { getConnection } = mount()
+      expect(getConnection().disconnectReason).toBeNull()
+    })
+
+    it('is set from an unauthorized error message instead of being dropped as unexpected', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ error: 'unauthorized' }),
+        })
+      })
+
+      expect(getConnection().disconnectReason).toBe('unauthorized')
+    })
+
+    it('is set from a streamwall-disconnected error message', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ error: 'streamwall disconnected' }),
+        })
+      })
+
+      expect(getConnection().disconnectReason).toBe('streamwall-disconnected')
+    })
+
+    it('clears on a fresh connection attempt (open) so a stale reason does not linger', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ error: 'unauthorized' }),
+        })
+      })
+      expect(getConnection().disconnectReason).toBe('unauthorized')
+
+      act(() => {
+        socket.dispatch('open')
+      })
+
+      expect(getConnection().disconnectReason).toBeNull()
+    })
+
+    it('clears once a full state message confirms a successful reconnect', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ error: 'unauthorized' }),
+        })
+      })
+      act(() => {
+        socket.dispatch('message', stateMessage())
+      })
+
+      expect(getConnection().disconnectReason).toBeNull()
+    })
+  })
 })

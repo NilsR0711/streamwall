@@ -8,7 +8,9 @@ import {
 } from 'streamwall-control-ui'
 import {
   type ControlCommand,
+  type DisconnectReason,
   isSocketOpen,
+  parseDisconnectReason,
   stateDiff,
   type StreamwallState,
 } from 'streamwall-shared'
@@ -23,6 +25,8 @@ export function useStreamwallWebsocketConnection(
     responseMap: Map<number, (msg: object) => void>
   }>()
   const [isConnected, setIsConnected] = useState(false)
+  const [disconnectReason, setDisconnectReason] =
+    useState<DisconnectReason | null>(null)
   const {
     docValue: sharedState,
     doc: stateDoc,
@@ -47,9 +51,17 @@ export function useStreamwallWebsocketConnection(
     })
     ws.binaryType = 'arraybuffer'
 
+    // A blip only closes the *transport*: `streamwallState` (cols/rows,
+    // streams, role, ...) is left as-is so the grid and stream list keep
+    // rendering their last-known content (dimmed via `isConnected`) instead
+    // of unmounting/showing "loading..." (issue #37). `stateDoc` still gets
+    // reset, though - it's the CRDT clients write grid assignments into
+    // locally, and the server always pushes a full resync on reconnect (see
+    // the `type: 'state'` branch below), so any local-only edit made while
+    // offline would otherwise survive a Yjs merge into that resync and
+    // silently diverge from what the server (and every other client)
+    // actually has.
     function handleClose() {
-      setStreamwallState(undefined)
-      lastStateData = undefined
       setStateDoc(new Y.Doc())
       setIsConnected(false)
       // Any command awaiting a response will never hear back from this
@@ -62,6 +74,15 @@ export function useStreamwallWebsocketConnection(
         }
         responseMap.clear()
       }
+    }
+
+    function handleOpen() {
+      // A fresh connection attempt may still fail (e.g. an expired session);
+      // clear the previous reason optimistically so a stale "unauthorized"
+      // banner doesn't linger if this attempt instead just keeps retrying for
+      // an unrelated reason. The server's next message sets it again if the
+      // same failure recurs.
+      setDisconnectReason(null)
     }
 
     function handleMessage(ev: MessageEvent) {
@@ -81,6 +102,7 @@ export function useStreamwallWebsocketConnection(
         if (msg.type === 'state') {
           state = msg.state
           setIsConnected(true)
+          setDisconnectReason(null)
         } else {
           // Clone so updated object triggers React renders
           state = stateDiff.clone(
@@ -90,16 +112,23 @@ export function useStreamwallWebsocketConnection(
         lastStateData = state
         setStreamwallState(state)
       } else {
-        console.warn('unexpected ws message', msg)
+        const reason = parseDisconnectReason(msg)
+        if (reason) {
+          setDisconnectReason(reason)
+        } else {
+          console.warn('unexpected ws message', msg)
+        }
       }
     }
 
     ws.addEventListener('close', handleClose)
+    ws.addEventListener('open', handleOpen)
     ws.addEventListener('message', handleMessage)
     wsRef.current = { ws, msgId: 0, responseMap: new Map() }
 
     return () => {
       ws.removeEventListener('close', handleClose)
+      ws.removeEventListener('open', handleOpen)
       ws.removeEventListener('message', handleMessage)
       ws.close()
       wsRef.current = undefined
@@ -161,6 +190,7 @@ export function useStreamwallWebsocketConnection(
   return {
     ...appState,
     isConnected,
+    disconnectReason,
     send,
     sharedState,
     stateDoc,
