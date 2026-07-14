@@ -319,12 +319,19 @@ const MEDIA_ERROR_MESSAGES: Record<string, string> = {
   'src-rejected': 'Stream source rejected (disallowed URL scheme)',
 }
 
+// Guards against reporting more than one view-error per preload load: the
+// playHLS reportError() channel and findMedia's own timeout race each other
+// for the same view, and only the first (more specific, where applicable)
+// cause should reach the operator.
+let hasReportedMediaError = false
+
 const mediaApi = {
   reportError(reason: string) {
     const message = MEDIA_ERROR_MESSAGES[reason]
-    if (message === undefined) {
+    if (message === undefined || hasReportedMediaError) {
       return
     }
+    hasReportedMediaError = true
     ipcRenderer.send('view-error', { error: message })
   },
 }
@@ -381,7 +388,19 @@ async function main() {
 
   if (content.kind === 'video' || content.kind === 'audio') {
     webFrame.insertCSS(VIDEO_OVERRIDE_STYLE, { cssOrigin: 'user' })
-    acquireMedia(INITIAL_TIMEOUT)
+    // Unlike the re-acquisition triggered by the 'emptied' listener inside
+    // acquireMedia (which is awaited within that async handler), this first
+    // call is fire-and-forget from main()'s perspective, so its rejection
+    // must be caught here or it becomes an unhandled rejection and
+    // findMedia's specific reason (e.g. "could not find video") never
+    // reaches the operator -- see #309.
+    acquireMedia(INITIAL_TIMEOUT).catch((error) => {
+      if (hasReportedMediaError) {
+        return
+      }
+      hasReportedMediaError = true
+      ipcRenderer.send('view-error', { error })
+    })
     ipcRenderer.send('view-info', {
       info: {
         title: document.title,

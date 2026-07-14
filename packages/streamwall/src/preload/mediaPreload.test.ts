@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const executeJavaScript = vi.fn()
 // Never resolves, so the assertions below can prove the visibility spoof
@@ -92,5 +92,79 @@ describe('mediaPreload error channel', () => {
     importedMediaApi().reportError('<img src=x onerror=alert(1)>')
 
     expect(send).not.toHaveBeenCalledWith('view-error', expect.anything())
+  })
+})
+
+describe('mediaPreload initial acquireMedia rejection', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; not exported since it's an
+  // implementation detail, not part of the module's public surface.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    exposeInMainWorld.mockClear()
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  // Resolves view-init with 'video' content (so main() reaches the
+  // acquireMedia() call) and fires process's 'loaded' event (so main()'s own
+  // pageReady wait resolves). The module-scope DOMContentLoaded-gated
+  // pageReady used by waitForQuery is deliberately left unresolved, so no
+  // <video> element is ever "found" and the INITIAL_TIMEOUT sleep always
+  // wins the race in findMedia().
+  async function loadWithVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it("reports findMedia's specific timeout instead of leaving it an unhandled rejection", async () => {
+    await loadWithVideoContent()
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        { error: expect.objectContaining({ message: 'could not find video' }) },
+      ],
+    ])
+  })
+
+  it('does not let a late generic timeout override an already-reported playHLS error', async () => {
+    await loadWithVideoContent()
+
+    importedMediaApi().reportError('hls-unsupported')
+    expect(viewErrorCalls()).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toHaveLength(1)
+  })
+
+  it('does not let a late playHLS report override an already-reported generic timeout', async () => {
+    await loadWithVideoContent()
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+    expect(viewErrorCalls()).toHaveLength(1)
+
+    importedMediaApi().reportError('hls-unsupported')
+
+    expect(viewErrorCalls()).toHaveLength(1)
   })
 })
