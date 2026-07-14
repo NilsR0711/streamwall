@@ -42,6 +42,22 @@ json-url = []
 # See example.streams.toml for a sample.
 #toml-file = ["./example.streams.toml"]
 
+[retry]
+# Automatically reload views that fail to load or stall. Failed views show an
+# error badge with the reason on the wall and in the control UI while retrying.
+#enabled = true
+
+# Base backoff (in seconds) before the first reload. The delay doubles after each
+# failed attempt (exponential backoff), capped at max-delay.
+#delay = 5
+#max-delay = 60
+
+# Give up after this many automatic reloads (a manual reload resets the count).
+#max-retries = 5
+
+# How long (in seconds) a playing view may stall before it is reloaded.
+#stalled-timeout = 30
+
 [twitch]
 #channel = "woke"
 #username = "bot-username"
