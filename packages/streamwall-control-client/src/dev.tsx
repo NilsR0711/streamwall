@@ -156,6 +156,7 @@ const demoState: StreamwallState = {
     width: GRID.width,
     height: GRID.height,
     frameless: false,
+    fullscreen: false,
     activeColor: '#f24d2e',
     backgroundColor: '#000000',
   },

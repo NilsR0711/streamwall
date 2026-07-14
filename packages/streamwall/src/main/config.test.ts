@@ -15,6 +15,7 @@ function baseConfig() {
       width: 1920,
       height: 1080,
       frameless: false,
+      fullscreen: false,
       'background-color': '#000',
       'active-color': '#fff',
     },
@@ -70,6 +71,41 @@ describe('validateConfig', () => {
     ;(config.window as Record<string, unknown>).x = 100
     ;(config.window as Record<string, unknown>).y = 50
     expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('accepts a config selecting a target display', () => {
+    const config = baseConfig()
+    ;(config.window as Record<string, unknown>).display = 1
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('accepts window.fullscreen enabled', () => {
+    const config = baseConfig()
+    config.window.fullscreen = true
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('rejects a negative window.display and names the key', () => {
+    const config = baseConfig()
+    ;(config.window as Record<string, unknown>).display = -1
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+    try {
+      validateConfig(config)
+    } catch (err) {
+      expect((err as Error).message).toContain('display')
+    }
+  })
+
+  test('rejects a fractional window.display', () => {
+    const config = baseConfig()
+    ;(config.window as Record<string, unknown>).display = 1.5
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('rejects a non-boolean window.fullscreen', () => {
+    const config = baseConfig()
+    ;(config.window as Record<string, unknown>).fullscreen = 'yes'
+    expect(() => validateConfig(config)).toThrow(ConfigError)
   })
 
   test('ignores extra keys added by yargs', () => {

@@ -56,6 +56,7 @@ export const VALID_STATE = {
     width: 1920,
     height: 1080,
     frameless: false,
+    fullscreen: false,
     activeColor: '#fff',
     backgroundColor: '#000',
   },

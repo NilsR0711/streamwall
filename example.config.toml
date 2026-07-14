@@ -8,6 +8,15 @@
 #y = 0
 #frameless = false
 
+# Open the wall on a specific monitor. `display` is a 0-based index into the
+# displays your OS reports (0 = primary). When set, it overrides x/y: a windowed
+# wall is centered on that display, a fullscreen wall fills it. An out-of-range
+# index is ignored (with a warning) and falls back to the default placement.
+#display = 1
+
+# Open the wall fullscreen (combine with `display` to pick which monitor).
+#fullscreen = false
+
 # Set the background color (useful for chroma-keying)
 #background-color = "#0f0"
 

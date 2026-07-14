@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   Event as ElectronEvent,
   ipcMain,
+  screen,
   WebContents,
   WebContentsView,
 } from 'electron'
@@ -30,6 +31,7 @@ import viewStateMachine, {
   RetryConfig,
   ViewActor,
 } from './viewStateMachine'
+import { resolveWindowPlacement } from './windowPlacement'
 
 function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   if (!stream) {
@@ -63,13 +65,32 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.retryConfig = retryConfig
     this.views = new Map()
 
-    const { width, height, x, y, frameless, backgroundColor } = this.config
-    const win = new BrowserWindow({
-      title: 'Streamwall',
+    const {
       width,
       height,
       x,
       y,
+      frameless,
+      fullscreen,
+      display,
+      backgroundColor,
+    } = this.config
+    // Resolve which monitor and geometry to open on. Done here (not at config
+    // parse time) because the display list only exists once Electron is ready.
+    const { placement, warning } = resolveWindowPlacement(
+      { x, y, width, height, display, fullscreen },
+      screen.getAllDisplays(),
+    )
+    if (warning) {
+      console.warn(warning)
+    }
+    const win = new BrowserWindow({
+      title: 'Streamwall',
+      x: placement.x,
+      y: placement.y,
+      width: placement.width,
+      height: placement.height,
+      fullscreen: placement.fullscreen,
       frame: !frameless,
       backgroundColor,
       useContentSize: true,

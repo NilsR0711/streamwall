@@ -93,6 +93,8 @@ export interface StreamwallConfig {
     width: number
     height: number
     frameless: boolean
+    fullscreen: boolean
+    display?: number
     'background-color': string
     'active-color': string
   }
@@ -195,6 +197,8 @@ function parseArgs(): StreamwallConfig {
         'window.x',
         'window.y',
         'window.frameless',
+        'window.fullscreen',
+        'window.display',
         'window.background-color',
         'window.active-color',
       ],
@@ -217,6 +221,16 @@ function parseArgs(): StreamwallConfig {
     .option('window.frameless', {
       boolean: true,
       default: false,
+    })
+    .option('window.fullscreen', {
+      describe: 'Open the wall fullscreen (on the selected display, if any)',
+      boolean: true,
+      default: false,
+    })
+    .option('window.display', {
+      describe:
+        'Index of the display to open the wall on (0-based; see --window.fullscreen)',
+      number: true,
     })
     .option('window.background-color', {
       describe: 'Background color of wall (useful for chroma-keying)',
@@ -395,6 +409,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     x: argv.window.x,
     y: argv.window.y,
     frameless: argv.window.frameless,
+    fullscreen: argv.window.fullscreen,
+    display: argv.window.display,
     activeColor: argv.window['active-color'],
     backgroundColor: argv.window['background-color'],
   }
