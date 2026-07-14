@@ -234,3 +234,30 @@ xattr -cr /Applications/Streamwall.app
 ```
 
 or by right-clicking the app and choosing "Open" instead of double-clicking.
+
+### CI releases
+
+Pushing a `v*` tag (or running the workflow manually) triggers
+`.github/workflows/release.yml`, which runs the quality gate (lint, typecheck,
+test) and then builds and publishes a GitHub release for Linux, Windows, and
+macOS via `electron-forge publish`. Signing in CI is opt-in, matching the
+local `make`/`publish` behavior above: builds stay unsigned until these
+repository secrets are set.
+
+| Secret                         | Purpose                                                       |
+| ------------------------------ | ------------------------------------------------------------- |
+| `APPLE_CERTIFICATE_P12`        | Developer ID Application certificate (`.p12`), base64-encoded |
+| `APPLE_CERTIFICATE_PASSWORD`   | Password for the certificate above                            |
+| `APPLE_TEAM_ID`                | Apple Developer Team ID                                       |
+| `APPLE_API_KEY_BASE64`         | App Store Connect API key (`.p8`), base64-encoded             |
+| `APPLE_API_KEY_ID`             | App Store Connect API Key ID                                  |
+| `APPLE_API_ISSUER`             | App Store Connect API Issuer ID                               |
+| `WINDOWS_CERTIFICATE_BASE64`   | Windows code-signing certificate (`.pfx`), base64-encoded     |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the certificate above                            |
+
+The workflow imports the macOS certificate into the runner's keychain via
+`apple-actions/import-codesign-certs`, decodes the base64 secrets into
+temporary files for the Windows certificate and the Apple API key, and sets
+the corresponding `APPLE_*`/`WINDOWS_*` environment variables (see
+`packages/streamwall/forge.signing.ts`) before publishing. macOS and Windows
+signing are independent — provision either, both, or neither.
