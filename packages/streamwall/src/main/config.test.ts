@@ -118,6 +118,26 @@ describe('validateConfig', () => {
     expect(() => validateConfig(config)).not.toThrow()
   })
 
+  test('accepts a config with a presets list', () => {
+    const config = { ...baseConfig(), presets: ['de-tv'] }
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('accepts a config that omits presets, relying on the default', () => {
+    const config = baseConfig()
+    expect(() => validateConfig(config)).not.toThrow()
+  })
+
+  test('rejects a non-array presets value', () => {
+    const config = { ...baseConfig(), presets: 'de-tv' }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
+  test('rejects a presets list containing a non-string entry', () => {
+    const config = { ...baseConfig(), presets: [123] }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+
   test('rejects a non-numeric grid dimension and names the key', () => {
     const config = baseConfig()
     config.grid.cols = Number.NaN
