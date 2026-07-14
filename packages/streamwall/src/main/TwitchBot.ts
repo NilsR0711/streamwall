@@ -5,7 +5,7 @@ import {
   PrivmsgMessage,
   SlowModeRateLimiter,
 } from 'dank-twitch-irc'
-import ejs from 'ejs'
+import * as ejs from 'ejs'
 import EventEmitter from 'events'
 import { StreamList, StreamwallState } from 'streamwall-shared'
 import { matchesState } from 'xstate'

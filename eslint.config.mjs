@@ -1,6 +1,7 @@
 // Flat ESLint configuration (ESLint 10+).
 // Replaces the legacy .eslintrc.json, which ESLint 9+ no longer reads.
 import js from '@eslint/js'
+import importX from 'eslint-plugin-import-x'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
@@ -17,6 +18,10 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Import hygiene backed by the TypeScript resolver, so import paths
+  // (including workspace packages and `.ts` extensions) are validated.
+  importX.flatConfigs.recommended,
+  importX.flatConfigs.typescript,
   {
     languageOptions: {
       ecmaVersion: 2024,
@@ -37,6 +42,11 @@ export default tseslint.config(
           caughtErrors: 'none',
         },
       ],
+      // Default-importing a CJS module whose interop name collides with one of
+      // its named exports (e.g. `import WebSocket from 'ws'`) is intentional
+      // and idiomatic here; these stylistic checks add noise without value.
+      'import-x/no-named-as-default': 'off',
+      'import-x/no-named-as-default-member': 'off',
     },
   },
   {
