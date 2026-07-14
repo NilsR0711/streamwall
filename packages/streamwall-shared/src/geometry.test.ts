@@ -35,6 +35,112 @@ describe('boxesFromViewContentMap', () => {
     expect(boxes).toHaveLength(1)
     expect(boxes[0].spaces).toEqual([2, 10])
   })
+
+  it('returns no boxes for an empty content map', () => {
+    expect(boxesFromViewContentMap(3, 3, new Map())).toEqual([])
+  })
+
+  it('boxes a single occupied cell', () => {
+    // 3x3 grid, content only at (x=1,y=1) = idx 4.
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([['4', content]])
+
+    const boxes = boxesFromViewContentMap(3, 3, viewContentMap)
+
+    expect(boxes).toEqual([{ content, x: 1, y: 1, w: 1, h: 1, spaces: [4] }])
+  })
+
+  it('merges a full row of identical content into one box', () => {
+    // 3x2 grid, row y=0 (indices 0,1,2) all share the same content.
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([
+      ['0', content],
+      ['1', content],
+      ['2', content],
+    ])
+
+    const boxes = boxesFromViewContentMap(3, 2, viewContentMap)
+
+    expect(boxes).toEqual([
+      { content, x: 0, y: 0, w: 3, h: 1, spaces: [0, 1, 2] },
+    ])
+  })
+
+  it('merges a 2x2 block of identical content into one box', () => {
+    // 3x3 grid, indices 0,1,3,4 form a 2x2 block at (x=0,y=0).
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([
+      ['0', content],
+      ['1', content],
+      ['3', content],
+      ['4', content],
+    ])
+
+    const boxes = boxesFromViewContentMap(3, 3, viewContentMap)
+
+    expect(boxes).toEqual([
+      { content, x: 0, y: 0, w: 2, h: 2, spaces: [0, 1, 3, 4] },
+    ])
+  })
+
+  it('splits L-shaped content into two rectangular boxes', () => {
+    // 3x2 grid: content at (0,0)=0, (1,0)=1, (0,1)=3, but NOT (1,1)=4 -
+    // an L-shape that no single rectangle can cover.
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([
+      ['0', content],
+      ['1', content],
+      ['3', content],
+    ])
+
+    const boxes = boxesFromViewContentMap(3, 2, viewContentMap)
+
+    expect(boxes).toEqual([
+      { content, x: 0, y: 0, w: 1, h: 2, spaces: [0, 3] },
+      { content, x: 1, y: 0, w: 1, h: 1, spaces: [1] },
+    ])
+  })
+
+  it('keeps identical content in non-adjacent cells as separate boxes', () => {
+    // 3x3 grid: the same content at opposite corners (0,0) and (2,2) has no
+    // shared edge, so it cannot merge into a single rectangle.
+    const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+    const viewContentMap = new Map([
+      ['0', content],
+      ['8', content],
+    ])
+
+    const boxes = boxesFromViewContentMap(3, 3, viewContentMap)
+
+    expect(boxes).toEqual([
+      { content, x: 0, y: 0, w: 1, h: 1, spaces: [0] },
+      { content, x: 2, y: 2, w: 1, h: 1, spaces: [8] },
+    ])
+  })
+
+  it('does not merge adjacent cells with the same url but a different kind', () => {
+    // 2x1 grid: idx0 and idx1 share a url but differ in kind, so they are
+    // distinct ViewContent values and must not be merged.
+    const videoContent: ViewContent = {
+      url: 'https://example.com',
+      kind: 'video',
+    }
+    const webContent: ViewContent = {
+      url: 'https://example.com',
+      kind: 'web',
+    }
+    const viewContentMap = new Map([
+      ['0', videoContent],
+      ['1', webContent],
+    ])
+
+    const boxes = boxesFromViewContentMap(2, 1, viewContentMap)
+
+    expect(boxes).toEqual([
+      { content: videoContent, x: 0, y: 0, w: 1, h: 1, spaces: [0] },
+      { content: webContent, x: 1, y: 0, w: 1, h: 1, spaces: [1] },
+    ])
+  })
 })
 
 describe('computeBoxRect', () => {
