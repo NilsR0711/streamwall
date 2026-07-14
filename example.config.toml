@@ -20,16 +20,10 @@
 #rows = 3
 
 [control]
-# Address to serve control server from
-address = "http://localhost:80"
-
-# Override hostname and port
-#hostname = "localhost"
-#port = 80
-
-# Username and password
-username = "streamwall"
-password = "please-change-this"
+# WebSocket URL (including the auth token) for the separate control server
+# that operators use to remotely arrange the grid. The control server prints
+# this URL to stdout on startup — copy it here verbatim.
+#endpoint = "ws://localhost/streamwall/<id>/ws?token=<secret>"
 
 [data]
 # Interval to refresh polled datasources
