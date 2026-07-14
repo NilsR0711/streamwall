@@ -9,6 +9,21 @@ control clients over WebSockets and serves the built control client.
 npm -w streamwall-control-server start
 ```
 
+## Roles
+
+Invites and sessions are tied to one of three roles, checked on every command
+(see `roleCan` in `streamwall-shared`):
+
+| Role       | Can do                                                             |
+| ---------- | ------------------------------------------------------------------ |
+| `admin`    | Everything, including creating and deleting invites/tokens.        |
+| `operator` | Control the grid and streams (listen, blur, rotate, resize, etc.). |
+| `monitor`  | Read-only, except toggling blur/censor on a stream.                |
+
+An admin invite link is printed to the console on every server start (see
+below). Once signed in, admins can create invite links for the other roles
+from the web control client.
+
 ## Configuration
 
 All configuration is provided via environment variables.
