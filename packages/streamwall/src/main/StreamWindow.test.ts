@@ -162,23 +162,31 @@ function makeFakeViewActorWithSnapshot(snapshot: {
 
 /**
  * A stand-in for a ViewActor with enough of the `setViews()` teardown surface
- * (`stop()`, `context.view`/`context.offscreenWin`) to verify a skipped view
- * is torn down rather than leaked.
+ * (`stop()`, `context.view`/`context.offscreenWin`/`context.disposeView`) to
+ * verify a skipped view is torn down rather than leaked. `next`, when passed,
+ * exercises the branch that also disposes an in-flight preload.
  */
-function makeTeardownTrackingViewActor(id: number) {
-  const contentView = { webContents: { close: vi.fn() } }
-  const offscreenWin = {
-    contentView: { removeChildView: vi.fn() },
-    destroy: vi.fn(),
-  }
+function makeTeardownTrackingViewActor(
+  id: number,
+  next: { view: unknown; offscreenWin: unknown } | null = null,
+) {
+  const contentView = {}
+  const offscreenWin = {}
+  const disposeView = vi.fn()
   const stop = vi.fn()
   return {
     stop,
-    contentView,
-    offscreenWin,
+    disposeView,
     actor: {
       getSnapshot: () => ({
-        context: { id, view: contentView, offscreenWin, pos: null },
+        context: {
+          id,
+          view: contentView,
+          offscreenWin,
+          pos: null,
+          next,
+          disposeView,
+        },
         matches: () => false,
       }),
       matches: () => false,
@@ -209,8 +217,188 @@ describe('StreamWindow.setViews', () => {
     sw.setViews(viewContentMap, streams)
 
     expect(tracked.stop).toHaveBeenCalled()
-    expect(tracked.contentView.webContents.close).toHaveBeenCalled()
-    expect(tracked.offscreenWin.destroy).toHaveBeenCalled()
+    expect(tracked.disposeView).toHaveBeenCalledTimes(1)
     expect(sw.views.size).toBe(0)
+  })
+
+  it('also disposes an in-flight preload when tearing down a view that had one', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+    sw.views = new Map()
+
+    const next = { view: {}, offscreenWin: {} }
+    const tracked = makeTeardownTrackingViewActor(99, next)
+    sw.createView = vi.fn(() => tracked.actor)
+
+    const viewContentMap: ViewContentMap = new Map([
+      ['0', { url: 'https://example.com/missing', kind: 'video' }],
+    ])
+    const streams = { byURL: new Map() }
+
+    sw.setViews(viewContentMap, streams)
+
+    expect(tracked.disposeView).toHaveBeenCalledTimes(2)
+    expect(tracked.disposeView).toHaveBeenCalledWith(
+      next.view,
+      next.offscreenWin,
+    )
+  })
+})
+
+/**
+ * A minimal fake WebContentsView whose `webContents.on('did-fail-load', ...)`
+ * registration is captured, so a test can trigger it directly instead of
+ * needing a real Electron webContents.
+ */
+function makeFakeView(id: number) {
+  const handlers: Record<string, (...args: never[]) => void> = {}
+  const view = {
+    webContents: {
+      id,
+      on: (event: string, cb: (...args: never[]) => void) => {
+        handlers[event] = cb
+      },
+    },
+  }
+  return { view, handlers }
+}
+
+function fireDidFailLoad(
+  handlers: Record<string, (...args: never[]) => void>,
+  errorCode: number,
+  isMainFrame: boolean,
+) {
+  handlers['did-fail-load']?.(
+    ...([
+      null,
+      errorCode,
+      'ERR_SOMETHING',
+      'https://example.com',
+      isMainFrame,
+    ] as never[]),
+  )
+}
+
+describe('StreamWindow view registration and disposal', () => {
+  it('disposeRawView closes the webContents, destroys the offscreen window, and deregisters routing', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const removeChildViewOnWin = vi.fn()
+    sw.win = {
+      contentView: { removeChildView: removeChildViewOnWin },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+    sw.viewsByWebContentsId = new Map([[7, {} as never]])
+    const close = vi.fn()
+    const view = { webContents: { id: 7, close } }
+    const removeChildViewOnOffscreen = vi.fn()
+    const destroy = vi.fn()
+    const offscreenWin = {
+      contentView: { removeChildView: removeChildViewOnOffscreen },
+      destroy,
+    }
+
+    ;(
+      sw as unknown as {
+        disposeRawView: (v: unknown, w: unknown) => void
+      }
+    ).disposeRawView(view, offscreenWin)
+
+    expect(removeChildViewOnOffscreen).toHaveBeenCalledWith(view)
+    expect(removeChildViewOnWin).toHaveBeenCalledWith(view)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(destroy).toHaveBeenCalledTimes(1)
+    expect(sw.viewsByWebContentsId.has(7)).toBe(false)
+  })
+
+  function registerView(
+    sw: InstanceType<typeof StreamWindow>,
+    view: unknown,
+    actor: unknown,
+  ) {
+    ;(
+      sw as unknown as {
+        registerView: (v: unknown, a: unknown) => void
+      }
+    ).registerView(view, actor)
+  }
+
+  it('routes a load failure on the currently displayed view to VIEW_ERROR', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.viewsByWebContentsId = new Map()
+    const { view, handlers } = makeFakeView(7)
+    const send = vi.fn()
+    const actor = {
+      getSnapshot: () => ({ context: { view, next: null } }),
+      send,
+    }
+
+    registerView(sw, view, actor)
+    expect(sw.viewsByWebContentsId.get(7)).toBe(actor)
+    fireDidFailLoad(handlers, -105, true)
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'VIEW_ERROR',
+      error: expect.any(Error),
+    })
+  })
+
+  it('routes a load failure on the preloading next view to NEXT_VIEW_ERROR', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.viewsByWebContentsId = new Map()
+    const { view: currentView } = makeFakeView(7)
+    const { view: nextView, handlers } = makeFakeView(8)
+    const send = vi.fn()
+    const actor = {
+      getSnapshot: () => ({
+        context: { view: currentView, next: { view: nextView } },
+      }),
+      send,
+    }
+
+    registerView(sw, nextView, actor)
+    fireDidFailLoad(handlers, -105, true)
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'NEXT_VIEW_ERROR',
+      error: expect.any(Error),
+    })
+  })
+
+  it('ignores a stale load failure from a view that is no longer current or next', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.viewsByWebContentsId = new Map()
+    const { view: currentView } = makeFakeView(7)
+    const { view: staleView, handlers } = makeFakeView(9)
+    const send = vi.fn()
+    const actor = {
+      getSnapshot: () => ({ context: { view: currentView, next: null } }),
+      send,
+    }
+
+    // A view that was superseded (e.g. a completed swap, or an abandoned
+    // preload) is never registered again for this actor, but its
+    // webContents could still fire a straggling did-fail-load.
+    registerView(sw, staleView, actor)
+    fireDidFailLoad(handlers, -105, true)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('ignores ERR_ABORTED and non-main-frame failures', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.viewsByWebContentsId = new Map()
+    const { view, handlers } = makeFakeView(7)
+    const send = vi.fn()
+    const actor = {
+      getSnapshot: () => ({ context: { view, next: null } }),
+      send,
+    }
+
+    registerView(sw, view, actor)
+    fireDidFailLoad(handlers, -3, true) // ERR_ABORTED
+    fireDidFailLoad(handlers, -105, false) // not the main frame
+
+    expect(send).not.toHaveBeenCalled()
   })
 })

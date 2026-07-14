@@ -56,6 +56,13 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   backgroundView: WebContentsView
   overlayView: WebContentsView
   views: Map<number, ViewActor>
+  // Routes IPC messages from a specific WebContentsView back to whichever
+  // actor owns it. Keyed by live `webContents.id`, unlike `views` (keyed by
+  // each actor's stable `context.id`, fixed at creation): once a content swap
+  // (see viewStateMachine's `running.swap`) promotes a preloaded view to be
+  // an actor's current one, that view's webContents.id generally differs
+  // from the actor's original `context.id`, so routing needs its own map.
+  viewsByWebContentsId: Map<number, ViewActor>
 
   constructor(
     config: StreamWindowConfig,
@@ -65,6 +72,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.config = config
     this.retryConfig = retryConfig
     this.views = new Map()
+    this.viewsByWebContentsId = new Map()
 
     const {
       width,
@@ -155,29 +163,59 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       this.emit('load')
     })
 
+    // Whether this IPC message came from the view an actor is currently
+    // preloading in the background (see viewStateMachine's `running.swap`),
+    // as opposed to the one it's actively displaying -- so the two can be
+    // routed to distinct events instead of being conflated.
+    const isFromNextView = (actor: ViewActor, senderId: number) =>
+      actor.getSnapshot().context.next?.view.webContents.id === senderId
+
     ipcMain.handle('view-init', async (ev) => {
-      const view = this.views.get(ev.sender.id)
-      if (view) {
-        view.send({ type: 'VIEW_INIT' })
-        const { content, options, volume } = view.getSnapshot().context
-        return {
-          content,
-          options,
-          volume,
-        }
+      const view = this.viewsByWebContentsId.get(ev.sender.id)
+      if (!view) {
+        return
       }
+      const { content, options, volume } = view.getSnapshot().context
+      view.send({
+        type: isFromNextView(view, ev.sender.id)
+          ? 'NEXT_VIEW_INIT'
+          : 'VIEW_INIT',
+      })
+      return { content, options, volume }
     })
     ipcMain.on('view-loaded', (ev) => {
-      this.views.get(ev.sender.id)?.send?.({ type: 'VIEW_LOADED' })
+      const view = this.viewsByWebContentsId.get(ev.sender.id)
+      if (!view) {
+        return
+      }
+      view.send({
+        type: isFromNextView(view, ev.sender.id)
+          ? 'NEXT_VIEW_LOADED'
+          : 'VIEW_LOADED',
+      })
     })
     ipcMain.on('view-stalled', (ev) => {
-      this.views.get(ev.sender.id)?.send?.({ type: 'VIEW_STALLED' })
+      this.viewsByWebContentsId.get(ev.sender.id)?.send({
+        type: 'VIEW_STALLED',
+      })
     })
     ipcMain.on('view-info', (ev, { info }) => {
-      this.views.get(ev.sender.id)?.send?.({ type: 'VIEW_INFO', info })
+      this.viewsByWebContentsId.get(ev.sender.id)?.send({
+        type: 'VIEW_INFO',
+        info,
+      })
     })
     ipcMain.on('view-error', (ev, { error }) => {
-      this.views.get(ev.sender.id)?.send?.({ type: 'VIEW_ERROR', error })
+      const view = this.viewsByWebContentsId.get(ev.sender.id)
+      if (!view) {
+        return
+      }
+      view.send({
+        type: isFromNextView(view, ev.sender.id)
+          ? 'NEXT_VIEW_ERROR'
+          : 'VIEW_ERROR',
+        error,
+      })
     })
     ipcMain.on('devtools-overlay', () => {
       overlayView.webContents.openDevTools()
@@ -198,13 +236,20 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.emit('resize')
   }
 
-  createView() {
+  /**
+   * Creates a bare WebContentsView + its dedicated hidden host window (used
+   * while the view is loading, before it's positioned in the wall), with no
+   * actor/routing attached yet. Shared by `createView()` (the initial view
+   * for a new cell) and `createNextView` (a preloaded view for a content swap
+   * on an already-running cell -- see viewStateMachine's `running.swap`).
+   */
+  private createRawView(): {
+    view: WebContentsView
+    offscreenWin: BrowserWindow
+  } {
     const {
-      win,
-      config: { width, height },
+      config: { width, height, backgroundColor },
     } = this
-    assert(win != null, 'Window must be initialized')
-    const { backgroundColor } = this.config
     // Give every view its own unique, ephemeral partition so that streams can
     // not share cookies/localStorage/cache with each other, the browse window,
     // or anything persisted to disk.
@@ -225,28 +270,98 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     })
     view.setBackgroundColor(backgroundColor)
 
-    const viewId = view.webContents.id
-
     // Lock the view to its stream URL: deny popups and block navigation/redirect
     // escapes while still allowing the page to reload itself.
     secureStreamView(view.webContents)
 
-    // Hidden window used for loading the BrowserView before it's positioned in the wall
+    // Hidden window used for loading the view before it's positioned in the wall.
     const offscreenWin = new BrowserWindow({
       width,
       height,
       show: false,
     })
 
-    const actor = createActor(viewStateMachine, {
+    return { view, offscreenWin }
+  }
+
+  /**
+   * Wires up routing/failure-reporting for a view created by
+   * `createRawView()` so it's addressable by `viewsByWebContentsId` and its
+   * load failures reach the given actor as the right event. Split out from
+   * `createRawView()` because it needs the actor, which doesn't exist yet
+   * when the very first view for a new cell is created.
+   */
+  private registerView(view: WebContentsView, actor: ViewActor) {
+    const viewId = view.webContents.id
+    this.viewsByWebContentsId.set(viewId, actor)
+
+    // Surface main-frame load failures (e.g. ERR_NAME_NOT_RESOLVED) as view
+    // errors so the state machine leaves the loading state instead of hanging.
+    // loadPage intentionally does not await loadURL — awaiting would delay the
+    // navigate->waitForInit transition past the preload's early VIEW_INIT and
+    // hang every view — so failures are reported here instead.
+    view.webContents.on(
+      'did-fail-load',
+      (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+        // -3 is ERR_ABORTED: superseded navigation or self-reload, not a failure.
+        if (!isMainFrame || errorCode === -3) {
+          return
+        }
+        const error = new Error(
+          `Failed to load (${errorCode}): ${errorDescription}`,
+        )
+        const { context } = actor.getSnapshot()
+        if (context.next?.view.webContents.id === viewId) {
+          actor.send({ type: 'NEXT_VIEW_ERROR', error })
+        } else if (context.view.webContents.id === viewId) {
+          // Otherwise this view has since been retired (e.g. a swap promoted
+          // a different one to current) -- ignore the stale event.
+          actor.send({ type: 'VIEW_ERROR', error })
+        }
+      },
+    )
+  }
+
+  /** Tears down a view + host window created by `createRawView()`. */
+  private disposeRawView(view: WebContentsView, offscreenWin: BrowserWindow) {
+    this.viewsByWebContentsId.delete(view.webContents.id)
+    offscreenWin.contentView.removeChildView(view)
+    this.win.contentView.removeChildView(view)
+    view.webContents.close()
+    offscreenWin.destroy()
+  }
+
+  createView() {
+    const { win } = this
+    assert(win != null, 'Window must be initialized')
+
+    const { view, offscreenWin } = this.createRawView()
+    const viewId = view.webContents.id
+
+    // Forward-declared: `createNextView` closes over `actor` but must be
+    // built before `createActor()` returns it, since it's part of that same
+    // call's `input`. Assigned exactly once, right below.
+    // eslint-disable-next-line prefer-const
+    let actor!: ViewActor
+    const createNextView = () => {
+      const next = this.createRawView()
+      this.registerView(next.view, actor)
+      return next
+    }
+
+    actor = createActor(viewStateMachine, {
       input: {
         id: viewId,
         view,
         win,
         offscreenWin,
         retry: this.retryConfig,
+        createNextView,
+        disposeView: (v: WebContentsView, w: BrowserWindow) =>
+          this.disposeRawView(v, w),
       },
     })
+    this.registerView(view, actor)
 
     let lastSnapshot: SnapshotFrom<typeof viewStateMachine> | undefined
     actor.subscribe((snapshot) => {
@@ -258,26 +373,6 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     })
 
     actor.start()
-
-    // Surface main-frame load failures (e.g. ERR_NAME_NOT_RESOLVED) as view
-    // errors so the state machine leaves the loading state instead of hanging.
-    // loadPage intentionally does not await loadURL — awaiting would delay the
-    // navigate->waitForInit transition past the preload's early VIEW_INIT and
-    // hang every view — so failures are reported here instead.
-    view.webContents.on(
-      'did-fail-load',
-      (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
-        // -3 is ERR_ABORTED: superseded navigation or self-reload, not a failure.
-        if (isMainFrame && errorCode !== -3) {
-          actor.send({
-            type: 'VIEW_ERROR',
-            error: new Error(
-              `Failed to load (${errorCode}): ${errorDescription}`,
-            ),
-          })
-        }
-      },
-    )
 
     return actor
   }
@@ -319,7 +414,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
   setViews(viewContentMap: ViewContentMap, streams: StreamList) {
     const { width, height, cols, rows } = this.config
-    const { win, views } = this
+    const { views } = this
     const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
     const remainingBoxes = new Set(boxes)
     const unusedViews = new Set(views.values())
@@ -399,11 +494,20 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     }
     for (const view of unusedViews) {
       view.stop()
-      const { view: contentView, offscreenWin } = view.getSnapshot().context
-      offscreenWin.contentView.removeChildView(contentView)
-      win.contentView.removeChildView(contentView)
-      contentView.webContents.close()
-      offscreenWin.destroy()
+      const {
+        view: contentView,
+        offscreenWin,
+        next,
+        disposeView,
+      } = view.getSnapshot().context
+      disposeView(contentView, offscreenWin)
+      // A preload can still be in flight for a cell being torn down entirely
+      // (as opposed to just interrupted -- see viewStateMachine's `running.
+      // exit` -- this covers the case where the whole actor is discarded);
+      // dispose it too so its WebContentsView/offscreen window don't leak.
+      if (next) {
+        disposeView(next.view, next.offscreenWin)
+      }
     }
     this.views = newViews
     this.emitState()
