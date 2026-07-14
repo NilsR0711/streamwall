@@ -46,21 +46,46 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
 
 export async function* watchDataFile(path: string): DataSource {
   const watcher = watch(path)
+  // chokidar emits 'error' for issues like a removed watch directory; an
+  // unhandled 'error' event on an EventEmitter throws, so a permanent
+  // listener is required to keep the watcher (and this generator) alive.
+  watcher.on('error', (err) => {
+    console.warn('error watching data file', path, err)
+  })
   try {
+    let lastStreams: StreamDataContent[] = []
     while (true) {
-      let data
+      let streams: StreamDataContent[] = []
       try {
         const text = await fsPromises.readFile(path)
-        data = TOML.parse(text.toString())
+        const data = TOML.parse(text.toString())
+        const parsed = parseStreamList(data?.streams)
+        if (parsed.errors.length) {
+          console.warn(
+            `ignoring ${parsed.errors.length} invalid stream(s) in ${path}`,
+          )
+        }
+        streams = parsed.streams as StreamDataContent[]
       } catch (err) {
         console.warn('error reading data file', err)
       }
-      const { streams, errors } = parseStreamList(data?.streams)
-      if (errors.length) {
-        console.warn(`ignoring ${errors.length} invalid stream(s) in ${path}`)
+
+      // If the read/parse fails and we already have data, keep serving it
+      // instead of wiping out every stream (mirrors pollDataURL).
+      if (!streams.length && lastStreams.length) {
+        console.warn('using cached stream data')
+      } else {
+        yield streams
+        lastStreams = streams
       }
-      yield streams as StreamDataContent[]
-      await once(watcher, 'change')
+
+      try {
+        // Wait for any filesystem event, not just 'change': an atomic
+        // replace of the watched file can surface as unlink+add instead.
+        await once(watcher, 'all')
+      } catch (err) {
+        console.warn('error watching data file', path, err)
+      }
     }
   } finally {
     await watcher.close()
