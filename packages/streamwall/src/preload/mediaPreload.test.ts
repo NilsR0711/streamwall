@@ -168,3 +168,70 @@ describe('mediaPreload initial acquireMedia rejection', () => {
     expect(viewErrorCalls()).toHaveLength(1)
   })
 })
+
+describe("mediaPreload emptied handler's re-acquisition rejection", () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; not exported since it's an
+  // implementation detail, not part of the module's public surface.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  it("reports the emptied handler's re-acquisition timeout instead of leaving it an unhandled rejection", async () => {
+    const video = document.createElement('video')
+    // happy-dom's HTMLVideoElement never implements videoWidth (always
+    // undefined), so give it a truthy value here to skip findMedia's "wait
+    // for playing" branch on the initial acquisition and let it resolve
+    // immediately once the element is found.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Confirms the initial acquisition succeeded and attached the 'emptied'
+    // listener under test, rather than this test accidentally exercising
+    // the initial-acquisition rejection path covered above.
+    expect(send).toHaveBeenCalledWith('view-loaded')
+
+    // A real emptied element resets its own readiness; re-acquisition finds
+    // the same <video> again, but this time nothing ever fires 'playing',
+    // so findMedia's fixed-INITIAL_TIMEOUT wait rejects.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 0
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        {
+          error: expect.objectContaining({
+            message: 'timeout waiting for video to start',
+          }),
+        },
+      ],
+    ])
+  })
+})

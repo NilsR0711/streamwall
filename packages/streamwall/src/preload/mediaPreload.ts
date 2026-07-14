@@ -376,9 +376,23 @@ async function main() {
         ipcRenderer.send('view-stalled')
         clearInterval(snapshotInterval)
 
-        const newMedia = await acquireMedia(Infinity)
-        if (newMedia !== media) {
-          media.remove()
+        // Unlike main()'s own top-level acquireMedia() call, this one is
+        // awaited within the handler itself, so a plain .catch() chained
+        // onto it wouldn't help: EventTarget.addEventListener discards
+        // whatever an async listener returns, so a rejection here becomes
+        // an unhandled rejection on the listener's own detached promise
+        // unless it's caught in place -- see #316 (same root cause as #309).
+        try {
+          const newMedia = await acquireMedia(Infinity)
+          if (newMedia !== media) {
+            media.remove()
+          }
+        } catch (error) {
+          if (hasReportedMediaError) {
+            return
+          }
+          hasReportedMediaError = true
+          ipcRenderer.send('view-error', { error })
         }
       },
       { once: true },
