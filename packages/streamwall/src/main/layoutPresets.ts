@@ -1,8 +1,5 @@
-import type { LayoutPreset } from 'streamwall-shared'
+import { MAX_LAYOUT_PRESETS, type LayoutPreset } from 'streamwall-shared'
 import * as Y from 'yjs'
-
-/** Maximum number of saved layout presets, bounding unbounded storage growth. */
-export const MAX_LAYOUT_PRESETS = 50
 
 export interface LayoutPresetSaveContext {
   /** Yjs map of grid cell index (as string) -> a `{ streamId }` map. */
