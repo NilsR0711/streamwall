@@ -52,11 +52,15 @@ export default class TwitchBot extends EventEmitter {
     if (vote.interval) {
       this.voteTemplate = ejs.compile(config.vote.template)
       this.votes = new Map()
-      setInterval(this.tallyVotes.bind(this), vote.interval * 1000)
+      setInterval(() => {
+        this.tallyVotes().catch((err) =>
+          this.handleAsyncError('tallyVotes', err),
+        )
+      }, vote.interval * 1000)
     }
 
     client.on('ready', () => {
-      this.onReady()
+      this.onReady().catch((err) => this.handleAsyncError('onReady', err))
     })
     client.on('error', (err) => {
       console.error('Twitch connection error:', err)
@@ -78,6 +82,10 @@ export default class TwitchBot extends EventEmitter {
   connect() {
     const { client } = this
     client.connect()
+  }
+
+  private handleAsyncError(context: string, err: unknown) {
+    console.error(`Twitch bot error (${context}):`, err)
   }
 
   async onReady() {
@@ -120,7 +128,7 @@ export default class TwitchBot extends EventEmitter {
     clearTimeout(this.dwellTimeout)
     this.dwellTimeout = setTimeout(() => {
       if (!this.announceTimeouts.has(listeningURL)) {
-        this.announce()
+        this.announce().catch((err) => this.handleAsyncError('announce', err))
       }
     }, announce.delay * 1000)
   }
@@ -144,7 +152,7 @@ export default class TwitchBot extends EventEmitter {
     const timeout = setTimeout(() => {
       this.announceTimeouts.delete(listeningURL)
       if (this.listeningURL === listeningURL) {
-        this.announce()
+        this.announce().catch((err) => this.handleAsyncError('announce', err))
       }
     }, announce.interval * 1000)
     this.announceTimeouts.set(listeningURL, timeout)
