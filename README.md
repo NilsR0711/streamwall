@@ -11,6 +11,22 @@ It's a cross-platform desktop app built with Electron and TypeScript. Streams ar
 
 Under the hood, think of Streamwall as a specialized web browser for mosaicing video streams. It uses [Electron](https://www.electronjs.org) to create a grid of web browser views, loading the specified webpages into them. Once the page loads, Streamwall finds the `<video>` tag and reformats the page so that the video fills the space. This works for a wide variety of web pages without specialized scrapers.
 
+<!-- TODO(screenshots): the wall and control UI don't have images here yet.
+     See #165 to add real screenshots once captured on a machine with a
+     display. -->
+
+## Features
+
+- **Resizable grid** — arrange streams in an NxN grid; resize it at runtime from the control UI (column/row presets or exact counts), no restart required.
+- **Drag-to-place layout** — drag a tile onto another to swap their positions, or drop a stream from the list straight onto a grid cell.
+- **Per-tile audio** — listen to any single tile's audio at a time, switchable with a click or hotkey.
+- **Blur/censor** — blur individual tiles, or trigger a wall-wide [Streamdelay](https://github.com/chromakode/streamdelay) censor mode.
+- **Dark mode** — light, dark, or system-matched theme in the control UI.
+- **Remote control with roles** — an optional web-based control server lets operators run the wall from a browser, with **admin**, **operator**, and **monitor** roles gated by invite links.
+- **Automatic recovery** — failed or stalled stream loads are retried automatically with exponential backoff, with the failure surfaced on the wall and in the control UI.
+- **Flexible data sources** — load streams from JSON APIs, TOML files, or add them ad hoc (including `overlay`/`background` kinds for widgets and chroma-key layers).
+- **Twitch chat bot** — an optional bot posts templated announcements and runs viewer polls in a Twitch channel's chat.
+
 ## Configuration
 
 Streamwall has a growing number of configuration options. To get a summary run:
