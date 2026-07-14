@@ -46,13 +46,25 @@ export function useStreamwallWebsocketConnection(
       maxEnqueuedMessages: 0,
     })
     ws.binaryType = 'arraybuffer'
-    ws.addEventListener('close', () => {
+
+    function handleClose() {
       setStreamwallState(undefined)
       lastStateData = undefined
       setStateDoc(new Y.Doc())
       setIsConnected(false)
-    })
-    ws.addEventListener('message', (ev) => {
+      // Any command awaiting a response will never hear back from this
+      // socket - reject the callers instead of leaking their callbacks in
+      // responseMap forever.
+      const { responseMap } = wsRef.current ?? {}
+      if (responseMap) {
+        for (const responseCb of responseMap.values()) {
+          responseCb({ response: true, error: 'Connection closed' })
+        }
+        responseMap.clear()
+      }
+    }
+
+    function handleMessage(ev: MessageEvent) {
       if (ev.data instanceof ArrayBuffer) {
         return
       }
@@ -80,8 +92,18 @@ export function useStreamwallWebsocketConnection(
       } else {
         console.warn('unexpected ws message', msg)
       }
-    })
+    }
+
+    ws.addEventListener('close', handleClose)
+    ws.addEventListener('message', handleMessage)
     wsRef.current = { ws, msgId: 0, responseMap: new Map() }
+
+    return () => {
+      ws.removeEventListener('close', handleClose)
+      ws.removeEventListener('message', handleMessage)
+      ws.close()
+      wsRef.current = undefined
+    }
   }, [setStateDoc, wsEndpoint])
 
   const send = useCallback(
