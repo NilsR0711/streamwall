@@ -52,7 +52,12 @@ import {
   applyLayoutPreset,
   buildLayoutPreset,
 } from './layoutPresets'
-import log, { initLogger } from './logger'
+import log, {
+  LOG_LEVELS,
+  initLogger,
+  setLogLevel,
+  type LogLevel,
+} from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
@@ -108,6 +113,9 @@ function makeControlWebSocket(authorization: string | null) {
 
 export interface StreamwallConfig {
   help: boolean
+  log: {
+    level: LogLevel
+  }
   grid: {
     cols: number
     rows: number
@@ -205,6 +213,13 @@ function parseArgs(): StreamwallConfig {
       )
       warnUnknownConfigKeys(config, configFilePath)
       return config
+    })
+    .group(['log.level'], 'Logging')
+    .option('log.level', {
+      describe:
+        'Verbosity of log output, written to both the console and the log file',
+      choices: LOG_LEVELS,
+      default: 'debug',
     })
     .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
     .option('grid.cols', {
@@ -965,6 +980,7 @@ function init() {
     }
     throw err
   }
+  setLogLevel(argv.log.level)
   if (argv.help) {
     return
   }
