@@ -165,6 +165,7 @@ const demoState: StreamwallState = {
   views: demoViews as unknown as StreamwallState['views'],
   streamdelay: null,
   layoutPresets: [],
+  dataSourceHealth: [],
 }
 
 function useMockConnection(): StreamwallConnection {

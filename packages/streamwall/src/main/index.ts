@@ -10,6 +10,7 @@ import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
 import {
   ControlCommand,
+  DataSourceType,
   StreamwallState,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
@@ -40,12 +41,14 @@ import {
   pollDataURL,
   watchDataFile,
 } from './data'
+import { DataSourceHealthTracker } from './dataSourceHealth'
 import { applyGridResize } from './gridResize'
 import {
   addLayoutPreset,
   applyLayoutPreset,
   buildLayoutPreset,
 } from './layoutPresets'
+import log, { initLogger } from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
@@ -152,14 +155,14 @@ export interface StreamwallConfig {
 // defaults with no indication anything was wrong.
 function warnUnknownConfigKeys(raw: unknown, source: string) {
   for (const key of findUnknownConfigKeys(raw)) {
-    console.warn(`Unknown config key "${key}" in "${source}" is ignored.`)
+    log.warn(`Unknown config key "${key}" in "${source}" is ignored.`)
   }
 }
 
 function parseArgs(): StreamwallConfig {
   // Load config from user data dir, if it exists
   const configPath = join(app.getPath('userData'), 'config.toml')
-  console.debug('Reading config from ', configPath)
+  log.debug('Reading config from ', configPath)
 
   let configText: string | null = null
   try {
@@ -401,7 +404,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   const hasUserConfig = fs.existsSync(userConfigPath)
   installApplicationMenu(userConfigPath)
 
-  console.debug('Creating StreamWindow...')
+  log.debug('Creating StreamWindow...')
   const idGen = new StreamIDGenerator()
 
   const localStreamData = new LocalStreamData(db.data.localStreamData)
@@ -444,7 +447,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
 
-  console.debug('Creating initial state...')
+  log.debug('Creating initial state...')
   let clientState: StreamwallState = {
     identity: {
       role: 'local',
@@ -455,6 +458,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     views: [],
     streamdelay: null,
     layoutPresets: db.data.layoutPresets,
+    dataSourceHealth: [],
   }
 
   function updateViewsFromStateDoc() {
@@ -473,7 +477,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       }
       streamWindow.setViews(viewContentMap, clientState.streams)
     } catch (err) {
-      console.error('Error updating views', err)
+      log.error('Error updating views', err)
     }
   }
 
@@ -481,11 +485,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   const viewsState = stateDoc.getMap<Y.Map<string | undefined>>('views')
 
   if (db.data.stateDoc) {
-    console.log('Loading stateDoc from storage...')
+    log.info('Loading stateDoc from storage...')
     try {
       Y.applyUpdate(stateDoc, Buffer.from(db.data.stateDoc, 'base64'))
     } catch (err) {
-      console.warn('Failed to restore stateDoc', err)
+      log.warn('Failed to restore stateDoc', err)
     }
   }
 
@@ -526,7 +530,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     msg: ControlCommand,
     source: 'local' | 'uplink' = 'local',
   ) => {
-    console.debug('Received message:', msg)
+    log.debug('Received message:', msg)
 
     // The remote control-server uplink is untrusted: re-validate every command
     // against the uplink allowlist so a compromised or man-in-the-middled
@@ -534,40 +538,40 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     if (source === 'uplink') {
       const type = (msg as { type?: unknown } | null)?.type
       if (typeof type !== 'string' || !isCommandAllowedFromUplink(type)) {
-        console.warn('Rejecting disallowed command from control uplink:', type)
+        log.warn('Rejecting disallowed command from control uplink:', type)
         return
       }
     }
 
     if (msg.type === 'set-listening-view') {
-      console.debug('Setting listening view:', msg.viewIdx)
+      log.debug('Setting listening view:', msg.viewIdx)
       streamWindow.setListeningView(msg.viewIdx)
     } else if (msg.type === 'set-view-background-listening') {
-      console.debug(
+      log.debug(
         'Setting view background listening:',
         msg.viewIdx,
         msg.listening,
       )
       streamWindow.setViewBackgroundListening(msg.viewIdx, msg.listening)
     } else if (msg.type === 'set-view-blurred') {
-      console.debug('Setting view blurred:', msg.viewIdx, msg.blurred)
+      log.debug('Setting view blurred:', msg.viewIdx, msg.blurred)
       streamWindow.setViewBlurred(msg.viewIdx, msg.blurred)
     } else if (msg.type === 'set-view-volume') {
-      console.debug('Setting view volume:', msg.viewIdx, msg.volume)
+      log.debug('Setting view volume:', msg.viewIdx, msg.volume)
       streamWindow.setViewVolume(msg.viewIdx, msg.volume)
     } else if (msg.type === 'rotate-stream') {
-      console.debug('Rotating stream:', msg.url, msg.rotation)
+      log.debug('Rotating stream:', msg.url, msg.rotation)
       overlayStreamData.update(msg.url, {
         rotation: msg.rotation,
       })
     } else if (msg.type === 'update-custom-stream') {
-      console.debug('Updating custom stream:', msg.url)
+      log.debug('Updating custom stream:', msg.url)
       localStreamData.update(msg.url, msg.data)
     } else if (msg.type === 'delete-custom-stream') {
-      console.debug('Deleting custom stream:', msg.url)
+      log.debug('Deleting custom stream:', msg.url)
       localStreamData.delete(msg.url)
     } else if (msg.type === 'reload-view') {
-      console.debug('Reloading view:', msg.viewIdx)
+      log.debug('Reloading view:', msg.viewIdx)
       streamWindow.reloadView(msg.viewIdx)
     } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
       if (browseWindow && !browseWindow.isDestroyed()) {
@@ -591,7 +595,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         denyWindowOpen(browseWindow.webContents)
       }
       if (msg.type === 'browse') {
-        console.debug('Attempting to browse URL:', msg.url)
+        log.debug('Attempting to browse URL:', msg.url)
         try {
           await ensureValidURL(
             msg.url,
@@ -599,18 +603,18 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           )
           browseWindow.loadURL(msg.url)
         } catch (error) {
-          console.error('Invalid URL:', msg.url)
-          console.error('Error:', error)
+          log.error('Invalid URL:', msg.url)
+          log.error('Error:', error)
         }
       } else if (msg.type === 'dev-tools') {
-        console.debug('Opening DevTools for view:', msg.viewIdx)
+        log.debug('Opening DevTools for view:', msg.viewIdx)
         streamWindow.openDevTools(msg.viewIdx, browseWindow.webContents)
       }
     } else if (msg.type === 'set-stream-censored' && streamdelayClient) {
-      console.debug('Setting stream censored:', msg.isCensored)
+      log.debug('Setting stream censored:', msg.isCensored)
       streamdelayClient.setCensored(msg.isCensored)
     } else if (msg.type === 'set-stream-running' && streamdelayClient) {
-      console.debug('Setting stream running:', msg.isStreamRunning)
+      log.debug('Setting stream running:', msg.isStreamRunning)
       streamdelayClient.setStreamRunning(msg.isStreamRunning)
     } else if (msg.type === 'set-grid-size') {
       applyGridResize(
@@ -635,7 +639,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       // call is needed here.
       updateState({})
     } else if (msg.type === 'save-layout-preset') {
-      console.debug('Saving layout preset:', msg.name)
+      log.debug('Saving layout preset:', msg.name)
       const preset = buildLayoutPreset(
         {
           viewsState,
@@ -655,7 +659,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         (p) => p.id === msg.presetId,
       )
       if (preset) {
-        console.debug('Loading layout preset:', preset.name)
+        log.debug('Loading layout preset:', preset.name)
         applyLayoutPreset(
           {
             viewsState,
@@ -669,7 +673,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         updateState({})
       }
     } else if (msg.type === 'delete-layout-preset') {
-      console.debug('Deleting layout preset:', msg.presetId)
+      log.debug('Deleting layout preset:', msg.presetId)
       const layoutPresets = clientState.layoutPresets.filter(
         (p) => p.id !== msg.presetId,
       )
@@ -772,7 +776,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     event.preventDefault()
     flushStorage(db, () => persistStateDoc.flush())
       .catch((err) => {
-        console.error('Failed to flush storage before quit', err)
+        log.error('Failed to flush storage before quit', err)
       })
       .finally(() => {
         storageFlushed = true
@@ -784,12 +788,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     argv.control.endpoint &&
     !isSecureControlEndpoint(argv.control.endpoint)
   ) {
-    console.error(
+    log.error(
       `Refusing to connect to insecure control endpoint "${argv.control.endpoint}". ` +
         'The control connection must use wss:// (or ws:// to a loopback host).',
     )
   } else if (argv.control.endpoint) {
-    console.debug('Connecting to control server...')
+    log.debug('Connecting to control server...')
     // Move the uplink secret out of the URL query string and into an
     // Authorization header so it never reaches server or proxy access logs.
     const { url: controlURL, authorization } = parseControlEndpoint(
@@ -803,12 +807,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     })
     ws.binaryType = 'arraybuffer'
     ws.addEventListener('open', () => {
-      console.debug('Control WebSocket connected.')
+      log.debug('Control WebSocket connected.')
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
       ws.send(Y.encodeStateAsUpdate(stateDoc))
     })
     ws.addEventListener('close', () => {
-      console.debug('Control WebSocket disconnected.')
+      log.debug('Control WebSocket disconnected.')
     })
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
@@ -820,7 +824,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       try {
         msg = JSON.parse(ev.data)
       } catch (err) {
-        console.warn('Failed to parse control WebSocket message:', err)
+        log.warn('Failed to parse control WebSocket message:', err)
         return
       }
 
@@ -835,7 +839,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }
 
   if (argv.streamdelay.key) {
-    console.debug('Setting up Streamdelay client...')
+    log.debug('Setting up Streamdelay client...')
     streamdelayClient = new StreamdelayClient({
       endpoint: argv.streamdelay.endpoint,
       key: argv.streamdelay.key,
@@ -852,7 +856,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     channel: twitchChannel,
   } = argv.twitch
   if (twitchUsername && twitchToken && twitchChannel) {
-    console.debug('Setting up Twitch bot...')
+    log.debug('Setting up Twitch bot...')
     const twitchBot = new TwitchBot({
       ...argv.twitch,
       username: twitchUsername,
@@ -866,14 +870,33 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     twitchBot.connect()
   }
 
+  const dataSourceHealthTracker = new DataSourceHealthTracker()
+  function trackDataSourceHealth(id: string, type: DataSourceType) {
+    return (ok: boolean, message?: string) => {
+      updateState({
+        dataSourceHealth: dataSourceHealthTracker.report(id, type, ok, message),
+      })
+    }
+  }
+
   const dataSources = [
     ...argv.data['json-url'].map((url) => {
-      console.debug('Setting data source from json-url:', url)
-      return markDataSource(pollDataURL(url, argv.data.interval), 'json-url')
+      log.debug('Setting data source from json-url:', url)
+      return markDataSource(
+        pollDataURL(
+          url,
+          argv.data.interval,
+          trackDataSourceHealth(url, 'json-url'),
+        ),
+        'json-url',
+      )
     }),
     ...argv.data['toml-file'].map((path) => {
-      console.debug('Setting data source from toml-file:', path)
-      return markDataSource(watchDataFile(path), 'toml-file')
+      log.debug('Setting data source from toml-file:', path)
+      return markDataSource(
+        watchDataFile(path, trackDataSourceHealth(path, 'toml-file')),
+        'toml-file',
+      )
     }),
     markDataSource(localStreamData.gen(), 'custom'),
     markDataSource(overlayStreamData.gen(), 'overlay'),
@@ -886,14 +909,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 }
 
 function init() {
-  console.debug('Parsing command line arguments...')
+  initLogger()
+  log.debug('Parsing command line arguments...')
   let argv: ReturnType<typeof parseArgs>
   try {
     argv = parseArgs()
   } catch (err) {
     if (err instanceof ConfigError) {
       // Surface the offending file/key/line cleanly instead of a stack trace.
-      console.error(err.message)
+      log.error(err.message)
       process.exit(1)
     }
     throw err
@@ -902,7 +926,7 @@ function init() {
     return
   }
 
-  console.debug('Initializing Sentry...')
+  log.debug('Initializing Sentry...')
   if (argv.telemetry.sentry) {
     Sentry.init({ dsn: SENTRY_DSN })
   }
@@ -916,18 +940,18 @@ function init() {
 
   updateElectronApp()
 
-  console.debug('Setting up Electron...')
+  log.debug('Setting up Electron...')
   app.commandLine.appendSwitch('high-dpi-support', '1')
   app.commandLine.appendSwitch('force-device-scale-factor', '1')
 
-  console.debug('Enabling Electron sandbox...')
+  log.debug('Enabling Electron sandbox...')
   app.enableSandbox()
 
   app
     .whenReady()
     .then(() => main(argv))
     .catch((err) => {
-      console.error(err)
+      log.error(err)
       process.exit(1)
     })
 }
@@ -937,5 +961,5 @@ if (started) {
   app.quit()
 }
 
-console.debug('Starting Streamwall...')
+log.debug('Starting Streamwall...')
 init()

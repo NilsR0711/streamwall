@@ -218,6 +218,36 @@ link = "https://b.example/s"
       await gen.return(undefined)
     }
   })
+
+  test('reports healthy status on a successful read', async () => {
+    const file = writeTomlFile(`
+[[streams]]
+link = "https://a.example/s"
+`)
+    const onHealth = vi.fn()
+    const gen = watchDataFile(file, onHealth)
+    try {
+      await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(true)
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('reports unhealthy status with a message when the file cannot be read', async () => {
+    const missingFile = path.join(
+      mkdtempSync(path.join(tmpdir(), 'sw-data-')),
+      'does-not-exist.toml',
+    )
+    const onHealth = vi.fn()
+    const gen = watchDataFile(missingFile, onHealth)
+    try {
+      await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(false, expect.any(String))
+    } finally {
+      await gen.return(undefined)
+    }
+  })
 })
 
 describe('pollDataURL', () => {
@@ -265,6 +295,30 @@ describe('pollDataURL', () => {
     try {
       const { value } = await gen.next()
       expect(value).toEqual([])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('reports healthy status on a successful fetch', async () => {
+    const url = await serveJson([{ link: 'https://a.example/s' }])
+    const onHealth = vi.fn()
+    const gen = pollDataURL(url, 999, onHealth)
+    try {
+      await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(true)
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('reports unhealthy status with a message when the fetch fails', async () => {
+    const onHealth = vi.fn()
+    // Nothing is listening on this port.
+    const gen = pollDataURL('http://127.0.0.1:1/', 999, onHealth)
+    try {
+      await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(false, expect.any(String))
     } finally {
       await gen.return(undefined)
     }

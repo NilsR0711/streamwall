@@ -97,6 +97,23 @@ export interface StreamDelayStatus {
   state: string
 }
 
+export type DataSourceType = 'json-url' | 'toml-file'
+
+/**
+ * Health of a single stream data source (a `--data.json-url` or
+ * `--data.toml-file`), so a dead source is diagnosable from the control UI
+ * instead of only from a log.
+ */
+export interface DataSourceHealth {
+  /** The URL or file path, which also identifies the source. */
+  id: string
+  type: DataSourceType
+  status: 'ok' | 'error'
+  /** Set when status is 'error'. */
+  message: string | null
+  updatedAt: number
+}
+
 export type AuthTokenKind = 'invite' | 'session' | 'streamwall'
 
 export interface AuthTokenInfo {
@@ -133,6 +150,7 @@ export interface StreamwallState {
   views: ViewState[]
   streamdelay: StreamDelayStatus | null
   layoutPresets: LayoutPreset[]
+  dataSourceHealth: DataSourceHealth[]
 }
 
 type MessageMeta = {

@@ -315,6 +315,7 @@ function makeState(): StreamwallState {
     layoutPresets: [
       { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },
     ],
+    dataSourceHealth: [],
   }
 }
 

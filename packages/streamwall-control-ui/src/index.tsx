@@ -37,6 +37,7 @@ import {
   Color,
   type ContentKind,
   type ControlCommand,
+  type DataSourceHealth,
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
@@ -59,6 +60,7 @@ import {
 import { createGlobalStyle, styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
+import { DataSourceHealthBanner } from './DataSourceHealthBanner.tsx'
 import {
   computeHoveringIdx,
   isPrimaryButton,
@@ -525,6 +527,7 @@ export interface StreamwallConnection {
   delayState: StreamDelayStatus | null | undefined
   authState?: StreamwallState['auth']
   layoutPresets: LayoutPreset[]
+  dataSourceHealth: DataSourceHealth[]
 }
 
 export function useStreamwallState(state: StreamwallState | undefined) {
@@ -540,6 +543,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         delayState: undefined,
         authState: undefined,
         layoutPresets: [],
+        dataSourceHealth: [],
       }
     }
 
@@ -551,6 +555,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       views: stateViews,
       streamdelay,
       layoutPresets,
+      dataSourceHealth,
     } = state
     const stateIdxMap = new Map()
     const views = []
@@ -599,6 +604,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       customStreams,
       stateIdxMap,
       layoutPresets,
+      dataSourceHealth,
     }
   }, [state])
 }
@@ -623,6 +629,7 @@ export function ControlUI({
     authState,
     role,
     layoutPresets,
+    dataSourceHealth,
   } = connection
   const {
     cols,
@@ -1248,6 +1255,7 @@ export function ControlUI({
           )}
           <ThemeToggle />
         </StyledHeader>
+        <DataSourceHealthBanner dataSourceHealth={dataSourceHealth} />
         {delayState && (
           <StreamDelayBox
             role={role}

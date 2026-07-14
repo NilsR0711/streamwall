@@ -86,6 +86,7 @@ function renderControlUI(): HTMLDivElement {
     delayState,
     authState: undefined,
     layoutPresets: [],
+    dataSourceHealth: [],
   }
 
   act(() => {

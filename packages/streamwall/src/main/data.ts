@@ -11,12 +11,22 @@ import {
   StreamDataContent,
   StreamList,
 } from '../../../streamwall-shared/src/types'
+import log from './logger'
 
 const sleep = promisify(setTimeout)
 
 type DataSource = AsyncIterableIterator<StreamDataContent[]>
 
-export async function* pollDataURL(url: string, intervalSecs: number) {
+// Reports whether the most recent read of a data source succeeded, so a
+// caller can surface a dead json-url/toml-file from the UI instead of it
+// only being diagnosable from a log.
+export type DataSourceHealthCallback = (ok: boolean, message?: string) => void
+
+export async function* pollDataURL(
+  url: string,
+  intervalSecs: number,
+  onHealth?: DataSourceHealthCallback,
+) {
   const refreshInterval = intervalSecs * 1000
   let lastData: StreamDataContent[] = []
   while (true) {
@@ -25,16 +35,18 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
       const resp = await fetch(url)
       const { streams, errors } = parseStreamList(await resp.json())
       if (errors.length) {
-        console.warn(`ignoring ${errors.length} invalid stream(s) from ${url}`)
+        log.warn(`ignoring ${errors.length} invalid stream(s) from ${url}`)
       }
       data = streams as StreamDataContent[]
+      onHealth?.(true)
     } catch (err) {
-      console.warn('error loading stream data', err)
+      log.warn('error loading stream data', err)
+      onHealth?.(false, err instanceof Error ? err.message : String(err))
     }
 
     // If the endpoint errors or returns an empty dataset, keep the cached data.
     if (!data.length && lastData.length) {
-      console.warn('using cached stream data')
+      log.warn('using cached stream data')
     } else {
       yield data
       lastData = data
@@ -44,13 +56,16 @@ export async function* pollDataURL(url: string, intervalSecs: number) {
   }
 }
 
-export async function* watchDataFile(path: string): DataSource {
+export async function* watchDataFile(
+  path: string,
+  onHealth?: DataSourceHealthCallback,
+): DataSource {
   const watcher = watch(path)
   // chokidar emits 'error' for issues like a removed watch directory; an
   // unhandled 'error' event on an EventEmitter throws, so a permanent
   // listener is required to keep the watcher (and this generator) alive.
   watcher.on('error', (err) => {
-    console.warn('error watching data file', path, err)
+    log.warn('error watching data file', path, err)
   })
   try {
     let lastStreams: StreamDataContent[] = []
@@ -61,19 +76,21 @@ export async function* watchDataFile(path: string): DataSource {
         const data = TOML.parse(text.toString())
         const parsed = parseStreamList(data?.streams)
         if (parsed.errors.length) {
-          console.warn(
+          log.warn(
             `ignoring ${parsed.errors.length} invalid stream(s) in ${path}`,
           )
         }
         streams = parsed.streams as StreamDataContent[]
+        onHealth?.(true)
       } catch (err) {
-        console.warn('error reading data file', err)
+        log.warn('error reading data file', err)
+        onHealth?.(false, err instanceof Error ? err.message : String(err))
       }
 
       // If the read/parse fails and we already have data, keep serving it
       // instead of wiping out every stream (mirrors pollDataURL).
       if (!streams.length && lastStreams.length) {
-        console.warn('using cached stream data')
+        log.warn('using cached stream data')
       } else {
         yield streams
         lastStreams = streams
@@ -84,7 +101,7 @@ export async function* watchDataFile(path: string): DataSource {
         // replace of the watched file can surface as unlink+add instead.
         await once(watcher, 'all')
       } catch (err) {
-        console.warn('error watching data file', path, err)
+        log.warn('error watching data file', path, err)
       }
     }
   } finally {
@@ -190,7 +207,7 @@ export class StreamIDGenerator {
         let newId
         const idBase = source || label || link
         if (!idBase) {
-          console.warn('skipping empty stream', stream)
+          log.warn('skipping empty stream', stream)
           continue
         }
         const normalizedText = idBase
