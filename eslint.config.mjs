@@ -2,6 +2,7 @@
 // Replaces the legacy .eslintrc.json, which ESLint 9+ no longer reads.
 import js from '@eslint/js'
 import importX from 'eslint-plugin-import-x'
+import reactHooks from 'eslint-plugin-react-hooks'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
@@ -54,6 +55,28 @@ export default tseslint.config(
     files: ['**/*.test.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
+    // Preact mirrors the React hooks API via `preact/hooks`, so the React
+    // Hooks rules apply to these Preact-based packages. Scoped to
+    // rules-of-hooks/exhaustive-deps only (not the plugin's full
+    // "recommended" set), since v7's recommended config also pulls in
+    // React Compiler-oriented rules (e.g. purity, immutability, gating)
+    // that don't apply here — this project doesn't use the React Compiler.
+    files: [
+      'packages/streamwall-control-ui/src/**/*.{ts,tsx}',
+      'packages/streamwall-control-client/src/**/*.{ts,tsx}',
+      'packages/streamwall/src/renderer/**/*.{ts,tsx}',
+    ],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      // Start at warn to land the tooling without blocking CI; promote to
+      // error once the existing violations it surfaces are cleared.
+      'react-hooks/exhaustive-deps': 'warn',
     },
   },
 )

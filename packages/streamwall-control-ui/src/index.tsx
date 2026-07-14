@@ -444,6 +444,10 @@ export function useYDoc<T>(keys: string[]): {
     return () => {
       doc.off('update', updateDocValue)
     }
+    // `keys` is deliberately omitted: every caller passes a literal array,
+    // so including it would re-subscribe the listener on every render
+    // without any behavioral benefit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc])
   return { docValue, doc, setDoc }
 }
@@ -847,7 +851,7 @@ export function ControlUI({
         rotation: ((stream.rotation || 0) + 90) % 360,
       })
     },
-    [streams],
+    [streams, send],
   )
 
   const handleBrowse = useCallback(
@@ -861,7 +865,7 @@ export function ControlUI({
         url: stream.link,
       })
     },
-    [streams],
+    [streams, send],
   )
 
   const handleDevTools = useCallback(
@@ -956,15 +960,18 @@ export function ControlUI({
         },
       )
     },
-    [],
+    [send],
   )
 
-  const handleDeleteToken = useCallback((tokenId: string) => {
-    send({
-      type: 'delete-token',
-      tokenId,
-    })
-  }, [])
+  const handleDeleteToken = useCallback(
+    (tokenId: string) => {
+      send({
+        type: 'delete-token',
+        tokenId,
+      })
+    },
+    [send],
+  )
 
   const preventLinkClick = useCallback((ev: Event) => {
     ev.preventDefault()
@@ -2557,7 +2564,7 @@ function AuthTokenLine({
 }) {
   const handleDeleteClick = useCallback(() => {
     onDelete(id)
-  }, [id])
+  }, [id, onDelete])
   return (
     <div>
       <strong>{name}</strong>: {role}{' '}
