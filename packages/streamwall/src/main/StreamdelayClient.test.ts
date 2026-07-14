@@ -1,6 +1,44 @@
+import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
-import StreamdelayClient from './StreamdelayClient'
+
+interface FakeSocketCall {
+  url: string
+  protocols: string[]
+  options: Record<string, unknown>
+}
+
+const constructorCalls: FakeSocketCall[] = []
+
+class FakeReconnectingWebSocket extends EventEmitter {
+  static readonly OPEN = 1
+
+  readyState = FakeReconnectingWebSocket.OPEN
+  sent: unknown[] = []
+
+  constructor(
+    url: string,
+    protocols: string[],
+    options: Record<string, unknown>,
+  ) {
+    super()
+    constructorCalls.push({ url, protocols, options })
+  }
+
+  addEventListener(event: string, listener: (...args: unknown[]) => void) {
+    this.on(event, listener)
+  }
+
+  send(data: unknown) {
+    this.sent.push(data)
+  }
+}
+
+vi.mock('reconnecting-websocket', () => ({
+  default: FakeReconnectingWebSocket,
+}))
+
+const { default: StreamdelayClient } = await import('./StreamdelayClient')
 
 describe('StreamdelayClient emitState', () => {
   it('reports disconnected even when the cached status still says connected', () => {
@@ -48,5 +86,39 @@ describe('StreamdelayClient emitState', () => {
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({ isConnected: true }),
     )
+  })
+})
+
+describe('StreamdelayClient reconnect queue', () => {
+  it('bounds the ReconnectingWebSocket send queue instead of leaving it unbounded', () => {
+    const client = new StreamdelayClient({
+      endpoint: 'http://streamdelay.example',
+      key: 'test-key',
+    })
+
+    client.connect()
+
+    const { options } = constructorCalls.at(-1) as FakeSocketCall
+    expect(options.maxEnqueuedMessages).toBeDefined()
+    expect(options.maxEnqueuedMessages).not.toBe(Infinity)
+    expect(options.maxEnqueuedMessages as number).toBeGreaterThanOrEqual(0)
+  })
+
+  it('still sends censor/running commands once connected', () => {
+    const client = new StreamdelayClient({
+      endpoint: 'http://streamdelay.example',
+      key: 'test-key',
+    })
+
+    client.connect()
+    const fakeWs = client.ws as unknown as FakeReconnectingWebSocket
+
+    client.setCensored(true)
+    client.setStreamRunning(false)
+
+    expect(fakeWs.sent).toEqual([
+      JSON.stringify({ isCensored: true }),
+      JSON.stringify({ isStreamRunning: false }),
+    ])
   })
 })

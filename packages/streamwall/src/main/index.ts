@@ -13,6 +13,7 @@ import {
   StreamwallState,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
+  isSocketOpen,
   parseControlEndpoint,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
@@ -803,6 +804,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 100 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.25,
+      // The 'open' handler below always re-sends the full client state and
+      // Yjs doc as soon as the connection (re)opens, so anything sent while
+      // disconnected is stale by the time it could be delivered. Disable the
+      // library's default unbounded queue rather than let it buffer full
+      // state snapshots for as long as the control server is unreachable.
+      maxEnqueuedMessages: 0,
     })
     ws.binaryType = 'arraybuffer'
     ws.addEventListener('open', () => {
@@ -830,9 +837,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       onCommand(msg, 'uplink')
     })
     stateEmitter.on('state', () => {
+      if (!isSocketOpen(ws)) {
+        return
+      }
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
     })
     stateDoc.on('update', (update) => {
+      if (!isSocketOpen(ws)) {
+        return
+      }
       ws.send(update)
     })
   }

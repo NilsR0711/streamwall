@@ -34,6 +34,12 @@ export default class StreamdelayClient extends EventEmitter {
       maxReconnectionDelay: 5000,
       minReconnectionDelay: 1000 + Math.random() * 500,
       reconnectionDelayGrowFactor: 1.1,
+      // Unlike the control uplink, commands sent here (setCensored,
+      // setStreamRunning) have no resync-on-reconnect path, so a single slot
+      // is kept to still deliver a command issued during a brief reconnect.
+      // The library's Infinity default would otherwise let the queue grow
+      // without bound for as long as streamdelay stays unreachable.
+      maxEnqueuedMessages: 1,
     }))
     ws.addEventListener('open', () => this.emitState())
     ws.addEventListener('close', () => this.emitState())
