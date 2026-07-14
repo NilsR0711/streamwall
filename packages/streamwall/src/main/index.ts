@@ -45,7 +45,7 @@ import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
-import { flushStorage, loadStorage } from './storage'
+import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
@@ -403,7 +403,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   const localStreamData = new LocalStreamData(db.data.localStreamData)
   localStreamData.on('update', (entries) => {
-    db.update((data) => {
+    safeUpdate(db, (data) => {
       data.localStreamData = entries
     })
   })
@@ -487,7 +487,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }
 
   const persistStateDoc = throttle(() => {
-    db.update((data) => {
+    safeUpdate(db, (data) => {
       const fullDoc = Y.encodeStateAsUpdate(stateDoc)
       data.stateDoc = Buffer.from(fullDoc).toString('base64')
     })
@@ -647,7 +647,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         msg.name,
       )
       const layoutPresets = addLayoutPreset(clientState.layoutPresets, preset)
-      db.update((data) => {
+      safeUpdate(db, (data) => {
         data.layoutPresets = layoutPresets
       })
       updateState({ layoutPresets })
@@ -674,7 +674,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       const layoutPresets = clientState.layoutPresets.filter(
         (p) => p.id !== msg.presetId,
       )
-      db.update((data) => {
+      safeUpdate(db, (data) => {
         data.layoutPresets = layoutPresets
       })
       updateState({ layoutPresets })
