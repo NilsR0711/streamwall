@@ -177,7 +177,12 @@ export class LocalStreamData extends EventEmitter<LocalStreamDataEvents> {
   update(url: string, data: Partial<StreamDataContent>) {
     const existing = this.dataByURL.get(url)
     const kind = data.kind ?? existing?.kind ?? 'video'
-    const updated: StreamDataContent = { ...existing, ...data, kind, link: url }
+    const updated: StreamDataContent = {
+      ...existing,
+      ...data,
+      kind,
+      link: data.link ?? url,
+    }
     this.dataByURL.set(data.link ?? url, updated)
     if (data.link != null && url !== data.link) {
       this.dataByURL.delete(url)

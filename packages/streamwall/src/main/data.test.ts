@@ -486,6 +486,16 @@ describe('LocalStreamData', () => {
     expect(data.dataByURL.has('https://b.example/s')).toBe(true)
   })
 
+  test('update() stores the new link on the entry itself after rekeying', () => {
+    const data = new LocalStreamData([
+      { kind: 'video', link: 'https://a.example/s' },
+    ])
+    data.update('https://a.example/s', { link: 'https://b.example/s' })
+    expect(data.dataByURL.get('https://b.example/s')?.link).toBe(
+      'https://b.example/s',
+    )
+  })
+
   test('update() emits the full entry list on the "update" event', () => {
     const data = new LocalStreamData()
     const onUpdate = vi.fn()
