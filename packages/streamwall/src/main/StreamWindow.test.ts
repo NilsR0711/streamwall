@@ -1,4 +1,4 @@
-import type { StreamWindowConfig } from 'streamwall-shared'
+import type { StreamWindowConfig, ViewContentMap } from 'streamwall-shared'
 import { describe, expect, it, vi } from 'vitest'
 
 // StreamWindow pulls in Electron (directly and via ./loadHTML and
@@ -159,3 +159,58 @@ function makeFakeViewActorWithSnapshot(snapshot: {
     send: vi.fn(),
   } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
 }
+
+/**
+ * A stand-in for a ViewActor with enough of the `setViews()` teardown surface
+ * (`stop()`, `context.view`/`context.offscreenWin`) to verify a skipped view
+ * is torn down rather than leaked.
+ */
+function makeTeardownTrackingViewActor(id: number) {
+  const contentView = { webContents: { close: vi.fn() } }
+  const offscreenWin = {
+    contentView: { removeChildView: vi.fn() },
+    destroy: vi.fn(),
+  }
+  const stop = vi.fn()
+  return {
+    stop,
+    contentView,
+    offscreenWin,
+    actor: {
+      getSnapshot: () => ({
+        context: { id, view: contentView, offscreenWin, pos: null },
+        matches: () => false,
+      }),
+      matches: () => false,
+      send: vi.fn(),
+      stop,
+    } as unknown as ReturnType<typeof StreamWindow.prototype.createView>,
+  }
+}
+
+describe('StreamWindow.setViews', () => {
+  it('tears down a newly created view whose box content has no matching stream, instead of leaking it', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+    sw.views = new Map()
+
+    const tracked = makeTeardownTrackingViewActor(99)
+    sw.createView = vi.fn(() => tracked.actor)
+
+    // A box exists for space 0, but the URL it references is not present in
+    // `streams.byURL`, exercising the `!stream` skip branch in setViews.
+    const viewContentMap: ViewContentMap = new Map([
+      ['0', { url: 'https://example.com/missing', kind: 'video' }],
+    ])
+    const streams = { byURL: new Map() }
+
+    sw.setViews(viewContentMap, streams)
+
+    expect(tracked.stop).toHaveBeenCalled()
+    expect(tracked.contentView.webContents.close).toHaveBeenCalled()
+    expect(tracked.offscreenWin.destroy).toHaveBeenCalled()
+    expect(sw.views.size).toBe(0)
+  })
+})
