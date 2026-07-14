@@ -2,7 +2,7 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { Color } from 'streamwall-shared'
 import { afterEach, describe, expect, test } from 'vitest'
-import { GridPreviewBox } from './index.tsx'
+import { GridPreviewBox } from './GridPreviewBox.tsx'
 
 let container: HTMLDivElement | undefined
 

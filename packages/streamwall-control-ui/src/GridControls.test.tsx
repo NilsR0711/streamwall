@@ -1,7 +1,7 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { GridControls } from './index.tsx'
+import { GridControls } from './GridControls.tsx'
 
 // react-icons renders through preact/compat's Context.Consumer, which
 // currently crashes under this package's happy-dom test environment
