@@ -58,12 +58,12 @@ export function OverlayViewTile({
 
   return (
     <>
-      <FilterCover isBlurred={isBlurred} isDesaturated={isLoading} />
+      <FilterCover $isBlurred={isBlurred} $isDesaturated={isLoading} />
       {hasTitle && (
         <StreamTitle
-          position={position}
-          activeColor={activeColor}
-          isListening={isListening}
+          $position={position}
+          $activeColor={activeColor}
+          $isListening={isListening}
         >
           <StreamIcon url={url} />
           <span>{data.label ? data.label : <>{data.source}</>}</span>
@@ -78,7 +78,7 @@ export function OverlayViewTile({
           </span>
         </StreamLocation>
       )}
-      <LoadingSpinner isVisible={isLoading} />
+      <LoadingSpinner $isVisible={isLoading} />
     </>
   )
 }
@@ -112,19 +112,19 @@ function StreamIcon({ url }: { url: string }) {
 }
 
 const StreamTitle = styled.div<{
-  position: StreamData['labelPosition']
-  isListening: boolean
-  activeColor: string
+  $position: StreamData['labelPosition']
+  $isListening: boolean
+  $activeColor: string
 }>`
   position: absolute;
-  ${({ position }) => {
-    if (position === 'top-left') {
+  ${({ $position }) => {
+    if ($position === 'top-left') {
       return `top: 0; left: 0;`
-    } else if (position === 'top-right') {
+    } else if ($position === 'top-right') {
       return `top: 0; right: 0;`
-    } else if (position === 'bottom-right') {
+    } else if ($position === 'bottom-right') {
       return `bottom: 0; right: 0;`
-    } else if (position === 'bottom-left') {
+    } else if ($position === 'bottom-left') {
       return `bottom: 0; left: 0;`
     }
   }}
@@ -141,8 +141,8 @@ const StreamTitle = styled.div<{
   color: white;
   text-shadow: 0 0 4px black;
   letter-spacing: -0.025em;
-  background: ${({ isListening, activeColor }) =>
-    Color(isListening ? activeColor : 'black')
+  background: ${({ $isListening, $activeColor }) =>
+    Color($isListening ? $activeColor : 'black')
       .alpha(0.5)
       .toString()};
   border-radius: 4px;
@@ -203,31 +203,35 @@ const StreamLocation = styled.div`
   }
 `
 
-const LoadingSpinner = styled(TailSpin)<{ isVisible: boolean }>`
+const LoadingSpinner = styled(TailSpin)<{ $isVisible: boolean }>`
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
   width: 100px;
   height: 100px;
-  opacity: ${({ isVisible }) => (isVisible ? 0.5 : 0)};
+  opacity: ${({ $isVisible }) => ($isVisible ? 0.5 : 0)};
 
   transition:
     opacity 0.5s ease-in-out,
-    visibility 0s ${({ isVisible }) => (isVisible ? '0s' : '0.5s')};
-  visibility: ${({ isVisible }) => (isVisible ? 'visible' : 'hidden')};
+    visibility 0s ${({ $isVisible }) => ($isVisible ? '0s' : '0.5s')};
+  visibility: ${({ $isVisible }) => ($isVisible ? 'visible' : 'hidden')};
 `
 
-const FilterCover = styled.div<{ isBlurred: boolean; isDesaturated: boolean }>`
+const FilterCover = styled.div<{
+  $isBlurred: boolean
+  $isDesaturated: boolean
+}>`
   position: absolute;
   left: 0;
   right: 0;
   top: 0;
   bottom: 0;
-  backdrop-filter: ${({ isBlurred, isDesaturated }) =>
-    [isBlurred ? 'blur(30px)' : '', isDesaturated ? 'grayscale(75%)' : ''].join(
-      ' ',
-    )};
+  backdrop-filter: ${({ $isBlurred, $isDesaturated }) =>
+    [
+      $isBlurred ? 'blur(30px)' : '',
+      $isDesaturated ? 'grayscale(75%)' : '',
+    ].join(' ')};
 `
 
 const ErrorCover = styled.div`

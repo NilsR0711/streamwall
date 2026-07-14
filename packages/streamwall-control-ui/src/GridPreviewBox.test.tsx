@@ -89,4 +89,24 @@ describe('GridPreviewBox', () => {
 
     expect(box.querySelector('.small')).not.toBeNull()
   })
+
+  test('does not leak custom styled-component props onto the DOM node (#152)', () => {
+    const box = renderBox({ isError: true, isListening: true })
+
+    for (const el of box.querySelectorAll('*')) {
+      for (const propName of [
+        'color',
+        'pos',
+        'windowwidth',
+        'windowheight',
+        'islistening',
+        'iserror',
+      ]) {
+        expect(
+          el.hasAttribute(propName),
+          `<${el.tagName.toLowerCase()}> unexpectedly has a "${propName}" attribute`,
+        ).toBe(false)
+      }
+    }
+  })
 })

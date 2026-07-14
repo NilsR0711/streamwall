@@ -1062,14 +1062,14 @@ export function ControlUI({
 
   return (
     <Stack
-      flex="1"
-      direction="row"
-      gap={16}
+      $flex="1"
+      $direction="row"
+      $gap={16}
       style={{ height: '100vh', minHeight: 0, padding: 16, overflow: 'hidden' }}
     >
       <Stack
         className="grid-container"
-        flex="1"
+        $flex="1"
         style={{ minWidth: 0, minHeight: 0 }}
       >
         <StyledHeader>
@@ -1108,7 +1108,7 @@ export function ControlUI({
           />
         )}
         <StyledDataContainer
-          isConnected={isConnected}
+          $isConnected={isConnected}
           style={{
             flex: 1,
             minHeight: 0,
@@ -1122,8 +1122,8 @@ export function ControlUI({
               className="grid"
               onMouseMove={updateHoveringIdx}
               onMouseLeave={clearHoveringIdx}
-              windowWidth={windowWidth}
-              windowHeight={windowHeight}
+              $windowWidth={windowWidth}
+              $windowHeight={windowHeight}
             >
               <StyledGridInputs>
                 {range(0, rows).map((y) =>
@@ -1314,11 +1314,11 @@ export function ControlUI({
       </Stack>
       <Stack
         className="stream-list"
-        scroll={true}
-        minHeight={200}
+        $scroll={true}
+        $minHeight={200}
         style={{ flex: '0 0 340px' }}
       >
-        <StyledDataContainer isConnected={isConnected}>
+        <StyledDataContainer $isConnected={isConnected}>
           {isConnected ? (
             <div>
               <input
@@ -1417,18 +1417,18 @@ export function ControlUI({
 }
 
 const Stack = styled.div<{
-  direction?: string
-  flex?: string
-  gap?: number
-  scroll?: boolean
-  minHeight?: number
+  $direction?: string
+  $flex?: string
+  $gap?: number
+  $scroll?: boolean
+  $minHeight?: number
 }>`
   display: flex;
-  flex-direction: ${({ direction }) => direction ?? 'column'};
-  flex: ${({ flex }) => flex};
-  ${({ gap }) => gap && `gap: ${gap}px`};
-  ${({ scroll }) => scroll && `overflow-y: auto`};
-  ${({ minHeight }) => minHeight && `min-height: ${minHeight}px`};
+  flex-direction: ${({ $direction }) => $direction ?? 'column'};
+  flex: ${({ $flex }) => $flex};
+  ${({ $gap }) => $gap && `gap: ${$gap}px`};
+  ${({ $scroll }) => $scroll && `overflow-y: auto`};
+  ${({ $minHeight }) => $minHeight && `min-height: ${$minHeight}px`};
 `
 
 function StreamDurationClock({ startTime }: { startTime: number }) {
@@ -1489,7 +1489,7 @@ function StreamDelayBox({
             <span>delay: {delayState.delaySeconds}s</span>
             {delayState.isStreamRunning && (
               <StyledButton
-                isActive={delayState.isCensored}
+                $isActive={delayState.isCensored}
                 onClick={handleToggleStreamCensored}
                 tabIndex={1}
               >
@@ -1567,13 +1567,13 @@ export function GridPreviewBox({
 }) {
   return (
     <StyledGridPreviewBox
-      color={color}
+      $color={color}
       style={style}
-      pos={pos}
-      windowWidth={windowWidth}
-      windowHeight={windowHeight}
-      isListening={isListening}
-      isError={isError}
+      $pos={pos}
+      $windowWidth={windowWidth}
+      $windowHeight={windowHeight}
+      $isListening={isListening}
+      $isError={isError}
     >
       <StyledGridInfo className={isSmall ? 'small' : undefined}>
         <StyledGridLabel>
@@ -1857,8 +1857,8 @@ function GridInput({
     <StyledGridInputContainer style={style}>
       <StyledGridInput
         value={spaceValue}
-        color={idColor(spaceValue)}
-        isHighlighted={isHighlighted}
+        $color={idColor(spaceValue)}
+        $isHighlighted={isHighlighted}
         disabled={!roleCan(role, 'mutate-state-doc')}
         onFocus={handleFocus}
         onBlur={handleBlur}
@@ -1955,7 +1955,7 @@ function GridControls({
   return (
     <StyledGridControlsContainer style={style} onMouseDown={onMouseDown}>
       {isDisplaying && (
-        <StyledGridButtons side="left">
+        <StyledGridButtons $side="left">
           {showDebug ? (
             <>
               {roleCan(role, 'reload-view') && (
@@ -1983,7 +1983,7 @@ function GridControls({
               )}
               {roleCan(role, 'mutate-state-doc') && (
                 <StyledSmallButton
-                  isActive={isSwapping}
+                  $isActive={isSwapping}
                   onClick={handleSwapClick}
                   tabIndex={1}
                 >
@@ -1999,10 +1999,10 @@ function GridControls({
           )}
         </StyledGridButtons>
       )}
-      <StyledGridButtons side="right">
+      <StyledGridButtons $side="right">
         {roleCan(role, 'set-view-blurred') && (
           <StyledButton
-            isActive={isBlurred}
+            $isActive={isBlurred}
             onClick={handleBlurClick}
             tabIndex={1}
           >
@@ -2011,8 +2011,8 @@ function GridControls({
         )}
         {roleCan(role, 'set-listening-view') && (
           <StyledButton
-            isActive={isListening || isBackgroundListening}
-            activeColor={
+            $isActive={isListening || isBackgroundListening}
+            $activeColor={
               isListening ? 'red' : Color('red').desaturate(0.5).hsl().string()
             }
             onClick={handleListeningClick}
@@ -2201,13 +2201,13 @@ const StyledStreamDelayBox = styled.div`
   color: var(--text);
 `
 
-const StyledDataContainer = styled.div<{ isConnected?: boolean }>`
-  opacity: ${({ isConnected }) => (isConnected ? 1 : 0.5)};
+const StyledDataContainer = styled.div<{ $isConnected?: boolean }>`
+  opacity: ${({ $isConnected }) => ($isConnected ? 1 : 0.5)};
 `
 
 const StyledButton = styled.button<{
-  isActive?: boolean
-  activeColor?: string
+  $isActive?: boolean
+  $activeColor?: string
 }>`
   display: flex;
   align-items: center;
@@ -2224,11 +2224,11 @@ const StyledButton = styled.button<{
     border-color: var(--text-faint);
   }
 
-  ${({ isActive, activeColor = 'red' }) =>
-    isActive &&
+  ${({ $isActive, $activeColor = 'red' }) =>
+    $isActive &&
     `
-      border-color: ${Color(activeColor).hsl().string()};
-      background: ${Color(activeColor).hsl().string()};
+      border-color: ${Color($activeColor).hsl().string()};
+      background: ${Color($activeColor).hsl().string()};
       color: #fff;
     `};
 
@@ -2267,42 +2267,42 @@ const StyledGridInfo = styled.div`
 `
 
 const StyledGridPreviewBox = styled.div.attrs<{
-  color: ColorInstance
-  isError: boolean
-  pos: ViewPos
-  windowWidth: number
-  windowHeight: number
-  isListening: boolean
-  borderWidth?: number
+  $color: ColorInstance
+  $isError: boolean
+  $pos: ViewPos
+  $windowWidth: number
+  $windowHeight: number
+  $isListening: boolean
+  $borderWidth?: number
 }>(() => ({
-  borderWidth: 2,
+  $borderWidth: 2,
 }))`
   display: flex;
   align-items: center;
   justify-content: center;
   position: absolute;
-  background: ${({ color }) =>
-    Color(color).lightness(50).hsl().string() || '#333'};
+  background: ${({ $color }) =>
+    Color($color).lightness(50).hsl().string() || '#333'};
   border: 0 solid
-    ${({ isError }) =>
-      isError ? Color('red').hsl().string() : Color('black').hsl().string()};
-  border-left-width: ${({ pos, borderWidth }) =>
-    pos.x === 0 ? 0 : borderWidth}px;
-  border-right-width: ${({ pos, borderWidth, windowWidth }) =>
-    pos.x + pos.width === windowWidth ? 0 : borderWidth}px;
-  border-top-width: ${({ pos, borderWidth }) =>
-    pos.y === 0 ? 0 : borderWidth}px;
-  border-bottom-width: ${({ pos, borderWidth, windowHeight }) =>
-    pos.y + pos.height === windowHeight ? 0 : borderWidth}px;
-  box-shadow: ${({ isListening }) =>
-    isListening ? `0 0 0 4px red inset` : 'none'};
+    ${({ $isError }) =>
+      $isError ? Color('red').hsl().string() : Color('black').hsl().string()};
+  border-left-width: ${({ $pos, $borderWidth }) =>
+    $pos.x === 0 ? 0 : $borderWidth}px;
+  border-right-width: ${({ $pos, $borderWidth, $windowWidth }) =>
+    $pos.x + $pos.width === $windowWidth ? 0 : $borderWidth}px;
+  border-top-width: ${({ $pos, $borderWidth }) =>
+    $pos.y === 0 ? 0 : $borderWidth}px;
+  border-bottom-width: ${({ $pos, $borderWidth, $windowHeight }) =>
+    $pos.y + $pos.height === $windowHeight ? 0 : $borderWidth}px;
+  box-shadow: ${({ $isListening }) =>
+    $isListening ? `0 0 0 4px red inset` : 'none'};
   box-sizing: border-box;
   overflow: hidden;
   user-select: none;
 
   ${StyledGridInfo} {
-    background: ${({ color }) =>
-      Color(color).lightness(50).hsl().string() || '#333'};
+    background: ${({ $color }) =>
+      Color($color).lightness(50).hsl().string() || '#333'};
   }
 `
 
@@ -2374,31 +2374,31 @@ const StyledGridInputContainer = styled.div`
   position: absolute;
 `
 
-const StyledGridButtons = styled.div<{ side?: 'left' | 'right' }>`
+const StyledGridButtons = styled.div<{ $side?: 'left' | 'right' }>`
   display: flex;
   position: absolute;
-  ${({ side }) =>
-    side === 'left' ? 'top: 0; left: 0' : 'bottom: 0; right: 0'};
+  ${({ $side }) =>
+    $side === 'left' ? 'top: 0; left: 0' : 'bottom: 0; right: 0'};
 
   ${StyledButton} {
     margin: 5px;
-    ${({ side }) => (side === 'left' ? 'margin-right: 0' : 'margin-left: 0')};
+    ${({ $side }) => ($side === 'left' ? 'margin-right: 0' : 'margin-left: 0')};
   }
 `
 
 const StyledGridInput = styled(LazyChangeInput)<{
-  color: ColorInstance
-  isHighlighted?: boolean
+  $color: ColorInstance
+  $isHighlighted?: boolean
 }>`
   width: 100%;
   height: 100%;
   outline: 1px solid rgba(0, 0, 0, 0.5);
   border: none;
   padding: 0;
-  background: ${({ color, isHighlighted }) =>
-    isHighlighted
-      ? Color(color).lightness(90).hsl().string()
-      : Color(color).lightness(75).hsl().string()};
+  background: ${({ $color, $isHighlighted }) =>
+    $isHighlighted
+      ? Color($color).lightness(90).hsl().string()
+      : Color($color).lightness(75).hsl().string()};
   font-size: 20px;
   text-align: center;
 
@@ -2419,14 +2419,14 @@ const StyledGridControlsContainer = styled.div`
 `
 
 const StyledGridContainer = styled.div<{
-  windowWidth: number
-  windowHeight: number
+  $windowWidth: number
+  $windowHeight: number
 }>`
   position: relative;
   /* Responsive: keep the wall's aspect ratio but fit the available space
      instead of a hard-coded pixel size, so the layout never overflows. */
-  aspect-ratio: ${({ windowWidth, windowHeight }) =>
-    `${windowWidth} / ${windowHeight}`};
+  aspect-ratio: ${({ $windowWidth, $windowHeight }) =>
+    `${$windowWidth} / ${$windowHeight}`};
   width: 100%;
   max-height: 100%;
   margin: 0 auto;
