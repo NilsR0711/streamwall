@@ -21,6 +21,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
   FaExchangeAlt,
+  FaExclamationTriangle,
   FaRedoAlt,
   FaRegLifeRing,
   FaRegWindowMaximize,
@@ -1221,6 +1222,8 @@ export function ControlUI({
                   }
 
                   const isSmall = pos.height < 200
+                  const isError = matchesState('displaying.error', state.state)
+                  const errorReason = state.context.error
                   return (
                     <StyledGridPreviewBox
                       color={idColor(streamId)}
@@ -1234,7 +1237,7 @@ export function ControlUI({
                       windowWidth={windowWidth}
                       windowHeight={windowHeight}
                       isListening={isListening}
-                      isError={matchesState('displaying.error', state.state)}
+                      isError={isError}
                     >
                       <StyledGridInfo className={isSmall ? 'small' : undefined}>
                         <StyledGridLabel>
@@ -1249,6 +1252,12 @@ export function ControlUI({
                           <StyledGridLocation>
                             {data?.city} {data?.state}
                           </StyledGridLocation>
+                        )}
+                        {isError && (
+                          <StyledGridError title={errorReason ?? undefined}>
+                            <FaExclamationTriangle />
+                            <span>{errorReason ?? 'Stream error'}</span>
+                          </StyledGridError>
                         )}
                       </StyledGridInfo>
                     </StyledGridPreviewBox>
@@ -2263,6 +2272,37 @@ const StyledGridLabel = styled.div`
 const StyledGridLocation = styled.div`
   font-size: 13px;
   opacity: 0.75;
+`
+
+const StyledGridError = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  background: ${Color('red').alpha(0.7).string()};
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  span {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+
+  ${StyledGridInfo}.small & {
+    span {
+      display: none;
+    }
+  }
 `
 
 const StyledGridInputs = styled.div`
