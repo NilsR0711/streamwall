@@ -6,6 +6,21 @@ import Hls, { ErrorTypes, Events, type ErrorData } from 'hls.js'
 // existing view-stall/error detection in mediaPreload.ts take over.
 const MAX_FATAL_ERROR_RETRIES = 3
 
+// Matches this page's own `media-src` CSP directive (see playHLS.html).
+// `src` is an attacker-controllable query param, and the native-playback
+// fallback assigns it directly to a <video> element, so it must be
+// restricted to the schemes we actually intend to play before either
+// loading path touches it.
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'blob:'])
+
+function isPlayableSrc(src: string): boolean {
+  try {
+    return ALLOWED_PROTOCOLS.has(new URL(src, location.href).protocol)
+  } catch {
+    return false
+  }
+}
+
 function loadWithHlsJs(src: string) {
   const videoEl = document.createElement('video')
   const hls = new Hls()
@@ -58,6 +73,8 @@ function loadNatively(videoEl: HTMLVideoElement, src: string) {
 }
 
 function loadHLS(src: string) {
+  if (!isPlayableSrc(src)) return
+
   if (Hls.isSupported()) {
     loadWithHlsJs(src)
     return

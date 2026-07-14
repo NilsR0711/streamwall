@@ -80,6 +80,14 @@ describe('playHLS', () => {
     expect(document.querySelector('video')).toBeNull()
   })
 
+  it('rejects a src with a disallowed protocol instead of loading or assigning it to a video element', async () => {
+    setSrc('javascript:alert(document.domain)')
+    await import('./playHLS')
+
+    expect(lastInstance).toBeUndefined()
+    expect(document.querySelector('video')).toBeNull()
+  })
+
   it('appends the video element once the manifest has parsed', async () => {
     setSrc('https://stream.example/live.m3u8')
     await import('./playHLS')
