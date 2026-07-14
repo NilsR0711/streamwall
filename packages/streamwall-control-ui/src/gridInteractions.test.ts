@@ -5,6 +5,7 @@ import {
   computeResizeAssignments,
   computeSwap,
   isIdxInResizeBox,
+  resizeWouldOverwriteOtherStream,
   type SwapBox,
 } from './gridInteractions'
 
@@ -335,6 +336,106 @@ describe('computeKeyboardResizeHoverIdx', () => {
     expect(
       computeKeyboardResizeHoverIdx(cols, rows, 0, 'se', [0], 'Enter'),
     ).toBeUndefined()
+  })
+})
+
+describe('resizeWouldOverwriteOtherStream', () => {
+  it('reports true when the box spanned by the resize covers a cell held by a different stream', () => {
+    // 3-col grid; anchor at idx 0 (x0,y0), hover at idx 4 (x1,y1) spans the
+    // 2x2 box { 0, 1, 3, 4 }. Cell 4 already belongs to a different stream.
+    const currentAssignments = new Map([
+      [0, 'stream-a'],
+      [1, undefined],
+      [3, undefined],
+      [4, 'stream-b'],
+    ])
+    expect(
+      resizeWouldOverwriteOtherStream(
+        3,
+        0,
+        4,
+        'stream-a',
+        'se',
+        [0],
+        currentAssignments,
+      ),
+    ).toBe(true)
+  })
+
+  it('reports false when every spanned cell is already empty or already this stream', () => {
+    const currentAssignments = new Map([
+      [0, 'stream-a'],
+      [1, undefined],
+      [3, undefined],
+      [4, undefined],
+    ])
+    expect(
+      resizeWouldOverwriteOtherStream(
+        3,
+        0,
+        4,
+        'stream-a',
+        'se',
+        [0],
+        currentAssignments,
+      ),
+    ).toBe(false)
+  })
+
+  it('treats an empty-string streamId the same as undefined', () => {
+    const currentAssignments = new Map([
+      [0, 'stream-a'],
+      [1, ''],
+    ])
+    expect(
+      resizeWouldOverwriteOtherStream(
+        3,
+        0,
+        1,
+        'stream-a',
+        'e',
+        [0],
+        currentAssignments,
+      ),
+    ).toBe(false)
+  })
+
+  it('ignores cells outside the spanned box even if they belong to another stream', () => {
+    // Same grid as above but hover only reaches idx 1 (width 2, height 1) —
+    // cell 4's occupant is irrelevant since it falls outside the box.
+    const currentAssignments = new Map([
+      [0, 'stream-a'],
+      [1, undefined],
+      [4, 'stream-b'],
+    ])
+    expect(
+      resizeWouldOverwriteOtherStream(
+        3,
+        0,
+        1,
+        'stream-a',
+        'e',
+        [0],
+        currentAssignments,
+      ),
+    ).toBe(false)
+  })
+
+  it('does not flag a cell that is not present in the current assignments map', () => {
+    const currentAssignments = new Map<number, string | undefined>([
+      [0, 'stream-a'],
+    ])
+    expect(
+      resizeWouldOverwriteOtherStream(
+        3,
+        0,
+        1,
+        'stream-a',
+        'e',
+        [0],
+        currentAssignments,
+      ),
+    ).toBe(false)
   })
 })
 

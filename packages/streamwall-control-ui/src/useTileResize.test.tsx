@@ -32,6 +32,12 @@ afterEach(() => {
     container.remove()
     container = undefined
   }
+  vi.restoreAllMocks()
+  // happy-dom doesn't implement window.confirm; tests that stub it assign it
+  // directly, so undo that here rather than leaving a stale mock behind for
+  // later tests.
+  // @ts-expect-error -- resetting a test-only stub, not a real property
+  delete window.confirm
 })
 
 function seedViews(
@@ -206,6 +212,82 @@ describe('useTileResize', () => {
     // Resizing 'e' (east) from anchor 0 out to cell 1 spans both top cells.
     expect(readViews(doc).get(0)).toBe('stream-a')
     expect(readViews(doc).get(1)).toBe('stream-a')
+    expect(resizing()).toBe('')
+  })
+
+  test('commits without confirming when the resize does not overwrite another stream', () => {
+    // happy-dom does not implement window.confirm, so it's stubbed directly
+    // rather than spied on.
+    const confirmSpy = vi.fn()
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, undefined],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: { '0': { streamId: 'stream-a' } },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(readViews(doc).get(1)).toBe('stream-a')
+  })
+
+  test('asks for confirmation before a resize would overwrite another stream, and commits when confirmed', () => {
+    const confirmSpy = vi.fn().mockReturnValue(true)
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(confirmSpy).toHaveBeenCalledOnce()
+    expect(readViews(doc).get(1)).toBe('stream-a')
+  })
+
+  test('does not commit a resize that would overwrite another stream when the user cancels', () => {
+    window.confirm = vi.fn().mockReturnValue(false)
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click, resizing } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(readViews(doc).get(1)).toBe('stream-b')
     expect(resizing()).toBe('')
   })
 
