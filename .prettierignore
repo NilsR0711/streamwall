@@ -9,6 +9,9 @@ build/
 .vite/
 .webpack/
 
+# Local design mockups / render artifacts (mirrors .gitignore)
+design/
+
 # Coverage / logs / caches
 coverage/
 *.log
