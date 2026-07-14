@@ -4,7 +4,13 @@ import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
-import type { StreamwallRole } from 'streamwall-shared'
+import type {
+  ClientCommandResponse,
+  ClientStateMessage,
+  ControlCommandMessage,
+  ServerToClientMessage,
+  StreamwallRole,
+} from 'streamwall-shared'
 import {
   buildTestApp,
   connectStreamwallUplink,
@@ -16,6 +22,22 @@ import {
 } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
+
+/** Narrows to the server's reply to the client command with the given `id`. */
+function isResponseTo(id: number) {
+  return (m: ServerToClientMessage): m is ClientCommandResponse =>
+    'response' in m && m.response === true && m.id === id
+}
+
+/** Narrows to a forwarded control command of the given `type`. */
+function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
+  return (
+    m: ControlCommandMessage,
+  ): m is Extract<ControlCommandMessage, { type: Type }> => m.type === type
+}
+
+const isStateMessage = (m: ServerToClientMessage): m is ClientStateMessage =>
+  'type' in m && m.type === 'state'
 
 /** Temporarily replaces `console.warn`, capturing every call made while active. */
 function spyOnConsoleWarn() {
@@ -46,7 +68,7 @@ async function bootServerWithUplink() {
   after(() => app.close())
   const port = await listenTestApp(app)
 
-  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink<any>(
+  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink(
     auth,
     port,
   )
@@ -54,7 +76,7 @@ async function bootServerWithUplink() {
   await delay(150)
 
   async function connectClient(role: StreamwallRole) {
-    const { ws: clientWs, client } = await redeemInviteAndConnectClient<any>(
+    const { ws: clientWs, client } = await redeemInviteAndConnectClient(
       app,
       auth,
       port,
@@ -83,9 +105,7 @@ test('an operator cannot create-invite: it is dropped, logged, and never forward
     )
     clientWs.send(JSON.stringify({ id: 2, type: 'reload-view', viewIdx: 0 }))
 
-    const response = await client.waitFor(
-      (m) => m.response === true && m.id === 1,
-    )
+    const response = await client.waitFor(isResponseTo(1))
     assert.equal(response.error, 'unauthorized')
 
     await streamwall.waitFor((m) => m.type === 'reload-view')
@@ -115,9 +135,7 @@ test('an operator cannot browse: it is dropped, logged, and never forwarded', as
     )
     clientWs.send(JSON.stringify({ id: 4, type: 'reload-view', viewIdx: 0 }))
 
-    const response = await client.waitFor(
-      (m) => m.response === true && m.id === 3,
-    )
+    const response = await client.waitFor(isResponseTo(3))
     assert.equal(response.error, 'unauthorized')
 
     await streamwall.waitFor((m) => m.type === 'reload-view')
@@ -154,9 +172,7 @@ test('a monitor cannot create-invite: it is dropped, logged, and never forwarded
       JSON.stringify({ id: 6, type: 'set-stream-censored', isCensored: true }),
     )
 
-    const response = await client.waitFor(
-      (m) => m.response === true && m.id === 5,
-    )
+    const response = await client.waitFor(isResponseTo(5))
     assert.equal(response.error, 'unauthorized')
 
     await streamwall.waitFor((m) => m.type === 'set-stream-censored')
@@ -188,9 +204,7 @@ test('a monitor cannot browse: it is dropped, logged, and never forwarded', asyn
       JSON.stringify({ id: 8, type: 'set-stream-censored', isCensored: true }),
     )
 
-    const response = await client.waitFor(
-      (m) => m.response === true && m.id === 7,
-    )
+    const response = await client.waitFor(isResponseTo(7))
     assert.equal(response.error, 'unauthorized')
 
     await streamwall.waitFor((m) => m.type === 'set-stream-censored')
@@ -218,7 +232,7 @@ test('an operator can set-listening-view: it is forwarded to the Streamwall upli
   )
 
   const forwarded = await streamwall.waitFor(
-    (m) => m.type === 'set-listening-view',
+    isCommandType('set-listening-view'),
   )
   assert.equal(forwarded.viewIdx, 0)
 })
@@ -228,8 +242,8 @@ test("an admin's state broadcast includes auth while an operator's does not", as
   const { client: adminClient } = await connectClient('admin')
   const { client: operatorClient } = await connectClient('operator')
 
-  const adminState = await adminClient.waitFor((m) => m.type === 'state')
-  const operatorState = await operatorClient.waitFor((m) => m.type === 'state')
+  const adminState = await adminClient.waitFor(isStateMessage)
+  const operatorState = await operatorClient.waitFor(isStateMessage)
 
   assert.ok(
     adminState.state.auth && Array.isArray(adminState.state.auth.sessions),
@@ -271,7 +285,7 @@ test('rejects a second Streamwall connection while the first stays connected', a
     // so it deterministically proves the race window has closed rather than
     // assuming a fixed ordering.
     const { client } = await connectClient('admin')
-    await client.waitFor((m) => m.type === 'state')
+    await client.waitFor(isStateMessage)
 
     const secondToken = await auth.createToken({
       kind: 'streamwall',
@@ -324,14 +338,14 @@ test('a state message sent immediately on connect is not dropped while auth vali
   await once(streamwallWs, 'open')
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
 
-  const { client } = await redeemInviteAndConnectClient<any>(
+  const { client } = await redeemInviteAndConnectClient(
     app,
     auth,
     port,
     BASE_URL,
   )
 
-  const stateMsg = await client.waitFor((m) => m.type === 'state')
+  const stateMsg = await client.waitFor(isStateMessage)
   assert.deepEqual(
     stateMsg.state.config,
     VALID_STATE.config,

@@ -2,7 +2,13 @@ import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { StreamwallRole } from 'streamwall-shared'
+import type {
+  ClientCommandResponse,
+  ClientErrorMessage,
+  ControlCommandMessage,
+  ServerToClientMessage,
+  StreamwallRole,
+} from 'streamwall-shared'
 import * as Y from 'yjs'
 import {
   buildTestApp,
@@ -13,6 +19,23 @@ import {
 } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
+
+/** Narrows to the server's reply to the client command with the given `id`. */
+function isResponseTo(id: number) {
+  return (m: ServerToClientMessage): m is ClientCommandResponse =>
+    'response' in m && m.response === true && m.id === id
+}
+
+/** Narrows to a forwarded control command of the given `type`. */
+function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
+  return (
+    m: ControlCommandMessage,
+  ): m is Extract<ControlCommandMessage, { type: Type }> => m.type === type
+}
+
+/** Narrows to a bare connection-level rejection (never has `response`). */
+const isBareError = (m: ServerToClientMessage): m is ClientErrorMessage =>
+  !('response' in m) && 'error' in m
 
 // A per-test override of the update cap must not leak into other test files.
 after(() => {
@@ -48,14 +71,14 @@ async function connectStreamwallAndClient({
   after(() => app.close())
   const port = await listenTestApp(app)
 
-  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink<any>(
+  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink(
     auth,
     port,
   )
   streamwallWs.send(JSON.stringify(stateMessage))
   await delay(150)
 
-  const { ws: clientWs, client } = await redeemInviteAndConnectClient<any>(
+  const { ws: clientWs, client } = await redeemInviteAndConnectClient(
     app,
     auth,
     port,
@@ -76,7 +99,7 @@ test('does not forward an out-of-bounds command to the Streamwall uplink', async
 
   await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 2)
 
-  const reloads = streamwall.messages.filter((m) => m.type === 'reload-view')
+  const reloads = streamwall.messages.filter(isCommandType('reload-view'))
   assert.equal(reloads.length, 1, 'only the valid command should be forwarded')
   assert.equal(reloads[0].viewIdx, 2)
 })
@@ -92,7 +115,8 @@ test('does not forward an unknown command type to the Streamwall uplink', async 
   await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 1)
 
   assert.ok(
-    !streamwall.messages.some((m) => m.type === 'evil-command'),
+    // Not a real ControlCommand type: cast, since it can never actually match.
+    !streamwall.messages.some((m) => (m.type as string) === 'evil-command'),
     'the unknown command must never be forwarded',
   )
 })
@@ -102,9 +126,7 @@ test('answers an invalid command with an error response', async () => {
 
   clientWs.send(JSON.stringify({ id: 42, type: 'reload-view', viewIdx: -5 }))
 
-  const response = await client.waitFor(
-    (m) => m.response === true && m.id === 42,
-  )
+  const response = await client.waitFor(isResponseTo(42))
   assert.equal(response.error, 'invalid message')
 })
 
@@ -116,7 +138,7 @@ test('rejects a state message with no payload instead of wiring a broken connect
     stateMessage: { type: 'state' },
   })
 
-  const response = await client.waitFor((m) => typeof m.error === 'string')
+  const response = await client.waitFor(isBareError)
   assert.equal(response.error, 'streamwall disconnected')
 })
 

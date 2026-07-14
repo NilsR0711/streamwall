@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { after } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { StreamwallRole } from 'streamwall-shared'
+import type {
+  ControlCommandMessage,
+  ServerToClientMessage,
+  StreamwallRole,
+} from 'streamwall-shared'
 import WebSocket from 'ws'
 import { type AppOptions, initApp } from './index.ts'
 import type { StoredData } from './storage.ts'
@@ -107,28 +111,36 @@ export function recordJsonMessages<T = unknown>(ws: WebSocket) {
     }
   })
 
-  return {
-    messages,
-    waitFor(predicate: (m: T) => boolean, timeoutMs = 2000): Promise<T> {
-      const existing = messages.find(predicate)
-      if (existing !== undefined) {
-        return Promise.resolve(existing)
-      }
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error('timed out waiting for matching ws message')),
-          timeoutMs,
-        )
-        waiters.push({
-          predicate,
-          resolve: (m) => {
-            clearTimeout(timer)
-            resolve(m)
-          },
-        })
+  /**
+   * Overloaded so callers that pass a type-predicate (`(m): m is Foo => ...`)
+   * get back a `Promise<Foo>` instead of the wider `Promise<T>`.
+   */
+  function waitFor<S extends T>(
+    predicate: (m: T) => m is S,
+    timeoutMs?: number,
+  ): Promise<S>
+  function waitFor(predicate: (m: T) => boolean, timeoutMs?: number): Promise<T>
+  function waitFor(predicate: (m: T) => boolean, timeoutMs = 2000): Promise<T> {
+    const existing = messages.find(predicate)
+    if (existing !== undefined) {
+      return Promise.resolve(existing)
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('timed out waiting for matching ws message')),
+        timeoutMs,
+      )
+      waiters.push({
+        predicate,
+        resolve: (m) => {
+          clearTimeout(timer)
+          resolve(m)
+        },
       })
-    },
+    })
   }
+
+  return { messages, waitFor }
 }
 
 /**
@@ -169,10 +181,10 @@ export async function mintUplinkToken(auth: TestApp['auth'], port: number) {
  * Connects an authenticated Streamwall uplink WebSocket, records its JSON
  * frames from the moment it opens, and terminates it after the test.
  *
- * `T` describes the shape of the JSON frames the caller expects to record;
- * callers that inspect arbitrary/dynamic fields can instantiate it as `any`.
+ * `T` describes the shape of the JSON frames the caller expects to record,
+ * defaulting to the real shape the server forwards over this connection.
  */
-export async function connectStreamwallUplink<T = unknown>(
+export async function connectStreamwallUplink<T = ControlCommandMessage>(
   auth: TestApp['auth'],
   port: number,
 ) {
@@ -190,10 +202,10 @@ export async function connectStreamwallUplink<T = unknown>(
  * Redeems a freshly-minted invite for `role` and opens an authenticated
  * `/client/ws` socket, recording its JSON frames from the moment it opens.
  *
- * `T` describes the shape of the JSON frames the caller expects to record;
- * callers that inspect arbitrary/dynamic fields can instantiate it as `any`.
+ * `T` describes the shape of the JSON frames the caller expects to record,
+ * defaulting to the real shape the server sends over this connection.
  */
-export async function redeemInviteAndConnectClient<T = unknown>(
+export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
   app: TestApp['app'],
   auth: TestApp['auth'],
   port: number,
