@@ -150,6 +150,8 @@ export interface StreamwallState {
   views: ViewState[]
   streamdelay: StreamDelayStatus | null
   layoutPresets: LayoutPreset[]
+  /** Stream URLs (`StreamDataContent.link`) a user has starred for quick access. */
+  favorites: string[]
   dataSourceHealth: DataSourceHealth[]
 }
 
@@ -181,6 +183,8 @@ export type ControlCommand =
   | { type: 'save-layout-preset'; name: string }
   | { type: 'load-layout-preset'; presetId: string }
   | { type: 'delete-layout-preset'; presetId: string }
+  | { type: 'add-favorite'; url: string }
+  | { type: 'remove-favorite'; url: string }
 
 export type ControlUpdate = {
   type: 'state'
