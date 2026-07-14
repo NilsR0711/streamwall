@@ -30,13 +30,13 @@ All configuration is provided via environment variables.
 
 ### Server
 
-| Variable                      | Default                 | Description                                               |
-| ----------------------------- | ----------------------- | --------------------------------------------------------- |
-| `STREAMWALL_CONTROL_URL`      | `http://localhost:3000` | Public base URL; its scheme selects http/https behaviour. |
-| `STREAMWALL_CONTROL_HOSTNAME` | host from base URL      | Interface to bind.                                        |
-| `STREAMWALL_CONTROL_PORT`     | port from base URL      | Port to bind.                                             |
-| `STREAMWALL_CONTROL_STATIC`   | bundled client `dist`   | Directory of static client assets to serve.               |
-| `DB_PATH`                     | `storage.json`          | lowdb storage file.                                       |
+| Variable                      | Default                                     | Description                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `STREAMWALL_CONTROL_URL`      | `http://localhost:3000`                     | Public base URL; its scheme selects http/https behaviour.                                                                                                                                                          |
+| `STREAMWALL_CONTROL_HOSTNAME` | host from base URL                          | Interface to bind.                                                                                                                                                                                                 |
+| `STREAMWALL_CONTROL_PORT`     | port from base URL                          | Port to bind.                                                                                                                                                                                                      |
+| `STREAMWALL_CONTROL_STATIC`   | bundled client `dist`                       | Directory of static client assets to serve.                                                                                                                                                                        |
+| `DB_PATH`                     | `~/.streamwall-control-server/storage.json` | lowdb storage file (auth tokens). Anchored to the home directory, not the working directory, so it stays put regardless of where the server is started from; missing parent directories are created automatically. |
 
 ### Security / abuse protection
 
@@ -59,3 +59,43 @@ A WebSocket connection that exceeds its message budget is closed with code
 The Content-Security-Policy is kept compatible with the served control client.
 `upgrade-insecure-requests` is only emitted when `STREAMWALL_CONTROL_URL` uses
 `https`, so the plain-`http` local setup keeps working over `ws://`.
+
+## Deployment
+
+There is no separate compile step: the source targets Node 22's native
+TypeScript support (type-only syntax plus explicit `.ts` import specifiers),
+so it runs directly from `src/`. To run in production:
+
+```
+npm ci
+npm -w streamwall-control-client run build
+node packages/streamwall-control-server/src/index.ts
+```
+
+The first two commands install the workspace and build the static web control
+client that this server serves at `/`; the third starts the server itself
+(equivalent to `npm run start:server` at the repo root, which chains all
+three).
+
+Set at least `STREAMWALL_CONTROL_URL` to the server's public address (its
+scheme controls secure-cookie and CSP behaviour — see above) and `DB_PATH` to
+a path on persistent storage, e.g. under a mounted volume or a directory
+included in your backup strategy. A minimal `systemd` unit:
+
+```ini
+[Service]
+ExecStart=/usr/bin/node /opt/streamwall/packages/streamwall-control-server/src/index.ts
+Environment=STREAMWALL_CONTROL_URL=https://control.example.com
+Environment=DB_PATH=/var/lib/streamwall-control-server/storage.json
+Restart=on-failure
+```
+
+`WorkingDirectory` is deliberately left unset above: the default `DB_PATH`
+no longer depends on it (see the configuration table), but an explicit
+`DB_PATH` is still recommended in production so the storage location is
+obvious and easy to back up.
+
+> [!WARNING]
+> Never run the server with `NODE_ENV=test` set. lowdb's Node preset treats
+> that value as a signal to use an in-memory adapter instead of the file on
+> disk, so auth tokens would silently stop persisting across restarts.

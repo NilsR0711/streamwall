@@ -101,7 +101,7 @@ invites), **operator** (control the grid and streams), and **monitor**
 See
 [`packages/streamwall-control-server/README.md`](packages/streamwall-control-server/README.md)
 for environment variable configuration (hostname/port, storage location, rate
-limits).
+limits) and a production deployment walkthrough.
 
 ## Data sources
 
