@@ -380,3 +380,113 @@ describe('viewStateMachine volume control', () => {
     expect(sendViewVolume).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('viewStateMachine content swap while running', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const OTHER_CONTENT = {
+    url: 'https://example.com/other-stream',
+    kind: 'video' as const,
+  }
+  const OTHER_POS = { x: 10, y: 10, width: 50, height: 50, spaces: [1] }
+
+  // Same setup as makeActor, but with spies on offscreenView/positionView so
+  // tests can assert whether the view was shuffled offscreen and repositioned.
+  function makeActorWithPlacementSpies(retry: RetryConfig) {
+    const offscreenView = vi.fn()
+    const positionView = vi.fn()
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView,
+        positionView,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: {} as never,
+        win: {} as never,
+        offscreenWin: {} as never,
+        retry,
+      },
+    })
+    return { actor, offscreenView, positionView }
+  }
+
+  it('reloads directly into loading without re-shuffling the view offscreen', async () => {
+    const { actor, offscreenView } = makeActorWithPlacementSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+
+    actor.send({
+      type: 'DISPLAY',
+      pos: OTHER_POS,
+      content: OTHER_CONTENT,
+    })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    expect(snapshot.context.content).toEqual(OTHER_CONTENT)
+    expect(snapshot.context.pos).toEqual(OTHER_POS)
+    // The view is already live in the main window; swapping content must not
+    // repeat the "move offscreen while it (re)loads" shuffle that a fresh
+    // display does.
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns to running with the new content and repositions the view', async () => {
+    const { actor, offscreenView, positionView } =
+      makeActorWithPlacementSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    positionView.mockClear()
+
+    actor.send({
+      type: 'DISPLAY',
+      pos: OTHER_POS,
+      content: OTHER_CONTENT,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(snapshot.context.content).toEqual(OTHER_CONTENT)
+    expect(snapshot.context.pos).toEqual(OTHER_POS)
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+    expect(positionView).toHaveBeenCalledTimes(1)
+  })
+
+  it('still performs a fresh load for the new content (retry budget included)', async () => {
+    const { actor } = makeActorWithPlacementSpies(makeRetry({ maxRetries: 1 }))
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({
+      type: 'DISPLAY',
+      pos: OTHER_POS,
+      content: OTHER_CONTENT,
+    })
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+
+    // A fresh content swap should get its own retry budget rather than
+    // inheriting exhaustion from whatever the previous content did.
+    expect(actor.getSnapshot().context.retryCount).toBe(0)
+  })
+})
