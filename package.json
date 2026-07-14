@@ -18,7 +18,12 @@
   ],
   "overrides": {
     "tar": "^7.5.16",
-    "tmp": "^0.2.6"
+    "tmp": "^0.2.6",
+    "@electron/asar": {
+      "minimatch": {
+        "brace-expansion": "^1.1.13"
+      }
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
