@@ -62,6 +62,11 @@ import {
   isPrimaryButton,
   resolveMoveTarget,
 } from './gestures'
+import {
+  computeResizeAssignments,
+  computeSwap,
+  type SwapBox,
+} from './gridInteractions'
 import './index.css'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
@@ -595,48 +600,37 @@ export function ControlUI({
     },
     [stateIdxMap],
   )
+  const swapBoxes = useCallback(
+    (fromIdx: number, toIdx: number) => {
+      stateDoc.transact(() => {
+        const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
+        const boxes = new Map<number, SwapBox>(
+          [fromIdx, toIdx].map((idx) => [
+            idx,
+            {
+              spaces: stateIdxMap.get(idx)?.spaces ?? [idx],
+              streamId: viewsMap.get(String(idx))?.get('streamId'),
+            },
+          ]),
+        )
+        const assignments = computeSwap(boxes, fromIdx, toIdx)
+        for (const [idx, streamId] of assignments) {
+          viewsMap.get(String(idx))?.set('streamId', streamId)
+        }
+      })
+    },
+    [stateDoc, stateIdxMap],
+  )
+
   const handleSwap = useCallback(
     (toIdx: number) => {
       if (swapStartIdx === undefined) {
         return
       }
-      stateDoc.transact(() => {
-        const viewsState = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        const startStreamId = viewsState
-          ?.get(String(swapStartIdx))
-          ?.get('streamId')
-        const toStreamId = viewsState.get(String(toIdx))?.get('streamId')
-        const startSpaces = stateIdxMap.get(swapStartIdx)?.spaces ?? []
-        const toSpaces = stateIdxMap.get(toIdx)?.spaces ?? []
-        for (const startSpaceIdx of startSpaces) {
-          viewsState.get(String(startSpaceIdx))?.set('streamId', toStreamId)
-        }
-        for (const toSpaceIdx of toSpaces) {
-          viewsState.get(String(toSpaceIdx))?.set('streamId', startStreamId)
-        }
-      })
+      swapBoxes(swapStartIdx, toIdx)
       setSwapStartIdx(undefined)
     },
-    [stateDoc, stateIdxMap, swapStartIdx],
-  )
-
-  const swapBoxes = useCallback(
-    (fromIdx: number, toIdx: number) => {
-      stateDoc.transact(() => {
-        const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        const fromStreamId = viewsMap.get(String(fromIdx))?.get('streamId')
-        const toStreamId = viewsMap.get(String(toIdx))?.get('streamId')
-        const fromSpaces = stateIdxMap.get(fromIdx)?.spaces ?? [fromIdx]
-        const toSpaces = stateIdxMap.get(toIdx)?.spaces ?? [toIdx]
-        for (const idx of fromSpaces) {
-          viewsMap.get(String(idx))?.set('streamId', toStreamId)
-        }
-        for (const idx of toSpaces) {
-          viewsMap.get(String(idx))?.set('streamId', fromStreamId)
-        }
-      })
-    },
-    [stateDoc, stateIdxMap],
+    [swapBoxes, swapStartIdx],
   )
 
   const [hoveringIdx, setHoveringIdx] = useState<number>()
@@ -762,10 +756,14 @@ export function ControlUI({
       }
       stateDoc.transact(() => {
         const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        for (let idx = 0; idx < cols * rows; idx++) {
-          if (idxInBox(cols, resize.anchorIdx, hoveringIdx, idx)) {
-            viewsMap.get(String(idx))?.set('streamId', resize.streamId)
-          }
+        const assignments = computeResizeAssignments(
+          cols,
+          resize.anchorIdx,
+          hoveringIdx,
+          resize.streamId,
+        )
+        for (const [idx, streamId] of assignments) {
+          viewsMap.get(String(idx))?.set('streamId', streamId)
         }
       })
       setResize(undefined)
