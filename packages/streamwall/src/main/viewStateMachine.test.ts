@@ -489,6 +489,44 @@ describe('viewStateMachine content swap while running', () => {
     // inheriting exhaustion from whatever the previous content did.
     expect(actor.getSnapshot().context.retryCount).toBe(0)
   })
+
+  it('ignores a DISPLAY with unchanged content and position while running', async () => {
+    const { actor, offscreenView, positionView } =
+      makeActorWithPlacementSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    positionView.mockClear()
+
+    actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(snapshot.context.content).toEqual(CONTENT)
+    expect(snapshot.context.pos).toEqual(POS)
+    // contentPosUnchanged guard: nothing actually changed, so the view must
+    // not be re-shuffled offscreen or repositioned.
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+    expect(positionView).not.toHaveBeenCalled()
+  })
+
+  it('reloads via a manual RELOAD from running without moving the view offscreen again', async () => {
+    const { actor, offscreenView } = makeActorWithPlacementSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+
+    actor.send({ type: 'RELOAD' })
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.loading', snapshot.value)).toBe(true)
+    expect(snapshot.context.content).toEqual(CONTENT)
+    expect(snapshot.context.pos).toEqual(POS)
+    // RELOAD is handled by the ancestor `displaying` state's own `on`
+    // handler, so it is an internal transition from running down into
+    // loading: `displaying`'s entry (which includes offscreenView) must not
+    // re-fire, unlike a fresh DISPLAY from `empty`.
+    expect(offscreenView).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('viewStateMachine loadPage navigation', () => {
