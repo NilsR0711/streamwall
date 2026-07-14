@@ -1221,17 +1221,6 @@ export function ControlUI({
     () => filterStreams(streams, wallStreamIds, streamFilter),
     [streams, wallStreamIds, streamFilter],
   )
-  function StreamList({ rows }: { rows: StreamData[] }) {
-    return rows.map((row) => (
-      <StreamLine
-        id={row._id}
-        row={row}
-        disabled={!roleCan(role, 'mutate-state-doc')}
-        onClickId={handleClickId}
-      />
-    ))
-  }
-
   return (
     <AppShell className="app-shell">
       <Stack className="grid-container">
@@ -1324,6 +1313,7 @@ export function ControlUI({
                     const isHighlighted = isMoveHighlight || isResizeHighlight
                     return (
                       <GridInput
+                        key={idx}
                         style={{
                           width: `${100 / cols}%`,
                           height: `${100 / rows}%`,
@@ -1410,6 +1400,7 @@ export function ControlUI({
                   const errorReason = state.context.error
                   return (
                     <GridPreviewBox
+                      key={pos.spaces[0]}
                       streamId={streamId}
                       color={idColor(streamId)}
                       style={{
@@ -1451,6 +1442,7 @@ export function ControlUI({
                   }
                   return (
                     <GridControls
+                      key={pos.spaces[0]}
                       idx={pos.spaces[0]}
                       streamId={streamId}
                       style={{
@@ -1517,16 +1509,28 @@ export function ControlUI({
               <h3>
                 Viewing <span className="ct">{wallStreams.length}</span>
               </h3>
-              <StreamList rows={wallStreams} />
+              <StreamList
+                rows={wallStreams}
+                disabled={!roleCan(role, 'mutate-state-doc')}
+                onClickId={handleClickId}
+              />
               <h3>
                 Live <span className="ct">{liveStreams.length}</span>
               </h3>
-              <StreamList rows={liveStreams} />
+              <StreamList
+                rows={liveStreams}
+                disabled={!roleCan(role, 'mutate-state-doc')}
+                onClickId={handleClickId}
+              />
               <h3>
                 Offline / Unknown{' '}
                 <span className="ct">{otherStreams.length}</span>
               </h3>
-              <StreamList rows={otherStreams} />
+              <StreamList
+                rows={otherStreams}
+                disabled={!roleCan(role, 'mutate-state-doc')}
+                onClickId={handleClickId}
+              />
             </div>
           ) : (
             <div>loading...</div>
@@ -1537,12 +1541,13 @@ export function ControlUI({
                 <h2>Custom Streams</h2>
                 <div>
                   {/*
-                    Include an empty object at the end to create an extra input for a new custom stream.
-                    We need it to be part of the array (rather than JSX below) for DOM diffing to match the key and retain focus.
+                    Keyed by `link` (each custom stream's stable id) rather
+                    than array index, so deleting an earlier entry doesn't
+                    shift later entries onto a different DOM node mid-edit.
                   */}
-                  {customStreams.map(({ link, label, kind }, idx) => (
+                  {customStreams.map(({ link, label, kind }) => (
                     <CustomStreamInput
-                      key={idx}
+                      key={link}
                       link={link}
                       label={label}
                       kind={kind}
@@ -1579,6 +1584,7 @@ export function ControlUI({
                   )}
                   {authState.invites.map(({ tokenId, name, role }) => (
                     <AuthTokenLine
+                      key={tokenId}
                       id={tokenId}
                       name={name}
                       role={role}
@@ -1588,6 +1594,7 @@ export function ControlUI({
                   <h3>Sessions</h3>
                   {authState.sessions.map(({ tokenId, name, role }) => (
                     <AuthTokenLine
+                      key={tokenId}
                       id={tokenId}
                       name={name}
                       role={role}
@@ -1838,6 +1845,26 @@ export function GridPreviewBox({
       </StyledGridInfo>
     </StyledGridPreviewBox>
   )
+}
+
+export function StreamList({
+  rows,
+  disabled,
+  onClickId,
+}: {
+  rows: StreamData[]
+  disabled: boolean
+  onClickId: (id: string) => void
+}) {
+  return rows.map((row) => (
+    <StreamLine
+      key={row._id}
+      id={row._id}
+      row={row}
+      disabled={disabled}
+      onClickId={onClickId}
+    />
+  ))
 }
 
 function StreamLine({
