@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
-    // baseUrl + moduleResolution:node are flagged as deprecated under TS 6 but
-    // are still required by the Electron/CommonJS build; silence until the
-    // module-resolution modernization is done separately.
-    "ignoreDeprecations": "6.0",
     "target": "ES2024",
-    "module": "commonjs",
+    "module": "esnext",
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -19,9 +15,8 @@
       "react-dom": ["../../node_modules/preact/compat"]
     },
     "lib": ["ES2024", "DOM", "DOM.iterable"],
-    "baseUrl": ".",
     "outDir": "dist",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     // tsc here only type-checks (Vite/Electron Forge does the build), so allow
     // the .ts import extensions the shared package requires.
