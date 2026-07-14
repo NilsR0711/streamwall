@@ -35,6 +35,7 @@ import {
 import {
   clampGridDimension,
   Color,
+  type ConnectionStatus,
   type ContentKind,
   type ControlCommand,
   type DataSourceHealth,
@@ -59,6 +60,7 @@ import {
 import { createGlobalStyle, styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
+import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx'
 import { DataSourceHealthBanner } from './DataSourceHealthBanner.tsx'
 import {
   computeHoveringIdx,
@@ -514,7 +516,7 @@ export interface CollabData {
 }
 
 export interface StreamwallConnection {
-  isConnected: boolean
+  connectionStatus: ConnectionStatus
   role: StreamwallRole | null
   send: (msg: ControlCommand, cb?: (msg: unknown) => void) => void
   sharedState: CollabData | undefined
@@ -616,7 +618,7 @@ export function ControlUI({
   connection: StreamwallConnection
 }) {
   const {
-    isConnected,
+    connectionStatus,
     send,
     sharedState,
     stateDoc,
@@ -632,6 +634,13 @@ export function ControlUI({
     layoutPresets,
     dataSourceHealth,
   } = connection
+  const isConnected = connectionStatus === 'connected'
+  // Whether at least one full state snapshot has ever been received - once
+  // true, `config`/`streams`/`views`/etc. keep showing that last-known
+  // snapshot across a disconnect (they're only ever cleared by a fresh
+  // snapshot, never by the socket closing), so a reconnect dims the existing
+  // wall instead of blanking it back to a loading screen (issue #37).
+  const hasKnownState = role != null
   const {
     cols,
     rows,
@@ -1270,6 +1279,10 @@ export function ControlUI({
           <ThemeToggle />
         </StyledHeader>
         <DataSourceHealthBanner dataSourceHealth={dataSourceHealth} />
+        <ConnectionStatusBanner
+          connectionStatus={connectionStatus}
+          hasKnownState={hasKnownState}
+        />
         {delayState && (
           <StreamDelayBox
             role={role}
@@ -1295,6 +1308,7 @@ export function ControlUI({
               onPointerLeave={clearHoveringIdx}
               $windowWidth={windowWidth}
               $windowHeight={windowHeight}
+              $dimmed={!isConnected}
             >
               <StyledGridInputs>
                 {range(0, rows).map((y) =>
@@ -1506,7 +1520,7 @@ export function ControlUI({
       </Stack>
       <Stack className="stream-list" $scroll={true} $minHeight={200}>
         <StyledDataContainer $isConnected={isConnected}>
-          {isConnected ? (
+          {hasKnownState ? (
             <div>
               <input
                 className="filter-input"
@@ -2708,6 +2722,7 @@ const StyledGridControlsContainer = styled.div`
 const StyledGridContainer = styled.div<{
   $windowWidth: number
   $windowHeight: number
+  $dimmed?: boolean
 }>`
   position: relative;
   /* Responsive: keep the wall's aspect ratio but fit the available space
@@ -2721,6 +2736,11 @@ const StyledGridContainer = styled.div<{
   border-radius: var(--r-md);
   background: var(--cell-bg);
   overflow: hidden;
+  /* While disconnected, keep showing the last-known grid instead of
+     unmounting it - just dimmed, so a reconnect banner can explain why it's
+     stale rather than blanking to a loading screen (issue #37). */
+  opacity: ${({ $dimmed }) => ($dimmed ? 0.5 : 1)};
+  transition: opacity 0.2s;
 
   &:hover ${StyledGridInputs} {
     opacity: 0.35;
