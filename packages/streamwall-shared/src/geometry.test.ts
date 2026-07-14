@@ -3,6 +3,7 @@ import type { ViewContent } from './geometry.ts'
 import {
   boxesFromViewContentMap,
   clampGridDimension,
+  computeBoxRect,
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
@@ -33,6 +34,45 @@ describe('boxesFromViewContentMap', () => {
 
     expect(boxes).toHaveLength(1)
     expect(boxes[0].spaces).toEqual([2, 10])
+  })
+})
+
+describe('computeBoxRect', () => {
+  it('gives an interior box the plain floor-divided space size', () => {
+    // 1000 / 7 = 142.86 -> floors to 142 per cell.
+    const rect = computeBoxRect(7, 7, 1000, 1000, { x: 0, y: 0, w: 1, h: 1 })
+    expect(rect).toEqual({ x: 0, y: 0, width: 142, height: 142 })
+  })
+
+  it('extends the last column to the right edge, absorbing the residual pixels', () => {
+    // spaceWidth=142, 7*142=994, so column 6 would normally stop 6px short.
+    const rect = computeBoxRect(7, 7, 1000, 1000, { x: 6, y: 0, w: 1, h: 1 })
+    expect(rect.x).toBe(852) // 142 * 6
+    expect(rect.width).toBe(148) // 1000 - 852, not 142
+  })
+
+  it('extends the last row to the bottom edge, absorbing the residual pixels', () => {
+    const rect = computeBoxRect(7, 7, 1000, 1000, { x: 0, y: 6, w: 1, h: 1 })
+    expect(rect.y).toBe(852) // 142 * 6
+    expect(rect.height).toBe(148) // 1000 - 852, not 142
+  })
+
+  it('gives a multi-cell box that reaches the edge the full residual width', () => {
+    // Box spans x=5..6 (w=2), reaching the right edge at cols=7.
+    const rect = computeBoxRect(7, 7, 1000, 1000, { x: 5, y: 0, w: 2, h: 1 })
+    expect(rect.x).toBe(710) // 142 * 5
+    expect(rect.width).toBe(290) // 1000 - 710, not 142 * 2 (284)
+  })
+
+  it('does not extend a box that does not reach the last column/row', () => {
+    const rect = computeBoxRect(7, 7, 1000, 1000, { x: 0, y: 0, w: 2, h: 2 })
+    expect(rect).toEqual({ x: 0, y: 0, width: 284, height: 284 })
+  })
+
+  it('leaves exact divisions untouched', () => {
+    // 8 cols into 1920px divides evenly (240 per cell).
+    const rect = computeBoxRect(8, 8, 1920, 1080, { x: 7, y: 0, w: 1, h: 1 })
+    expect(rect).toEqual({ x: 1680, y: 0, width: 240, height: 135 })
   })
 })
 

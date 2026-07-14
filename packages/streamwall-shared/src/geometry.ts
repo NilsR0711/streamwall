@@ -95,6 +95,41 @@ export function boxesFromViewContentMap(
   return boxes
 }
 
+/** A box's position and size in grid-cell units, as produced by {@link boxesFromViewContentMap}. */
+export interface GridBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Converts a box's grid-cell coordinates into a pixel rectangle. Flooring
+ * width/height by cols/rows (needed since cells must be whole pixels) leaves
+ * up to `cols-1`/`rows-1` residual pixels uncovered at the right/bottom edge;
+ * a box that reaches the last column/row absorbs that remainder instead of
+ * leaving a gap.
+ */
+export function computeBoxRect(
+  cols: number,
+  rows: number,
+  width: number,
+  height: number,
+  box: GridBox,
+): Rectangle {
+  const spaceWidth = Math.floor(width / cols)
+  const spaceHeight = Math.floor(height / rows)
+  const { x, y, w, h } = box
+  const reachesRightEdge = x + w >= cols
+  const reachesBottomEdge = y + h >= rows
+  return {
+    x: spaceWidth * x,
+    y: spaceHeight * y,
+    width: reachesRightEdge ? width - spaceWidth * x : spaceWidth * w,
+    height: reachesBottomEdge ? height - spaceHeight * y : spaceHeight * h,
+  }
+}
+
 export function idxToCoords(cols: number, idx: number) {
   const x = idx % cols
   const y = Math.floor(idx / cols)
