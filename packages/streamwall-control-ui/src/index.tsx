@@ -46,7 +46,11 @@ import { GridInput } from './GridInput.tsx'
 import { isIdxInResizeBox } from './gridInteractions'
 import { GridPreviewBox } from './GridPreviewBox.tsx'
 import { GridSizeControls } from './GridSizeControls.tsx'
-import { hotkeyLayerBindings, hotkeyTriggers } from './hotkeyLabel.ts'
+import {
+  blurHotkeyLayerBindings,
+  hotkeyLayerBindings,
+  hotkeyTriggers,
+} from './hotkeyLabel.ts'
 import './index.css'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { ResizeHandles } from './ResizeHandles.tsx'
@@ -602,15 +606,34 @@ export function ControlUI({
     { enableOnFormTags: true },
     [toggleListening],
   )
-  useHotkeys(
-    hotkeyTriggers.map((k) => `alt+shift+${k}`).join(','),
-    (ev, { hotkey }) => {
-      ev.preventDefault()
-      const idx = hotkeyTriggers.indexOf(hotkey[hotkey.length - 1])
+  const toggleBlurred = useCallback(
+    (idx: number) => {
       const isBlurred = stateIdxMap.get(idx)?.isBlurred ?? false
       handleSetBlurred(idx, !isBlurred)
     },
-    [stateIdxMap],
+    [stateIdxMap, handleSetBlurred],
+  )
+  // Blur toggle, layer 0: alt+shift+<key> -> cells 0-19.
+  useHotkeys(
+    blurHotkeyLayerBindings[0],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleBlurred(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]))
+    },
+    [toggleBlurred],
+  )
+  // Blur toggle, layer 1: alt+ctrl+shift+<key> -> cells 20-39 (see
+  // `blurHotkeyLayers`). Same trigger keys, offset by one layer of 20 cells.
+  useHotkeys(
+    blurHotkeyLayerBindings[1],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleBlurred(
+        hotkeyTriggers.length +
+          hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+      )
+    },
+    [toggleBlurred],
   )
   useHotkeys(
     `alt+c`,
