@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { ConfigError, parseConfigToml, validateConfig } from './config'
+import {
+  ConfigError,
+  findUnknownConfigKeys,
+  parseConfigToml,
+  validateConfig,
+} from './config'
 
 /** A structurally-complete config, as produced by yargs after defaults. */
 function baseConfig() {
@@ -160,5 +165,58 @@ describe('validateConfig', () => {
     const config = baseConfig()
     config.retry['max-retries'] = 2.5
     expect(() => validateConfig(config)).toThrow(ConfigError)
+  })
+})
+
+describe('findUnknownConfigKeys', () => {
+  test('returns nothing for a raw config using only known keys', () => {
+    expect(
+      findUnknownConfigKeys({
+        grid: { cols: 4, rows: 3 },
+        window: { width: 1920 },
+      }),
+    ).toEqual([])
+  })
+
+  test('names a top-level unknown key', () => {
+    expect(findUnknownConfigKeys({ grid: { cols: 4 }, cert: {} })).toEqual([
+      'cert',
+    ])
+  })
+
+  test('names a removed nested key, e.g. the old grid.count', () => {
+    expect(findUnknownConfigKeys({ grid: { count: 3 } })).toEqual([
+      'grid.count',
+    ])
+  })
+
+  test('names a misspelled nested key', () => {
+    expect(findUnknownConfigKeys({ grid: { colls: 4 } })).toEqual([
+      'grid.colls',
+    ])
+  })
+
+  test('reports multiple unknown keys across sections', () => {
+    expect(
+      findUnknownConfigKeys({
+        grid: { cols: 4, count: 3 },
+        twitch: { announce: { tempalte: 't' } },
+      }),
+    ).toEqual(['grid.count', 'twitch.announce.tempalte'])
+  })
+
+  test('does not descend into a key whose value is not a config section', () => {
+    // grid.cols is a number in the schema, not an object — an operator
+    // accidentally nesting a table under it should be reported once, not
+    // walked into.
+    expect(findUnknownConfigKeys({ grid: { cols: { nested: true } } })).toEqual(
+      [],
+    )
+  })
+
+  test('ignores the CLI-only help flag and non-object input', () => {
+    expect(findUnknownConfigKeys({ help: true })).toEqual([])
+    expect(findUnknownConfigKeys(null)).toEqual([])
+    expect(findUnknownConfigKeys('not an object')).toEqual([])
   })
 })
