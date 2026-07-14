@@ -60,6 +60,24 @@ The Content-Security-Policy is kept compatible with the served control client.
 `upgrade-insecure-requests` is only emitted when `STREAMWALL_CONTROL_URL` uses
 `https`, so the plain-`http` local setup keeps working over `ws://`.
 
+### Telemetry
+
+Crash reporting to [Sentry](https://sentry.io) (via `@sentry/node`) is
+opt-in and off by default:
+
+| Variable                    | Default | Description                                       |
+| --------------------------- | ------- | ------------------------------------------------- |
+| `STREAMWALL_SENTRY_ENABLED` | `false` | Set to `true` to enable crash reporting.          |
+| `STREAMWALL_SENTRY_DSN`     | none    | Your Sentry project's DSN. Required when enabled. |
+
+Unlike the Electron app (`packages/streamwall`), which reports to a DSN the
+maintainer bundles for their own official builds, this server is meant to be
+self-hosted by independent operators. There is no default DSN to ship — set
+`STREAMWALL_SENTRY_ENABLED=true` together with your own project's
+`STREAMWALL_SENTRY_DSN` to send this server's uncaught exceptions and 5xx
+request errors there. If enabled without a DSN, the server logs a warning at
+startup and continues running with reporting disabled.
+
 ## Deployment
 
 There is no separate compile step: the source targets Node 22's native
