@@ -661,6 +661,20 @@ export function ControlUI({
     },
     [stateIdxMap],
   )
+  // Used by both the swap gesture (`handleSwap`) and the drag-move gesture
+  // (`endMove` below) to commit a two-box exchange.
+  //
+  // Known limitation: this reads each box's current streamId and writes both
+  // boxes' new streamIds as independent keys in the shared Yjs map. Yjs
+  // resolves concurrent edits per key (last-writer-wins), not across the pair
+  // atomically. If two operators swap/move overlapping boxes at nearly the
+  // same time, each computes its reassignment from a state the other is also
+  // about to overwrite — the merged result can duplicate one stream into both
+  // boxes while dropping the other. This is inherent to modeling the grid as
+  // independent per-cell keys rather than a single atomically-swapped value;
+  // a real fix would need a server-side or CRDT-level guard (e.g. rejecting a
+  // swap whose read boxes changed since it started). Low impact in practice
+  // since concurrent operators rarely target the same cells simultaneously.
   const swapBoxes = useCallback(
     (fromIdx: number, toIdx: number) => {
       stateDoc.transact(() => {
