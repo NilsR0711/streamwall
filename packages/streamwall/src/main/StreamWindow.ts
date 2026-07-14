@@ -375,11 +375,17 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     for (const { box, view } of viewsToDisplay) {
       const { content, x, y, w, h, spaces } = box
       if (!content) {
+        // Route through the teardown path below instead of dropping the
+        // reference outright, or the actor/WebContentsView/offscreen
+        // BrowserWindow behind it leaks permanently.
+        unusedViews.add(view)
         continue
       }
 
       const stream = streams.byURL?.get(content.url)
       if (!stream) {
+        // Same leak risk as above, for a box whose URL isn't in `streams.byURL`.
+        unusedViews.add(view)
         continue
       }
 
