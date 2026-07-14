@@ -663,24 +663,33 @@ export function ControlUI({
   )
   const swapBoxes = useCallback(
     (fromIdx: number, toIdx: number) => {
+      if (cols == null || rows == null) {
+        return
+      }
       stateDoc.transact(() => {
         const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        const boxes = new Map<number, SwapBox>(
-          [fromIdx, toIdx].map((idx) => [
-            idx,
-            {
-              spaces: stateIdxMap.get(idx)?.spaces ?? [idx],
-              streamId: viewsMap.get(String(idx))?.get('streamId'),
-            },
-          ]),
-        )
-        const assignments = computeSwap(boxes, fromIdx, toIdx)
+        const boxes = new Map<number, SwapBox>()
+        for (const idx of [fromIdx, toIdx]) {
+          const viewInfo = stateIdxMap.get(idx)
+          if (viewInfo === undefined) {
+            // No box occupies this index — leave it out of `boxes` so
+            // `computeSwap` treats it as a genuinely empty target rather
+            // than a single-space box, letting it translate a merged
+            // source box's whole footprint there instead of collapsing it.
+            continue
+          }
+          boxes.set(idx, {
+            spaces: viewInfo.spaces,
+            streamId: viewsMap.get(String(idx))?.get('streamId'),
+          })
+        }
+        const assignments = computeSwap(boxes, fromIdx, toIdx, cols, rows)
         for (const [idx, streamId] of assignments) {
           viewsMap.get(String(idx))?.set('streamId', streamId)
         }
       })
     },
-    [stateDoc, stateIdxMap],
+    [stateDoc, stateIdxMap, cols, rows],
   )
 
   const handleSwap = useCallback(

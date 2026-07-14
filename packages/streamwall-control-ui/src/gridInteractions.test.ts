@@ -14,7 +14,7 @@ describe('computeSwap', () => {
       [1, { spaces: [1], streamId: 'stream-b' }],
     ])
 
-    expect(computeSwap(boxes, 0, 1)).toEqual(
+    expect(computeSwap(boxes, 0, 1, 3, 3)).toEqual(
       new Map([
         [0, 'stream-b'],
         [1, 'stream-a'],
@@ -29,7 +29,7 @@ describe('computeSwap', () => {
       [1, { spaces: [1, 2], streamId: 'stream-b' }],
     ])
 
-    expect(computeSwap(boxes, 0, 1)).toEqual(
+    expect(computeSwap(boxes, 0, 1, 3, 3)).toEqual(
       new Map([
         [0, 'stream-b'],
         [1, 'stream-a'],
@@ -43,7 +43,7 @@ describe('computeSwap', () => {
       [0, { spaces: [0], streamId: 'stream-a' }],
     ])
 
-    expect(computeSwap(boxes, 0, 0)).toEqual(new Map())
+    expect(computeSwap(boxes, 0, 0, 3, 3)).toEqual(new Map())
   })
 
   it('treats a box missing from the map as a single space at its own index', () => {
@@ -51,7 +51,7 @@ describe('computeSwap', () => {
       [1, { spaces: [1], streamId: 'stream-b' }],
     ])
 
-    expect(computeSwap(boxes, 0, 1)).toEqual(
+    expect(computeSwap(boxes, 0, 1, 3, 3)).toEqual(
       new Map([
         [0, 'stream-b'],
         [1, undefined],
@@ -65,10 +65,77 @@ describe('computeSwap', () => {
       [1, { spaces: [1], streamId: 'stream-b' }],
     ])
 
-    expect(computeSwap(boxes, 0, 1)).toEqual(
+    expect(computeSwap(boxes, 0, 1, 3, 3)).toEqual(
       new Map([
         [0, 'stream-b'],
         [1, undefined],
+      ]),
+    )
+  })
+
+  it('translates a merged box onto an empty target instead of collapsing it to one cell', () => {
+    // 4-col grid; a 2x2 box anchored at idx 0 occupies { 0,1, 4,5 }. Dragging
+    // it (from its anchor) onto empty idx 10 (x2,y2) must move the whole
+    // footprint there — { 10,11, 14,15 } — not just fill idx 10 alone while
+    // clearing the other three source cells for nothing.
+    const boxes = new Map<number, SwapBox>([
+      [0, { spaces: [0, 1, 4, 5], streamId: 'stream-a' }],
+    ])
+
+    expect(computeSwap(boxes, 0, 10, 4, 4)).toEqual(
+      new Map([
+        [0, undefined],
+        [1, undefined],
+        [4, undefined],
+        [5, undefined],
+        [10, 'stream-a'],
+        [11, 'stream-a'],
+        [14, 'stream-a'],
+        [15, 'stream-a'],
+      ]),
+    )
+  })
+
+  it('clamps the translated footprint to the grid bounds instead of distorting its shape', () => {
+    // Same 2x2 box, but the drag targets idx 15 (x3,y3) — translating the
+    // anchor there by the raw (dx,dy) would push the box half off the
+    // 4x4 grid. The whole box must shift together and clamp so it still
+    // lands fully on-grid as an intact 2x2 shape.
+    const boxes = new Map<number, SwapBox>([
+      [0, { spaces: [0, 1, 4, 5], streamId: 'stream-a' }],
+    ])
+
+    expect(computeSwap(boxes, 0, 15, 4, 4)).toEqual(
+      new Map([
+        [0, undefined],
+        [1, undefined],
+        [4, undefined],
+        [5, undefined],
+        [10, 'stream-a'],
+        [11, 'stream-a'],
+        [14, 'stream-a'],
+        [15, 'stream-a'],
+      ]),
+    )
+  })
+
+  it('translates the footprint using the dragged cell as the reference point, not always the anchor', () => {
+    // The pointer can grab any cell of a merged box, not just its top-left
+    // anchor. Dragging from idx 5 (the box's bottom-right cell, x1y1) onto
+    // empty idx 9 (x1y2) must move the whole box down by one row — landing
+    // at { 4,5, 8,9 } — keeping the dragged cell under the drop target.
+    const boxes = new Map<number, SwapBox>([
+      [5, { spaces: [0, 1, 4, 5], streamId: 'stream-a' }],
+    ])
+
+    expect(computeSwap(boxes, 5, 9, 4, 4)).toEqual(
+      new Map([
+        [0, undefined],
+        [1, undefined],
+        [4, 'stream-a'],
+        [5, 'stream-a'],
+        [8, 'stream-a'],
+        [9, 'stream-a'],
       ]),
     )
   })
