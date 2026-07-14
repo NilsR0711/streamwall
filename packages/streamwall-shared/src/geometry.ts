@@ -101,24 +101,6 @@ export function idxToCoords(cols: number, idx: number) {
   return { x, y }
 }
 
-export function idxInBox(
-  cols: number,
-  start: number,
-  end: number,
-  idx: number,
-) {
-  const { x: startX, y: startY } = idxToCoords(cols, start)
-  const { x: endX, y: endY } = idxToCoords(cols, end)
-  const { x, y } = idxToCoords(cols, idx)
-  const lowX = Math.min(startX, endX)
-  const highX = Math.max(startX, endX)
-  const lowY = Math.min(startY, endY)
-  const highY = Math.max(startY, endY)
-  const xInBox = x >= lowX && x <= highX
-  const yInBox = y >= lowY && y <= highY
-  return xInBox && yInBox
-}
-
 /** Inclusive bounds for grid dimensions (columns / rows). */
 export const GRID_MIN = 1
 export const GRID_MAX = 8
