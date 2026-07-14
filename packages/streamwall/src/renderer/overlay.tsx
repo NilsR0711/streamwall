@@ -58,12 +58,12 @@ function Overlay({
           matchesState('displaying.running.playback.stalled', state)
         return (
           <SpaceBorder
-            pos={pos}
-            windowWidth={width}
-            windowHeight={height}
-            activeColor={activeColor}
-            isListening={isListening}
-            isError={isError}
+            $pos={pos}
+            $windowWidth={width}
+            $windowHeight={height}
+            $activeColor={activeColor}
+            $isListening={isListening}
+            $isError={isError}
           >
             <OverlayViewTile
               url={content.url}
@@ -129,7 +129,7 @@ function VersionFooter() {
     }
   }, [])
   return (
-    <VersionText isShowing={isShowing}>
+    <VersionText $isShowing={isShowing}>
       <strong>streamwall</strong> {packageInfo.version}
     </VersionText>
   )
@@ -140,40 +140,40 @@ const OverlayContainer = styled.div`
 `
 
 const SpaceBorder = styled.div.attrs<{
-  pos: ViewPos
-  windowWidth: number
-  windowHeight: number
-  activeColor: string
-  isListening: boolean
-  isError?: boolean
-  borderWidth?: number
+  $pos: ViewPos
+  $windowWidth: number
+  $windowHeight: number
+  $activeColor: string
+  $isListening: boolean
+  $isError?: boolean
+  $borderWidth?: number
 }>(() => ({
-  borderWidth: 2,
+  $borderWidth: 2,
 }))`
   display: flex;
   align-items: flex-start;
   position: fixed;
-  left: ${({ pos }) => pos.x}px;
-  top: ${({ pos }) => pos.y}px;
-  width: ${({ pos }) => pos.width}px;
-  height: ${({ pos }) => pos.height}px;
-  border: 0 solid ${({ isError }) => (isError ? 'red' : 'black')};
-  border-left-width: ${({ pos, borderWidth }) =>
-    pos.x === 0 ? 0 : borderWidth}px;
-  border-right-width: ${({ pos, borderWidth, windowWidth }) =>
-    pos.x + pos.width === windowWidth ? 0 : borderWidth}px;
-  border-top-width: ${({ pos, borderWidth }) =>
-    pos.y === 0 ? 0 : borderWidth}px;
-  border-bottom-width: ${({ pos, borderWidth, windowHeight }) =>
-    pos.y + pos.height === windowHeight ? 0 : borderWidth}px;
-  box-shadow: ${({ isListening, activeColor }) =>
-    isListening ? `0 0 10px ${activeColor} inset` : 'none'};
+  left: ${({ $pos }) => $pos.x}px;
+  top: ${({ $pos }) => $pos.y}px;
+  width: ${({ $pos }) => $pos.width}px;
+  height: ${({ $pos }) => $pos.height}px;
+  border: 0 solid ${({ $isError }) => ($isError ? 'red' : 'black')};
+  border-left-width: ${({ $pos, $borderWidth }) =>
+    $pos.x === 0 ? 0 : $borderWidth}px;
+  border-right-width: ${({ $pos, $borderWidth, $windowWidth }) =>
+    $pos.x + $pos.width === $windowWidth ? 0 : $borderWidth}px;
+  border-top-width: ${({ $pos, $borderWidth }) =>
+    $pos.y === 0 ? 0 : $borderWidth}px;
+  border-bottom-width: ${({ $pos, $borderWidth, $windowHeight }) =>
+    $pos.y + $pos.height === $windowHeight ? 0 : $borderWidth}px;
+  box-shadow: ${({ $isListening, $activeColor }) =>
+    $isListening ? `0 0 10px ${$activeColor} inset` : 'none'};
   box-sizing: border-box;
   pointer-events: none;
   user-select: none;
 `
 
-const VersionText = styled.div<{ isShowing: boolean }>`
+const VersionText = styled.div<{ $isShowing: boolean }>`
   position: fixed;
   bottom: 4px;
   right: 4px;
@@ -187,7 +187,7 @@ const VersionText = styled.div<{ isShowing: boolean }>`
   backdrop-filter: blur(30px);
   padding: 1px 4px;
   border-bottom-left-radius: 4px;
-  opacity: ${({ isShowing }) => (isShowing ? '.65' : '.35')};
+  opacity: ${({ $isShowing }) => ($isShowing ? '.65' : '.35')};
   transition: ease-out 500ms all;
 `
 

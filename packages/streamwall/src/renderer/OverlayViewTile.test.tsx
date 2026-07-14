@@ -112,4 +112,41 @@ describe('OverlayViewTile', () => {
     expect(tile.textContent).toContain('Example Stream')
     expect(tile.querySelector('[data-icon="warning"]')).toBeNull()
   })
+
+  test('does not leak custom styled-component props onto the DOM nodes (#152)', () => {
+    const data: StreamData = {
+      _id: 'a',
+      _dataSource: 'test',
+      kind: 'video',
+      link: 'https://example.com/stream',
+      source: 'Example',
+      label: 'Example Stream',
+      city: 'Portland',
+      state: 'OR',
+    }
+    const tile = renderTile({
+      data,
+      isError: false,
+      isListening: true,
+      isBlurred: true,
+      isLoading: true,
+      activeColor: '#f00',
+    })
+
+    for (const el of tile.querySelectorAll('*')) {
+      for (const propName of [
+        'position',
+        'islistening',
+        'activecolor',
+        'isvisible',
+        'isblurred',
+        'isdesaturated',
+      ]) {
+        expect(
+          el.hasAttribute(propName),
+          `<${el.tagName.toLowerCase()}> unexpectedly has a "${propName}" attribute`,
+        ).toBe(false)
+      }
+    }
+  })
 })
