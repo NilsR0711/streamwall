@@ -70,6 +70,30 @@ const NO_SCROLL_STYLE = `
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(() => resolve(), ms))
 
+// Spoof `document.visibilityState`/`document.hidden` as visible so that
+// sites which pause playback when backgrounded (checking these properties)
+// keep playing inside the offscreen/background WebContentsView. This must
+// run via `webFrame.executeJavaScript`, not as a plain assignment against
+// this preload script's own `document` reference: with contextIsolation,
+// property overrides made in the preload's isolated world are invisible to
+// the page's own main-world scripts (see `lockdownMediaTags` below for the
+// same reasoning applied to muting). Preload scripts run before the page's
+// own scripts on every navigation, so this fires here -- unawaited, since it
+// only needs to land before the page's own scripts run and there is nothing
+// meaningful to do if it doesn't. Previously this ran from the main process
+// against the pre-navigation document, which `loadURL` immediately discards
+// (see #25).
+webFrame.executeJavaScript(`
+  Object.defineProperty(document, 'visibilityState', {
+    value: 'visible',
+    writable: true
+  });
+  Object.defineProperty(document, 'hidden', {
+    value: false,
+    writable: true
+  });
+`)
+
 const pageReady = new Promise((resolve) =>
   document.addEventListener('DOMContentLoaded', resolve, { once: true }),
 )
