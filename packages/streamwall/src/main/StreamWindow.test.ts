@@ -1,4 +1,8 @@
-import type { StreamWindowConfig, ViewContentMap } from 'streamwall-shared'
+import type {
+  StreamWindowConfig,
+  ViewContent,
+  ViewContentMap,
+} from 'streamwall-shared'
 import { describe, expect, it, vi } from 'vitest'
 
 // StreamWindow pulls in Electron (directly and via ./loadHTML and
@@ -244,6 +248,217 @@ describe('StreamWindow.setViews', () => {
       next.view,
       next.offscreenWin,
     )
+  })
+})
+
+/**
+ * A stand-in for a ViewActor whose `getSnapshot().matches({ displaying:
+ * 'running' })` responds according to `running`, for exercising setViews'
+ * space-overlap-only matcher (issue #311): it must only reuse an actor that
+ * is actually in the `running` state, since neither `loading` nor `error`
+ * have a DISPLAY handler of their own for changed content -- the event would
+ * bubble to `displaying`'s handler, whose `contentUnchanged` guard would then
+ * silently swallow it, stranding the actor on its old content forever.
+ */
+function makeReuseTestActor(opts: {
+  id: number
+  content: ViewContent | null
+  spaces: number[]
+  running: boolean
+}) {
+  const send = vi.fn()
+  const stop = vi.fn()
+  const disposeView = vi.fn()
+  const actor = {
+    getSnapshot: () => ({
+      context: {
+        id: opts.id,
+        content: opts.content,
+        pos: { spaces: opts.spaces },
+        view: {},
+        offscreenWin: {},
+        next: null,
+        disposeView,
+      },
+      matches: (query: { displaying: string }) =>
+        opts.running && query.displaying === 'running',
+    }),
+    send,
+    stop,
+  } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
+  return { actor, send, stop, disposeView }
+}
+
+describe('StreamWindow.setViews reusing an actor across a genuine content change', () => {
+  it('sends DISPLAY to the running actor already occupying a box space instead of tearing it down and creating a new view (issue #311)', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const { actor, send, stop } = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([[1, actor]])
+    sw.createView = vi.fn()
+
+    // Space 0 now requests streamB instead of the streamA the actor there is
+    // currently displaying -- a genuine content change, e.g. a playlist
+    // advance or a drag-to-place reassignment.
+    const viewContentMap: ViewContentMap = new Map([['0', streamB]])
+    const streams = { byURL: new Map([[streamB.url, {}]]) }
+
+    sw.setViews(viewContentMap, streams)
+
+    expect(sw.createView).not.toHaveBeenCalled()
+    expect(stop).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamB }),
+    )
+    expect(sw.views.get(1)).toBe(actor)
+  })
+
+  it('does not reuse a still-loading actor across a content change, since the state machine has no handler that would apply it', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const { actor, send, stop, disposeView } = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: false,
+    })
+    sw.views = new Map([[1, actor]])
+    const { actor: newActor, send: newSend } = makeReuseTestActor({
+      id: 2,
+      content: null,
+      spaces: [],
+      running: false,
+    })
+    sw.createView = vi.fn(() => newActor)
+
+    const viewContentMap: ViewContentMap = new Map([['0', streamB]])
+    const streams = { byURL: new Map([[streamB.url, {}]]) }
+
+    sw.setViews(viewContentMap, streams)
+
+    expect(sw.createView).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
+    expect(stop).toHaveBeenCalled()
+    expect(disposeView).toHaveBeenCalled()
+    expect(newSend).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamB }),
+    )
+  })
+
+  it('still prefers an exact same-content match over the space-overlap fallback when both apply to different boxes', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 3, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const streamC: ViewContent = {
+      url: 'https://example.com/c',
+      kind: 'video',
+    }
+    const streamE: ViewContent = {
+      url: 'https://example.com/e',
+      kind: 'video',
+    }
+    // Occupies space 0, showing stale content A that nothing wants anymore --
+    // a candidate for the space-overlap fallback once space 0 asks for
+    // something new.
+    const spaceOnly = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    // Occupies space 1, but its content B is requested by a different box
+    // (space 2) -- a candidate for the exact-content matcher, which must
+    // claim it (and reposition it there) before the fallback matcher ever
+    // runs, regardless of which space it currently sits in.
+    const moved = makeReuseTestActor({
+      id: 2,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, spaceOnly.actor],
+      [2, moved.actor],
+    ])
+    const { actor: newActor, send: newSend } = makeReuseTestActor({
+      id: 3,
+      content: null,
+      spaces: [],
+      running: false,
+    })
+    sw.createView = vi.fn(() => newActor)
+
+    const viewContentMap: ViewContentMap = new Map([
+      ['0', streamC], // genuine content change -> should reuse spaceOnly
+      ['1', streamE], // unrelated new content -> no existing actor fits
+      ['2', streamB], // same content as `moved`, elsewhere -> should reuse moved
+    ])
+    const streams = {
+      byURL: new Map([
+        [streamB.url, {}],
+        [streamC.url, {}],
+        [streamE.url, {}],
+      ]),
+    }
+
+    sw.setViews(viewContentMap, streams)
+
+    // Only the unrelated box (space 1) needed a brand-new view.
+    expect(sw.createView).toHaveBeenCalledTimes(1)
+    expect(newSend).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamE }),
+    )
+
+    // The exact-content match reused `moved` for its new space instead of
+    // being pre-empted by the space-overlap fallback.
+    expect(moved.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamB }),
+    )
+    expect(moved.stop).not.toHaveBeenCalled()
+
+    // The space-overlap fallback reused `spaceOnly` for its box's genuinely
+    // new content instead of tearing it down.
+    expect(spaceOnly.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamC }),
+    )
+    expect(spaceOnly.stop).not.toHaveBeenCalled()
   })
 })
 
