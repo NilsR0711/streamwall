@@ -40,6 +40,14 @@ test('rejects a non-http(s) URL scheme', async () => {
   await assert.rejects(ensureValidURL('file:///etc/passwd'), /non-http/)
 })
 
+test('rejects a javascript: URL', async () => {
+  await assert.rejects(ensureValidURL('javascript:alert(1)'), /non-http/)
+})
+
+test('rejects a chrome: URL', async () => {
+  await assert.rejects(ensureValidURL('chrome://settings'), /non-http/)
+})
+
 test('rejects a URL with no host', async () => {
   await assert.rejects(ensureValidURL('http:///path'), /host/)
 })
