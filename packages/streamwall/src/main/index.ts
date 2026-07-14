@@ -36,6 +36,7 @@ import {
 import ControlWindow from './ControlWindow'
 import {
   LocalStreamData,
+  OVERLAY_DATA_SOURCE_NAME,
   StreamIDGenerator,
   combineDataSources,
   markDataSource,
@@ -912,7 +913,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       )
     }),
     markDataSource(localStreamData.gen(), 'custom'),
-    markDataSource(overlayStreamData.gen(), 'overlay'),
+    markDataSource(overlayStreamData.gen(), OVERLAY_DATA_SOURCE_NAME),
   ]
 
   for await (const streams of combineDataSources(dataSources, idGen)) {

@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { StreamDataContent } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { pollDataURL, watchDataFile } from './data'
+import {
+  combineDataSources,
+  LocalStreamData,
+  markDataSource,
+  pollDataURL,
+  StreamIDGenerator,
+  watchDataFile,
+} from './data'
 
 class FakeWatcher extends EventEmitter {
   close = vi.fn(async () => {})
@@ -322,5 +329,53 @@ describe('pollDataURL', () => {
     } finally {
       await gen.return(undefined)
     }
+  })
+})
+
+describe('combineDataSources', () => {
+  // combineDataSources() runs for the app's lifetime in production and is
+  // never torn down, so its generator's .return() path is untested upstream
+  // and currently never resolves (Repeater.latest appears not to propagate
+  // return() to contenders once multiple sources are involved). Reading a
+  // single value and letting the generator get garbage-collected avoids
+  // that hang; see the follow-up issue for the cleanup bug itself.
+  test('keeps a stream kind when an overlay rotation patch is applied on top of it', async () => {
+    const realData = new LocalStreamData([
+      { link: 'https://a.example/s', kind: 'web' },
+    ])
+    const overlayData = new LocalStreamData()
+    // Applied before the sources are read, so the merge below observes the
+    // patch on the very first yield rather than racing a live update.
+    overlayData.update('https://a.example/s', { rotation: 90 })
+
+    const gen = combineDataSources(
+      [
+        markDataSource(realData.gen(), 'custom'),
+        markDataSource(overlayData.gen(), 'overlay'),
+      ],
+      new StreamIDGenerator(),
+    )
+    const { value } = await gen.next()
+    expect(value?.byURL?.get('https://a.example/s')).toMatchObject({
+      kind: 'web',
+      rotation: 90,
+    })
+  })
+
+  test('does not fabricate a stream from an overlay-only rotation patch', async () => {
+    const realData = new LocalStreamData([])
+    const overlayData = new LocalStreamData()
+    overlayData.update('https://ghost.example/s', { rotation: 180 })
+
+    const gen = combineDataSources(
+      [
+        markDataSource(realData.gen(), 'custom'),
+        markDataSource(overlayData.gen(), 'overlay'),
+      ],
+      new StreamIDGenerator(),
+    )
+    const { value } = await gen.next()
+    expect(value).toHaveLength(0)
+    expect(value?.byURL?.has('https://ghost.example/s')).toBe(false)
   })
 })

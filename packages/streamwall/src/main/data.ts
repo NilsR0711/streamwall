@@ -118,6 +118,9 @@ export async function* markDataSource(dataSource: DataSource, name: string) {
   }
 }
 
+/** Name passed to `markDataSource` for the overlay (rotate-stream) source. */
+export const OVERLAY_DATA_SOURCE_NAME = 'overlay'
+
 export async function* combineDataSources(
   dataSources: DataSource[],
   idGen: StreamIDGenerator,
@@ -127,6 +130,20 @@ export async function* combineDataSources(
     for (const list of streamLists) {
       for (const data of list) {
         const existing = dataByURL.get(data.link)
+        if (data._dataSource === OVERLAY_DATA_SOURCE_NAME) {
+          // Overlay entries only ever carry display-only patch fields (e.g.
+          // rotation) applied via LocalStreamData.update(), which also fills
+          // in a `kind` because StreamDataContent requires one - that value
+          // is never meaningful and must not clobber the stream's real kind
+          // (or its `_dataSource`, provenance). Drop the entry outright if
+          // there's no real stream to patch, rather than fabricating one for
+          // a URL no other source knows about.
+          if (existing) {
+            const { kind: _kind, _dataSource: _source, ...patch } = data
+            dataByURL.set(data.link, { ...existing, ...patch } as StreamData)
+          }
+          continue
+        }
         dataByURL.set(data.link, { ...existing, ...data } as StreamData)
       }
     }
