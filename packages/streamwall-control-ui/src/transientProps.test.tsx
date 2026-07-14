@@ -85,6 +85,7 @@ function renderControlUI(): HTMLDivElement {
     stateIdxMap: new Map(),
     delayState,
     authState: undefined,
+    layoutPresets: [],
   }
 
   act(() => {

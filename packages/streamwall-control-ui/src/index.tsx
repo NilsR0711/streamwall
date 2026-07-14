@@ -43,6 +43,7 @@ import {
   idColor,
   idxInBox,
   inviteLink,
+  type LayoutPreset,
   type LocalStreamData,
   parseGridDimensionInput,
   roleCan,
@@ -63,6 +64,7 @@ import {
   resolveMoveTarget,
 } from './gestures'
 import './index.css'
+import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
 import { createSharedUndoManager } from './yUndo.ts'
@@ -497,6 +499,7 @@ export interface StreamwallConnection {
   stateIdxMap: Map<number, ViewInfo>
   delayState: StreamDelayStatus | null | undefined
   authState?: StreamwallState['auth']
+  layoutPresets: LayoutPreset[]
 }
 
 export function useStreamwallState(state: StreamwallState | undefined) {
@@ -511,6 +514,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         stateIdxMap: new Map(),
         delayState: undefined,
         authState: undefined,
+        layoutPresets: [],
       }
     }
 
@@ -521,6 +525,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       streams: stateStreams,
       views: stateViews,
       streamdelay,
+      layoutPresets,
     } = state
     const stateIdxMap = new Map()
     const views = []
@@ -567,6 +572,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       streams,
       customStreams,
       stateIdxMap,
+      layoutPresets,
     }
   }, [state])
 }
@@ -590,6 +596,7 @@ export function ControlUI({
     delayState,
     authState,
     role,
+    layoutPresets,
   } = connection
   const {
     cols,
@@ -1021,6 +1028,27 @@ export function ControlUI({
     [send],
   )
 
+  const handleSaveLayoutPreset = useCallback(
+    (name: string) => {
+      send({ type: 'save-layout-preset', name })
+    },
+    [send],
+  )
+
+  const handleLoadLayoutPreset = useCallback(
+    (presetId: string) => {
+      send({ type: 'load-layout-preset', presetId })
+    },
+    [send],
+  )
+
+  const handleDeleteLayoutPreset = useCallback(
+    (presetId: string) => {
+      send({ type: 'delete-layout-preset', presetId })
+    },
+    [send],
+  )
+
   const preventLinkClick = useCallback((ev: Event) => {
     ev.preventDefault()
   }, [])
@@ -1162,6 +1190,13 @@ export function ControlUI({
               onSetGridSize={handleSetGridSize}
             />
           )}
+          <LayoutPresetControls
+            presets={layoutPresets}
+            role={role}
+            onSavePreset={handleSaveLayoutPreset}
+            onLoadPreset={handleLoadLayoutPreset}
+            onDeletePreset={handleDeleteLayoutPreset}
+          />
           <div className="spacer" />
           {liveStreams.length > 0 && (
             <div className="livecount">● {liveStreams.length} On Air</div>
