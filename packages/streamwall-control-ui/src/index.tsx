@@ -75,7 +75,10 @@ import {
 import './index.css'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
-import { resolveTargetViewIdx, resolveWriteStreamId } from './viewPlacement.ts'
+import {
+  resolveEagerWriteStreamId,
+  resolveTargetViewIdx,
+} from './viewPlacement.ts'
 import { createSharedUndoManager } from './yUndo.ts'
 
 // `import { Color } from 'streamwall-shared'` binds only the value; alias
@@ -855,10 +858,14 @@ export function ControlUI({
 
   const handleSetView = useCallback(
     (idx: number, streamId: string) => {
+      const resolved = resolveEagerWriteStreamId(streams, streamId)
+      if (resolved === undefined) {
+        return
+      }
       stateDoc
         .getMap<Y.Map<string | undefined>>('views')
         .get(String(idx))
-        ?.set('streamId', resolveWriteStreamId(streams, streamId))
+        ?.set('streamId', resolved)
     },
     [stateDoc, streams],
   )
