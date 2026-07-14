@@ -1,5 +1,5 @@
-import { type ConnectionStatus } from 'streamwall-shared'
 import { FaExclamationTriangle, FaSyncAlt } from 'react-icons/fa'
+import { type ConnectionStatus } from 'streamwall-shared'
 import { styled } from 'styled-components'
 
 const StyledConnectionStatusBanner = styled.div<{ $severe: boolean }>`
@@ -11,14 +11,18 @@ const StyledConnectionStatusBanner = styled.div<{ $severe: boolean }>`
 `
 
 const MESSAGE_BY_STATUS: Partial<Record<ConnectionStatus, string>> = {
-  reconnecting: 'Reconnecting to the control server — showing the last known state.',
+  reconnecting:
+    'Reconnecting to the control server — showing the last known state.',
   unauthorized:
     'Session is no longer authorized. Reload the page or request a new invite link.',
   'server-down':
     'The Streamwall app disconnected from the control server. Waiting for it to reconnect…',
 }
 
-const SEVERE_STATUSES = new Set<ConnectionStatus>(['unauthorized', 'server-down'])
+const SEVERE_STATUSES = new Set<ConnectionStatus>([
+  'unauthorized',
+  'server-down',
+])
 
 /**
  * Explains *why* the client is disconnected instead of leaving the operator
@@ -40,7 +44,8 @@ export function ConnectionStatusBanner({
     return null
   }
 
-  const message = MESSAGE_BY_STATUS[connectionStatus] ?? MESSAGE_BY_STATUS.reconnecting
+  const message =
+    MESSAGE_BY_STATUS[connectionStatus] ?? MESSAGE_BY_STATUS.reconnecting
   const severe = SEVERE_STATUSES.has(connectionStatus)
 
   return (

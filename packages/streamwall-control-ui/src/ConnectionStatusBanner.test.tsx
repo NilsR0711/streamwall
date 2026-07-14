@@ -19,7 +19,9 @@ afterEach(() => {
 })
 
 function renderBanner(
-  connectionStatus: Parameters<typeof ConnectionStatusBanner>[0]['connectionStatus'],
+  connectionStatus: Parameters<
+    typeof ConnectionStatusBanner
+  >[0]['connectionStatus'],
   hasKnownState: boolean,
 ): HTMLDivElement {
   container = document.createElement('div')

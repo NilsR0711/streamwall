@@ -5,11 +5,7 @@
  * every failure mode (issue #37).
  */
 export type ConnectionStatus =
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'unauthorized'
-  | 'server-down'
+  'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'server-down'
 
 export type ConnectionStatusEvent =
   | { type: 'state-received' }
