@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { StreamwallState } from 'streamwall-shared'
+import './sentryPreload'
 
 export interface FirstRunInfo {
   configPath: string

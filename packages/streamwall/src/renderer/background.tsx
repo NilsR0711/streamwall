@@ -6,6 +6,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { styled } from 'styled-components'
 import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
+import { initRendererSentry } from './initSentry'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 
 declare global {
@@ -13,6 +14,8 @@ declare global {
     streamwall: StreamwallLayerGlobal
   }
 }
+
+initRendererSentry()
 
 function Background({ streams }: { streams: StreamList }) {
   const backgrounds = streams.filter((s) => s.kind === 'background')

@@ -6,6 +6,7 @@ import { styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import packageInfo from '../../package.json'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
+import { initRendererSentry } from './initSentry'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 import { OverlayViewTile } from './OverlayViewTile'
 
@@ -17,6 +18,8 @@ declare global {
     streamwallLayer: StreamwallLayerGlobal
   }
 }
+
+initRendererSentry()
 
 function Overlay({
   config,

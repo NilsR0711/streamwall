@@ -19,6 +19,11 @@ import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
+import {
+  SENTRY_DSN,
+  SENTRY_ENABLED_SWITCH,
+  sentryEnabledSwitchValue,
+} from '../sentryConfig'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import {
   ConfigError,
@@ -53,9 +58,6 @@ import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
-
-const SENTRY_DSN =
-  'https://e630a21dcf854d1a9eb2a7a8584cbd0b@o459879.ingest.sentry.io/5459505'
 
 /**
  * Builds a WebSocket subclass for the control uplink.
@@ -907,6 +909,13 @@ function init() {
   if (argv.telemetry.sentry) {
     Sentry.init({ dsn: SENTRY_DSN })
   }
+  // Sandboxed preload scripts (control, background, overlay) have no other
+  // channel to this config, so pass it down as a command-line switch every
+  // Chromium subprocess receives -- see sentryConfig.ts and sentryPreload.ts.
+  app.commandLine.appendSwitch(
+    SENTRY_ENABLED_SWITCH,
+    sentryEnabledSwitchValue(argv.telemetry.sentry),
+  )
 
   updateElectronApp()
 

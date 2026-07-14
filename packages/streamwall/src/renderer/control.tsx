@@ -16,6 +16,7 @@ import {
   StreamwallControlGlobal,
 } from '../preload/controlPreload'
 import { FirstRunHint } from './FirstRunHint'
+import { initRendererSentry } from './initSentry'
 
 const DISMISSED_STORAGE_KEY = 'streamwall:first-run-hint-dismissed'
 
@@ -24,6 +25,8 @@ declare global {
     streamwallControl: StreamwallControlGlobal
   }
 }
+
+initRendererSentry()
 
 function useStreamwallIPCConnection(): StreamwallConnection {
   const {
