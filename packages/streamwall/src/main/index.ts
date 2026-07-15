@@ -521,10 +521,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     try {
       // When a view is expanded to fullscreen (issue #362), override the
       // derived layout so the expanded stream fills every grid cell -- one
-      // wall-spanning box, with the other views torn down. This override is
-      // transient: it reads the expanded stream from `viewsState` but never
-      // writes back, so the persisted grid assignments are untouched and a
-      // later collapse restores the normal layout verbatim.
+      // wall-spanning box, with the other views parked (hidden but kept
+      // alive, not torn down) behind it, so a later collapse can reposition
+      // them instead of reloading them from scratch (issue #369). This
+      // override is transient: it reads the expanded stream from
+      // `viewsState` but never writes back, so the persisted grid
+      // assignments are untouched and a later collapse restores the normal
+      // layout verbatim.
       const { fullscreenViewIdx } = clientState
       if (fullscreenViewIdx != null) {
         const streamId = viewsState
@@ -539,6 +542,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
               { url: stream.link, kind: stream.kind || 'video' },
             ),
             clientState.streams,
+            { parkUnused: true },
           )
           return
         }

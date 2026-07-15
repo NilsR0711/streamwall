@@ -56,6 +56,13 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   backgroundView: WebContentsView
   overlayView: WebContentsView
   views: Map<number, ViewActor>
+  // Actors temporarily excluded from `views` (and therefore from
+  // `emitState()`) while a fullscreen expansion hides them behind the
+  // expanded view, kept alive instead of torn down so a later collapse can
+  // reposition them without a reload (issue #369). Populated by `setViews`
+  // when called with `{ parkUnused: true }`; cleared and re-considered as
+  // reuse candidates on every subsequent `setViews` call.
+  parkedViews: Map<number, ViewActor>
   // Routes IPC messages from a specific WebContentsView back to whichever
   // actor owns it. Keyed by live `webContents.id`, unlike `views` (keyed by
   // each actor's stable `context.id`, fixed at creation): once a content swap
@@ -72,6 +79,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.config = config
     this.retryConfig = retryConfig
     this.views = new Map()
+    this.parkedViews = new Map()
     this.viewsByWebContentsId = new Map()
 
     const {
@@ -331,6 +339,23 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     offscreenWin.destroy()
   }
 
+  /**
+   * Moves a running actor's view off the visible wall onto its own offscreen
+   * host window, without touching the actor's state. Used to keep a
+   * non-focused view alive (rather than torn down) across a fullscreen
+   * expansion: `setViews`' own matchers can then find and reposition it again
+   * on collapse -- via a normal `DISPLAY` event -- instead of recreating it
+   * from scratch (issue #369). Mirrors `viewStateMachine`'s `offscreenView`
+   * action, which the actor itself uses while a fresh view is loading.
+   */
+  private hideView(actor: ViewActor) {
+    const { view, win, offscreenWin } = actor.getSnapshot().context
+    win.contentView.removeChildView(view)
+    offscreenWin.contentView.addChildView(view)
+    const { width, height } = offscreenWin.getBounds()
+    view.setBounds({ x: 0, y: 0, width, height })
+  }
+
   createView() {
     const { win } = this
     assert(win != null, 'Window must be initialized')
@@ -412,12 +437,23 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.config.rows = rows
   }
 
-  setViews(viewContentMap: ViewContentMap, streams: StreamList) {
+  setViews(
+    viewContentMap: ViewContentMap,
+    streams: StreamList,
+    { parkUnused = false }: { parkUnused?: boolean } = {},
+  ) {
     const { width, height, cols, rows } = this.config
     const { views } = this
     const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
     const remainingBoxes = new Set(boxes)
-    const unusedViews = new Set(views.values())
+    // Views parked by a previous `parkUnused` call are reuse candidates too,
+    // so a fullscreen collapse can find and reposition them via the matchers
+    // below instead of creating new ones (issue #369).
+    const unusedViews = new Set([
+      ...views.values(),
+      ...this.parkedViews.values(),
+    ])
+    this.parkedViews.clear()
     const viewsToDisplay = []
 
     // We try to find the best match for moving / reusing existing views to match the new positions.
@@ -506,6 +542,13 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       newViews.set(view.getSnapshot().context.id, view)
     }
     for (const view of unusedViews) {
+      if (parkUnused) {
+        // Keep the actor alive, just hidden -- see `hideView` and the
+        // `parkedViews` field.
+        this.hideView(view)
+        this.parkedViews.set(view.getSnapshot().context.id, view)
+        continue
+      }
       view.stop()
       const {
         view: contentView,
