@@ -75,7 +75,11 @@ export const VALID_STATE = {
   streams: [],
   customStreams: [],
   views: [],
+  fullscreenViewIdx: null,
   streamdelay: null,
+  layoutPresets: [],
+  favorites: [],
+  dataSourceHealth: [],
 }
 
 /**

@@ -37,6 +37,21 @@ function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
 const isBareError = (m: ServerToClientMessage): m is ClientErrorMessage =>
   !('response' in m) && 'error' in m
 
+/** Temporarily replaces `console.warn`, capturing every call made while active. */
+function spyOnConsoleWarn() {
+  const calls: unknown[][] = []
+  const original = console.warn
+  console.warn = (...args: unknown[]) => {
+    calls.push(args)
+  }
+  return {
+    calls,
+    restore: () => {
+      console.warn = original
+    },
+  }
+}
+
 // A per-test override of the update cap must not leak into other test files.
 after(() => {
   delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
@@ -140,6 +155,109 @@ test('rejects a state message with no payload instead of wiring a broken connect
 
   const response = await client.waitFor(isBareError)
   assert.equal(response.error, 'streamwall disconnected')
+})
+
+test('rejects an initial state payload missing a required field (issue #387)', async () => {
+  // The envelope schema only checks "an object" -- an object missing
+  // `streams` (or any other required StreamwallState field) must still be
+  // rejected by the full streamwallStateSchema check before a StateWrapper is
+  // ever built, exactly like a payload with no `state` key at all.
+  const { streams: _streams, ...withoutStreams } = VALID_STATE
+  const warn = spyOnConsoleWarn()
+
+  try {
+    const { client } = await connectStreamwallAndClient({
+      stateMessage: { type: 'state', state: withoutStreams },
+    })
+
+    const response = await client.waitFor(isBareError)
+    assert.equal(response.error, 'streamwall disconnected')
+    assert.ok(
+      warn.calls.some((args) =>
+        String(args[0]).includes('Rejected invalid Streamwall state payload'),
+      ),
+      'a structured warning must be logged for the rejected payload',
+    )
+  } finally {
+    warn.restore()
+  }
+})
+
+test('rejects an initial state payload with a malformed view state machine snapshot (issue #387)', async () => {
+  const malformed = {
+    ...VALID_STATE,
+    views: [
+      {
+        state: { displaying: { running: { playback: 'exploded' } } },
+        context: {
+          id: 0,
+          content: null,
+          info: null,
+          pos: null,
+          error: null,
+          volume: 1,
+        },
+      },
+    ],
+  }
+
+  const { client } = await connectStreamwallAndClient({
+    stateMessage: { type: 'state', state: malformed },
+  })
+
+  const response = await client.waitFor(isBareError)
+  assert.equal(response.error, 'streamwall disconnected')
+})
+
+test('accepts an initial state payload with legitimately empty views', async () => {
+  // Regression guard: an empty `views` array is a normal, valid snapshot (a
+  // freshly-started desktop with no grid populated yet) and must not be
+  // rejected by the stricter validation.
+  const { clientWs, streamwall } = await connectStreamwallAndClient()
+
+  clientWs.send(JSON.stringify({ id: 1, type: 'reload-view', viewIdx: 0 }))
+  await streamwall.waitFor((m) => m.type === 'reload-view')
+
+  assert.ok(
+    streamwall.messages.some((m) => m.type === 'reload-view'),
+    'the connection must be fully established for a valid, empty-views state',
+  )
+})
+
+test('drops a malformed state update on an already-connected uplink without crashing the session (issue #387)', async () => {
+  const { streamwallWs, clientWs, streamwall } =
+    await connectStreamwallAndClient()
+
+  const warn = spyOnConsoleWarn()
+  try {
+    // Malicious/buggy follow-up update: `streams` is not an array at all.
+    streamwallWs.send(
+      JSON.stringify({ type: 'state', state: { ...VALID_STATE, streams: {} } }),
+    )
+    await delay(150)
+
+    assert.ok(
+      warn.calls.some((args) =>
+        String(args[0]).includes('Rejected invalid Streamwall state payload'),
+      ),
+      'the malformed update must be rejected with a structured warning',
+    )
+  } finally {
+    warn.restore()
+  }
+
+  // The session must still be alive and functional: a subsequent valid
+  // command from the client is still forwarded to the (still-connected)
+  // uplink, proving the malformed update was cleanly dropped rather than
+  // tearing down or corrupting the connection.
+  clientWs.send(JSON.stringify({ id: 99, type: 'reload-view', viewIdx: 1 }))
+  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 1)
+
+  assert.ok(
+    streamwall.messages.some(
+      (m) => m.type === 'reload-view' && m.viewIdx === 1,
+    ),
+  )
 })
 
 /** Polls `predicate` until it holds, or rejects after `timeoutMs`. */

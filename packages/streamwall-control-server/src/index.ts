@@ -19,7 +19,7 @@ import {
   roleCan,
   stateDiff,
   type StreamwallRole,
-  type StreamwallState,
+  streamwallStateSchema,
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
@@ -588,7 +588,20 @@ export async function initApp({
           )
           return
         }
-        const state = parsed.data.state as unknown as StreamwallState
+
+        // The envelope check above only guarantees "an object". Validate the
+        // full snapshot itself so a malformed or adversarial desktop build can
+        // never seed StateWrapper with garbage that crashes clients on
+        // view() or corrupts the role-scoped projection (issue #387).
+        const stateResult = streamwallStateSchema.safeParse(parsed.data.state)
+        if (!stateResult.success) {
+          console.warn(
+            'Rejected invalid Streamwall state payload:',
+            stateResult.error.issues[0]?.message,
+          )
+          return
+        }
+        const state = stateResult.data
 
         try {
           if (clientState === null) {
