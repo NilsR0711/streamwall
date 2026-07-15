@@ -6,7 +6,32 @@ import {
   localStreamDataSchema,
   parseStreamList,
   streamDataInputSchema,
+  streamwallStateSchema,
 } from './schemas.ts'
+import type { StreamwallState } from './types.ts'
+
+/** A minimal, fully-populated valid state, mirroring what the desktop uplink sends. */
+const VALID_STATE = {
+  identity: { role: 'admin' },
+  config: {
+    cols: 3,
+    rows: 3,
+    width: 1920,
+    height: 1080,
+    frameless: false,
+    fullscreen: false,
+    activeColor: '#fff',
+    backgroundColor: '#000',
+  },
+  streams: [],
+  customStreams: [],
+  views: [],
+  fullscreenViewIdx: null,
+  streamdelay: null,
+  layoutPresets: [],
+  favorites: [],
+  dataSourceHealth: [],
+}
 
 describe('streamDataInputSchema', () => {
   test('accepts a minimal entry with just a link', () => {
@@ -525,5 +550,170 @@ describe('controlStateMessageSchema', () => {
       controlStateMessageSchema.safeParse({ type: 'state', state: 'nope' })
         .success,
     ).toBe(false)
+  })
+})
+
+describe('streamwallStateSchema', () => {
+  test('accepts a fully-populated valid state with empty views', () => {
+    const result = streamwallStateSchema.safeParse(VALID_STATE)
+    expect(result.success).toBe(true)
+  })
+
+  test('accepts a state with populated streams, views and layout presets', () => {
+    const full = {
+      ...VALID_STATE,
+      identity: { role: 'operator' },
+      auth: { invites: [], sessions: [] },
+      streams: [
+        {
+          link: 'https://example.com/s',
+          kind: 'video',
+          _id: 'id-1',
+          _dataSource: 'source-1',
+        },
+      ],
+      customStreams: [],
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: null,
+            info: null,
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+        {
+          state: {
+            displaying: {
+              running: {
+                playback: 'playing',
+                video: 'normal',
+                audio: 'listening',
+              },
+            },
+          },
+          context: {
+            id: 1,
+            content: { url: 'https://example.com/s', kind: 'video' },
+            info: { title: 'A stream' },
+            pos: { x: 0, y: 0, width: 100, height: 100, spaces: [1] },
+            error: null,
+            volume: 0.5,
+          },
+        },
+      ],
+      layoutPresets: [
+        {
+          id: 'preset-1',
+          name: 'My Layout',
+          cols: 3,
+          rows: 3,
+          views: { '0': { streamId: 'id-1' } },
+        },
+      ],
+      favorites: ['https://example.com/s'],
+      dataSourceHealth: [
+        {
+          id: 'https://source.example/data.json',
+          type: 'json-url',
+          status: 'ok',
+          message: null,
+          updatedAt: 1700000000000,
+        },
+      ],
+    }
+    const result = streamwallStateSchema.safeParse(full)
+    expect(result.success).toBe(true)
+  })
+
+  test('rejects a state missing the required streams field', () => {
+    const { streams: _streams, ...withoutStreams } = VALID_STATE
+    expect(streamwallStateSchema.safeParse(withoutStreams).success).toBe(false)
+  })
+
+  test('rejects a state with a malformed view state machine snapshot', () => {
+    const malformed = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: { displaying: { running: { playback: 'exploded' } } },
+          context: {
+            id: 0,
+            content: null,
+            info: null,
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
+  test('rejects a state with an unrecognized top-level view state string', () => {
+    const malformed = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'not-a-real-state',
+          context: {
+            id: 0,
+            content: null,
+            info: null,
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
+  test('rejects a non-object payload', () => {
+    expect(streamwallStateSchema.safeParse('nope').success).toBe(false)
+    expect(streamwallStateSchema.safeParse(null).success).toBe(false)
+    expect(streamwallStateSchema.safeParse(undefined).success).toBe(false)
+  })
+
+  test('rejects an unknown identity role', () => {
+    const malformed = { ...VALID_STATE, identity: { role: 'superuser' } }
+    expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
+  test('rejects an out-of-bounds fullscreenViewIdx', () => {
+    const malformed = { ...VALID_STATE, fullscreenViewIdx: -1 }
+    expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
+  test('accepts a null fullscreenViewIdx and a populated streamdelay', () => {
+    const state = {
+      ...VALID_STATE,
+      fullscreenViewIdx: null,
+      streamdelay: {
+        isConnected: true,
+        delaySeconds: 30,
+        restartSeconds: 0,
+        isCensored: false,
+        isStreamRunning: true,
+        startTime: 1700000000000,
+        state: 'running',
+      },
+    }
+    expect(streamwallStateSchema.safeParse(state).success).toBe(true)
+  })
+
+  test('parsed state is assignable to StreamwallState at compile time', () => {
+    const result = streamwallStateSchema.safeParse(VALID_STATE)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // Compile-time guard against schema/type drift.
+      const state: StreamwallState = result.data
+      expect(state.identity.role).toBe('admin')
+    }
   })
 })
