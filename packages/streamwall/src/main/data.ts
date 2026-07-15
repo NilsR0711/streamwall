@@ -56,57 +56,74 @@ export async function* pollDataURL(
   }
 }
 
-export async function* watchDataFile(
+// Built as a Repeater rather than a plain `async function*`: once a value
+// has been yielded, this generator suspends waiting for the *next*
+// filesystem event, which may never happen. A native async generator
+// queues an early `.return()` call behind that in-flight wait per the
+// ECMAScript spec, hanging teardown forever. Repeater.return() instead
+// settles immediately, which is what lets the race against `stop` below
+// return without waiting on an event (see #339, and the markDataSource fix
+// in #337 this mirrors).
+export function watchDataFile(
   path: string,
   onHealth?: DataSourceHealthCallback,
 ): DataSource {
-  const watcher = watch(path)
-  // chokidar emits 'error' for issues like a removed watch directory; an
-  // unhandled 'error' event on an EventEmitter throws, so a permanent
-  // listener is required to keep the watcher (and this generator) alive.
-  watcher.on('error', (err) => {
-    log.warn('error watching data file', path, err)
-  })
-  try {
-    let lastStreams: StreamDataContent[] = []
-    while (true) {
-      let streams: StreamDataContent[] = []
-      try {
-        const text = await fsPromises.readFile(path)
-        const data = TOML.parse(text.toString())
-        const parsed = parseStreamList(data?.streams)
-        if (parsed.errors.length) {
-          log.warn(
-            `ignoring ${parsed.errors.length} invalid stream(s) in ${path}`,
-          )
+  return new Repeater(async (push, stop) => {
+    const watcher = watch(path)
+    // chokidar emits 'error' for issues like a removed watch directory; an
+    // unhandled 'error' event on an EventEmitter throws, so a permanent
+    // listener is required to keep the watcher (and this generator) alive.
+    watcher.on('error', (err) => {
+      log.warn('error watching data file', path, err)
+    })
+    try {
+      let lastStreams: StreamDataContent[] = []
+      while (true) {
+        let streams: StreamDataContent[] = []
+        try {
+          const text = await fsPromises.readFile(path)
+          const data = TOML.parse(text.toString())
+          const parsed = parseStreamList(data?.streams)
+          if (parsed.errors.length) {
+            log.warn(
+              `ignoring ${parsed.errors.length} invalid stream(s) in ${path}`,
+            )
+          }
+          streams = parsed.streams as StreamDataContent[]
+          onHealth?.(true)
+        } catch (err) {
+          log.warn('error reading data file', err)
+          onHealth?.(false, err instanceof Error ? err.message : String(err))
         }
-        streams = parsed.streams as StreamDataContent[]
-        onHealth?.(true)
-      } catch (err) {
-        log.warn('error reading data file', err)
-        onHealth?.(false, err instanceof Error ? err.message : String(err))
-      }
 
-      // If the read/parse fails and we already have data, keep serving it
-      // instead of wiping out every stream (mirrors pollDataURL).
-      if (!streams.length && lastStreams.length) {
-        log.warn('using cached stream data')
-      } else {
-        yield streams
-        lastStreams = streams
-      }
+        // If the read/parse fails and we already have data, keep serving it
+        // instead of wiping out every stream (mirrors pollDataURL).
+        if (!streams.length && lastStreams.length) {
+          log.warn('using cached stream data')
+        } else {
+          await push(streams)
+          lastStreams = streams
+        }
 
-      try {
         // Wait for any filesystem event, not just 'change': an atomic
         // replace of the watched file can surface as unlink+add instead.
-        await once(watcher, 'all')
-      } catch (err) {
-        log.warn('error watching data file', path, err)
+        // Raced against `stop` so an early return() settles immediately
+        // instead of queuing behind an event that may never fire.
+        const eventP = once(watcher, 'all')
+        eventP.catch(() => {})
+        try {
+          const result = await Promise.race([eventP, stop])
+          if (result === undefined) {
+            return
+          }
+        } catch (err) {
+          log.warn('error watching data file', path, err)
+        }
       }
+    } finally {
+      await watcher.close()
     }
-  } finally {
-    await watcher.close()
-  }
+  })
 }
 
 // Built as a Repeater rather than a plain `async function*`: Repeater.latest()

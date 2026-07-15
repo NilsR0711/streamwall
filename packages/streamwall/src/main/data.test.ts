@@ -255,6 +255,38 @@ link = "https://a.example/s"
       await gen.return(undefined)
     }
   })
+
+  // Regression test for #339: once a value has been yielded, the generator
+  // suspends waiting for the *next* filesystem event, which may never come.
+  // A plain `await once(watcher, 'all')` there would queue an early
+  // `.return()` behind that pending wait per the async generator spec,
+  // hanging teardown forever (see the investigation notes in #337).
+  test('return() resolves immediately while an event-wait is in flight, even though no event ever fires', async () => {
+    const file = writeTomlFile(`
+[[streams]]
+link = "https://a.example/s"
+`)
+    const gen = watchDataFile(file)
+    await gen.next()
+
+    // A second, unawaited next() resumes the generator past the yield and
+    // into the wait for the next filesystem event, leaving that next()
+    // call permanently in flight since no event is ever emitted below.
+    const pendingNext = gen.next()
+    pendingNext.catch(() => {})
+    await waitForListener(fakeWatcher!, 'all')
+
+    // No filesystem event is ever emitted here: the fix must settle
+    // return() without waiting on one.
+    await expect(
+      Promise.race([
+        gen.return(undefined),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('return() hung')), 500),
+        ),
+      ]),
+    ).resolves.toBeDefined()
+  })
 })
 
 describe('pollDataURL', () => {
