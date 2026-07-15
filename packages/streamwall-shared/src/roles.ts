@@ -24,6 +24,24 @@ const operatorActions = [
 const monitorActions = ['set-view-blurred', 'set-stream-censored'] as const
 
 export type StreamwallRole = (typeof validRoles)[number]
+
+// Roles that may be granted to a new user via an invite token. `local` is
+// reserved for the Streamwall app's own IPC connection (see `roleCan` below,
+// where it is treated as all-powerful just like `admin`) and is never
+// something an admin should be able to invite someone else into.
+export const invitableRoles = [
+  'admin',
+  'operator',
+  'monitor',
+] as const satisfies readonly StreamwallRole[]
+export type InvitableRole = (typeof invitableRoles)[number]
+
+const invitableRoleSet = new Set<string>(invitableRoles)
+
+export function isInvitableRole(role: string): role is InvitableRole {
+  return invitableRoleSet.has(role)
+}
+
 export type StreamwallAction =
   | AdminAction
   | (typeof operatorActions)[number]
