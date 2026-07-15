@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { parseTrustProxy } from './index.ts'
 import { buildTestApp } from './testHelpers.ts'
 
 test('rate-limits the invite auth route with a strict per-route budget', async () => {
@@ -67,4 +68,51 @@ test('the auth route budget is stricter than the global budget', async () => {
   assert.equal(inviteCodes[2], 429)
 
   await app.close()
+})
+
+test('parseTrustProxy is off by default and accepts boolean-ish or proxy lists', () => {
+  assert.equal(parseTrustProxy(undefined), false)
+  assert.equal(parseTrustProxy(''), false)
+  assert.equal(parseTrustProxy('true'), true)
+  assert.equal(parseTrustProxy('1'), true)
+  assert.equal(parseTrustProxy('false'), false)
+  assert.equal(parseTrustProxy('127.0.0.1'), '127.0.0.1')
+  assert.equal(parseTrustProxy('10.0.0.0/8'), '10.0.0.0/8')
+})
+
+test('with trustProxy, distinct X-Forwarded-For clients keep separate rate-limit budgets', async () => {
+  process.env.STREAMWALL_RATE_LIMIT_MAX = '2'
+  delete process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX
+  process.env.STREAMWALL_TRUST_PROXY = 'true'
+  const { app } = await buildTestApp()
+
+  for (let i = 0; i < 2; i++) {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { 'x-forwarded-for': '198.51.100.10' },
+    })
+    assert.notEqual(res.statusCode, 429)
+  }
+  const exhausted = await app.inject({
+    method: 'GET',
+    url: '/',
+    headers: { 'x-forwarded-for': '198.51.100.10' },
+  })
+  assert.equal(exhausted.statusCode, 429)
+
+  // A different client IP must not share the exhausted bucket.
+  const other = await app.inject({
+    method: 'GET',
+    url: '/',
+    headers: { 'x-forwarded-for': '198.51.100.20' },
+  })
+  assert.notEqual(
+    other.statusCode,
+    429,
+    'second client should not inherit the first client budget when trustProxy is on',
+  )
+
+  await app.close()
+  delete process.env.STREAMWALL_TRUST_PROXY
 })
