@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 
-import { dispatchCommand } from './commandDispatch'
+import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
 import log from './logger'
 
 let unhandledRejections: unknown[] = []
@@ -55,4 +55,38 @@ test('dispatchCommand tags the logged error with the local source', async () => 
 
   const [message] = log.error.mock.calls[0]
   assert.match(message, /local/)
+})
+
+
+test('dispatchLocalCommand returns an error result from onCommand', async () => {
+  const onCommand = vi.fn().mockResolvedValue({ error: 'invalid url' })
+
+  const result = await dispatchLocalCommand(onCommand, {
+    type: 'browse',
+    url: 'file:///etc/passwd',
+  })
+
+  assert.deepEqual(result, { error: 'invalid url' })
+  assert.deepEqual(onCommand.mock.calls, [
+    [{ type: 'browse', url: 'file:///etc/passwd' }, 'local'],
+  ])
+})
+
+test('dispatchLocalCommand converts a rejection into an error result', async () => {
+  const err = new Error('boom')
+  const onCommand = vi.fn().mockRejectedValue(err)
+  vi.spyOn(log, 'error').mockImplementation(() => undefined)
+
+  const result = await dispatchLocalCommand(onCommand, { type: 'ping' })
+
+  assert.deepEqual(result, { error: 'boom' })
+  assert.equal(log.error.mock.calls.length, 1)
+})
+
+test('dispatchLocalCommand returns undefined when onCommand succeeds', async () => {
+  const onCommand = vi.fn().mockResolvedValue(undefined)
+
+  const result = await dispatchLocalCommand(onCommand, { type: 'ping' })
+
+  assert.equal(result, undefined)
 })

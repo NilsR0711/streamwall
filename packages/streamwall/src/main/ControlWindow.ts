@@ -3,13 +3,17 @@ import EventEmitter from 'events'
 import { dirname } from 'node:path'
 import path from 'path'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
 import { loadHTML } from './loadHTML'
+
+export type ControlCommandHandler = (
+  command: ControlCommand,
+) => Promise<void | ControlCommandResult>
 
 export interface ControlWindowEventMap {
   load: []
   close: [ElectronEvent]
-  command: [ControlCommand]
   ydoc: [Uint8Array]
 }
 
@@ -21,6 +25,7 @@ export interface ConfigInfo {
 
 export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
   win: BrowserWindow
+  private commandHandler?: ControlCommandHandler
 
   constructor(configInfo: ConfigInfo) {
     super()
@@ -52,11 +57,14 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
       this.win.webContents.openDevTools()
     })
 
-    ipcMain.handle('control:command', (ev, command) => {
+    ipcMain.handle('control:command', async (ev, command) => {
       if (ev.sender !== this.win.webContents) {
         return
       }
-      this.emit('command', command)
+      if (!this.commandHandler) {
+        return
+      }
+      return this.commandHandler(command)
     })
 
     ipcMain.handle('control:ydoc', (ev, update) => {
@@ -89,6 +97,10 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
       // rather than being swallowed (#246).
       createExampleConfig(configInfo.configPath)
     })
+  }
+
+  setCommandHandler(handler: ControlCommandHandler) {
+    this.commandHandler = handler
   }
 
   onState(state: StreamwallState) {
