@@ -191,7 +191,7 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
     return send.mock.calls.filter(([channel]) => channel === 'view-error')
   }
 
-  it("reports the emptied handler's re-acquisition timeout instead of leaving it an unhandled rejection", async () => {
+  it("honors the unbounded elementTimeout passed to the emptied handler's re-acquisition instead of always falling back to INITIAL_TIMEOUT", async () => {
     const video = document.createElement('video')
     // happy-dom's HTMLVideoElement never implements videoWidth (always
     // undefined), so give it a truthy value here to skip findMedia's "wait
@@ -217,21 +217,24 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
     expect(send).toHaveBeenCalledWith('view-loaded')
 
     // A real emptied element resets its own readiness; re-acquisition finds
-    // the same <video> again, but this time nothing ever fires 'playing',
-    // so findMedia's fixed-INITIAL_TIMEOUT wait rejects.
+    // the same <video> again, but this time nothing fires 'playing' for a
+    // while. The 'emptied' handler calls acquireMedia(Infinity), so this
+    // wait must not time out even long past INITIAL_TIMEOUT.
     ;(video as unknown as { videoWidth: number }).videoWidth = 0
     video.dispatchEvent(new Event('emptied'))
-    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS * 10)
 
-    expect(viewErrorCalls()).toEqual([
-      [
-        'view-error',
-        {
-          error: expect.objectContaining({
-            message: 'timeout waiting for video to start',
-          }),
-        },
-      ],
-    ])
+    expect(viewErrorCalls()).toEqual([])
+
+    // The stream eventually recovers and starts playing; the unbounded wait
+    // resolves instead of having already rejected.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    video.dispatchEvent(new Event('playing'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(
+      send.mock.calls.filter(([channel]) => channel === 'view-loaded'),
+    ).toHaveLength(2)
+    expect(viewErrorCalls()).toEqual([])
   })
 })
