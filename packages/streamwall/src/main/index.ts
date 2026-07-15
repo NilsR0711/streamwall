@@ -420,7 +420,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   // and the control UI's first-run hint (#86).
   const userConfigPath = join(app.getPath('userData'), 'config.toml')
   const hasUserConfig = fs.existsSync(userConfigPath)
-  installApplicationMenu(userConfigPath, log.transports.file.getFile().path)
+  installApplicationMenu(
+    userConfigPath,
+    log.transports.file.getFile().path,
+    hasUserConfig,
+  )
 
   log.debug('Creating StreamWindow...')
   const idGen = new StreamIDGenerator()
