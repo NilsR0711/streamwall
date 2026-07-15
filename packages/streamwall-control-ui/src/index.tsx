@@ -20,6 +20,7 @@ import {
   gridWouldDropAssignments,
   hasGridAssignments,
   idColor,
+  type InvitableRole,
   inviteLink,
   type LayoutPreset,
   type LocalStreamData,
@@ -501,7 +502,7 @@ export function ControlUI({
   const [newInvite, setNewInvite] = useState<Invite>()
 
   const handleCreateInvite = useCallback(
-    ({ name, role }: { name: string; role: StreamwallRole }) => {
+    ({ name, role }: { name: string; role: InvitableRole }) => {
       send(
         {
           type: 'create-invite',

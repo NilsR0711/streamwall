@@ -1,4 +1,4 @@
-import type { ControlCommand } from './types.ts'
+import type { ControlCommand } from './schemas.ts'
 
 /**
  * Commands the Streamwall desktop accepts from its remote control-server

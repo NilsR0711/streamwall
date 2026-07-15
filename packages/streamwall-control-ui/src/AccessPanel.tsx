@@ -3,13 +3,14 @@ import { useCallback, useState } from 'preact/hooks'
 import {
   invitableRoles,
   isInvitableRole,
+  type InvitableRole,
   type StreamwallRole,
 } from 'streamwall-shared'
 
 export function CreateInviteInput({
   onCreateInvite,
 }: {
-  onCreateInvite: (invite: { name: string; role: StreamwallRole }) => void
+  onCreateInvite: (invite: { name: string; role: InvitableRole }) => void
 }) {
   const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState('operator')

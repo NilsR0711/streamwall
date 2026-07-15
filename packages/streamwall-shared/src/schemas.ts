@@ -217,6 +217,12 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
 ])
 
 /**
+ * Every control command a client may send, derived from `controlCommandSchema`
+ * so the static type and its runtime validation can never drift apart.
+ */
+export type ControlCommand = z.infer<typeof controlCommandSchema>
+
+/**
  * An inbound control-command message: a command plus the client-supplied
  * numeric `id` used to correlate responses. `clientId` is attached server-side
  * and is deliberately not required here.

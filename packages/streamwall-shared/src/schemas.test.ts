@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import {
+  type ControlCommand,
   controlCommandMessageSchema,
   controlStateMessageSchema,
   localStreamDataSchema,
   parseStreamList,
   streamDataInputSchema,
 } from './schemas.ts'
-import type { ControlCommand } from './types.ts'
 
 describe('streamDataInputSchema', () => {
   test('accepts a minimal entry with just a link', () => {
@@ -450,6 +450,17 @@ describe('controlCommandMessageSchema', () => {
       const command: ControlCommand = result.data
       expect(command.type).toBe('reload-view')
     }
+  })
+
+  test('ControlCommand rejects a create-invite role outside InvitableRole at compile time', () => {
+    const command: ControlCommand = {
+      type: 'create-invite',
+      // @ts-expect-error - ControlCommand must derive `role` from the schema's
+      // InvitableRole enum, not accept an arbitrary string (regression for #354).
+      role: 'not-a-real-role',
+      name: 'x',
+    }
+    expect(command.type).toBe('create-invite')
   })
 })
 
