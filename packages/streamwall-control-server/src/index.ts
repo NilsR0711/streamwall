@@ -323,6 +323,34 @@ export async function initApp({
   const reportCaughtError = (err: unknown) =>
     captureException(err, sentryEnabled, sentryClient)
 
+  /**
+   * Diffs `clientState`'s current view against what each connected client last
+   * saw and sends only the delta. Subscribed to `clientState`'s own `'state'`
+   * event (see the Streamwall connection handler below) so it also runs for
+   * auth-only changes — e.g. `auth.on('state', ...)` calling
+   * `clientState.update({ auth: ... })` when an invite/session is
+   * created or deleted — not only when the desktop pushes a full state.
+   */
+  const broadcastStateDeltas = (clientState: StateWrapper) => {
+    for (const client of clients.values()) {
+      try {
+        if (client.ws.readyState !== WebSocket.OPEN) {
+          continue
+        }
+        const stateView = clientState.view(client.identity.role)
+        const delta = stateDiff.diff(client.lastStateSent, stateView)
+        if (!delta) {
+          continue
+        }
+        client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
+        client.lastStateSent = stateView
+      } catch (err) {
+        console.error('failed to send client state delta', client, err)
+        reportCaughtError(err)
+      }
+    }
+  }
+
   await app.register(fastifyCookie)
 
   // Security headers. The CSP is kept in sync with the control client, which
@@ -538,7 +566,15 @@ export async function initApp({
 
         try {
           if (clientState === null) {
-            clientState = new StateWrapper(state)
+            const newClientState = new StateWrapper(state)
+            // Broadcasting on every `'state'` event (rather than only here)
+            // is what makes auth-only changes — invite/session created or
+            // deleted while the desktop pushes no new state — reach already
+            // connected clients; see `auth.on('state', ...)` below.
+            newClientState.on('state', () =>
+              broadcastStateDeltas(newClientState),
+            )
+            clientState = newClientState
             clientState.update({ auth: auth.getState() })
             currentStreamwallConn = {
               ws,
@@ -549,24 +585,6 @@ export async function initApp({
             console.log('Streamwall connected from', request.ip, tokenInfo)
           } else {
             clientState.update(state)
-          }
-
-          for (const client of clients.values()) {
-            try {
-              if (client.ws.readyState !== WebSocket.OPEN) {
-                continue
-              }
-              const stateView = clientState.view(client.identity.role)
-              const delta = stateDiff.diff(client.lastStateSent, stateView)
-              if (!delta) {
-                continue
-              }
-              client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
-              client.lastStateSent = stateView
-            } catch (err) {
-              console.error('failed to send client state delta', client, err)
-              reportCaughtError(err)
-            }
           }
         } catch (err) {
           console.error('Failed to handle ws message:', rawData, err)
