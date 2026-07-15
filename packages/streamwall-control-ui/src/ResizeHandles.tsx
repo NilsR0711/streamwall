@@ -62,6 +62,12 @@ const StyledResizeHandles = styled.div`
   }
 `
 
+// A keyboard resize step that would overwrite a neighbor's cells is blocked
+// (see handleResizeKeyDown); this hint surfaces the Shift-key override so
+// that block is discoverable rather than a silent no-op.
+const RESIZE_KEYBOARD_HINT =
+  'Arrow keys resize. Hold Shift to overwrite another tile.'
+
 const RESIZE_HANDLES: {
   handle: ResizeHandle
   className: string
@@ -108,6 +114,7 @@ export function ResizeHandles({
           type="button"
           className={className}
           aria-label={label}
+          title={RESIZE_KEYBOARD_HINT}
           disabled={disabled}
           onPointerDown={(ev) => {
             if (!disabled) {
