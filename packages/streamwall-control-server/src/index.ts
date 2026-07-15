@@ -152,6 +152,29 @@ function getRateLimitConfig(): RateLimitConfig {
   }
 }
 
+/**
+ * Parse `STREAMWALL_TRUST_PROXY` for Fastify's `trustProxy` option.
+ * Off by default so a bare internet-facing server never trusts client-supplied
+ * `X-Forwarded-For`. Behind a reverse proxy, set `true` (or an IP/CIDR list).
+ * @see https://fastify.dev/docs/latest/Reference/Server/#trustproxy
+ */
+export function parseTrustProxy(
+  raw: string | undefined,
+): boolean | string {
+  if (raw == null || raw.trim() === '') {
+    return false
+  }
+  const v = raw.trim().toLowerCase()
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') {
+    return true
+  }
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') {
+    return false
+  }
+  // IP, CIDR, or comma-separated list — pass through for Fastify.
+  return raw.trim()
+}
+
 interface WsMessageLimitConfig {
   capacity: number
   refillPerSec: number
@@ -286,12 +309,15 @@ export async function initApp({
   db: injectedDb,
   sentryEnabled: injectedSentryEnabled,
   sentryClient,
+  trustProxy: injectedTrustProxy,
 }: AppOptions & {
   db?: StorageDB
   /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
   sentryEnabled?: boolean
   /** Test-only override for the client `captureException(...)` reports to. */
   sentryClient?: SentryCaptureClient
+  /** Test-only override for Fastify trustProxy (else STREAMWALL_TRUST_PROXY / false). */
+  trustProxy?: boolean | string
 }) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
@@ -303,7 +329,9 @@ export async function initApp({
   const db = injectedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth)
 
-  const app = Fastify()
+  const trustProxy =
+    injectedTrustProxy ?? parseTrustProxy(process.env.STREAMWALL_TRUST_PROXY)
+  const app = Fastify({ trustProxy })
 
   // Opt-in crash reporting (see sentry.ts for why there is no default DSN).
   // Must be wired up before routes are registered so their errors are covered.
