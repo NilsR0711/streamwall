@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { GRID_MAX, GRID_MIN } from './geometry.ts'
-import { invitableRoles } from './roles.ts'
+import { invitableRoles, validRoles } from './roles.ts'
 
 /**
  * Runtime schemas for every piece of external, untrusted input that crosses a
@@ -241,10 +241,149 @@ export const controlCommandMessageSchema = z.intersection(
  * A `state` update message sent by the Streamwall desktop over its uplink. The
  * full `StreamwallState` is authored by the (authenticated) desktop, so this
  * only enforces the structural invariants the server relies on: a `state`
- * discriminator and a non-null object payload.
+ * discriminator and a non-null object payload. The payload itself is
+ * validated separately by {@link streamwallStateSchema} before it is ever
+ * used to build or update a `StateWrapper`.
  */
 export const controlStateMessageSchema = z.object({
   type: z.literal('state'),
   id: z.number().optional(),
   state: z.object({}).loose(),
+})
+
+const authTokenKindSchema = z.enum(['invite', 'session', 'streamwall'])
+
+const authTokenInfoSchema = z.object({
+  tokenId: z.string(),
+  kind: authTokenKindSchema,
+  role: z.enum(validRoles),
+  name: z.string(),
+})
+
+const streamWindowConfigSchema = z.object({
+  cols: gridDimensionSchema,
+  rows: gridDimensionSchema,
+  width: z.number(),
+  height: z.number(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  frameless: z.boolean(),
+  fullscreen: z.boolean(),
+  display: z.number().int().min(0).optional(),
+  activeColor: z.string(),
+  backgroundColor: z.string(),
+})
+
+/**
+ * A single stream entry as it appears inside a full `StreamwallState`
+ * snapshot: unlike {@link streamDataInputSchema}, `_id`/`_dataSource` are
+ * required here since the desktop always attaches them before broadcasting.
+ */
+const streamDataSchema = localStreamDataSchema.extend({
+  _id: z.string(),
+  _dataSource: z.string(),
+})
+
+const viewContentSchema = z.object({
+  url: z.string(),
+  kind: contentKindSchema,
+})
+
+const contentViewInfoSchema = z.object({
+  title: z.string(),
+})
+
+const viewPosSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  spaces: z.array(z.number()),
+})
+
+/** Matches the shape produced by `viewStateMachine.ts`'s XState snapshot `.value`. */
+const viewStateValueSchema = z.union([
+  z.literal('empty'),
+  z.object({
+    displaying: z.union([
+      z.literal('error'),
+      z.object({
+        loading: z.enum(['navigate', 'waitForInit', 'waitForVideo']),
+      }),
+      z.object({
+        running: z.object({
+          playback: z.enum(['playing', 'stalled']),
+          video: z.enum(['normal', 'blurred']),
+          audio: z.enum(['background', 'muted', 'listening']),
+        }),
+      }),
+    ]),
+  }),
+])
+
+const viewStateSchema = z.object({
+  state: viewStateValueSchema,
+  context: z.object({
+    id: viewIdxSchema,
+    content: viewContentSchema.nullable(),
+    info: contentViewInfoSchema.nullable(),
+    pos: viewPosSchema.nullable(),
+    error: z.string().nullable(),
+    volume: volumeSchema,
+  }),
+})
+
+const streamDelayStatusSchema = z.object({
+  isConnected: z.boolean(),
+  delaySeconds: z.number(),
+  restartSeconds: z.number(),
+  isCensored: z.boolean(),
+  isStreamRunning: z.boolean(),
+  startTime: z.number(),
+  state: z.string(),
+})
+
+const layoutPresetSchema = z.object({
+  id: layoutPresetIdSchema,
+  name: layoutPresetNameSchema,
+  cols: gridDimensionSchema,
+  rows: gridDimensionSchema,
+  views: z.record(z.string(), z.object({ streamId: z.string() })),
+})
+
+const dataSourceHealthSchema = z.object({
+  id: z.string(),
+  type: z.enum(['json-url', 'toml-file']),
+  status: z.enum(['ok', 'error']),
+  message: z.string().nullable(),
+  updatedAt: z.number(),
+})
+
+/**
+ * The full `StreamwallState` snapshot broadcast by the Streamwall desktop
+ * over the trusted uplink. Every field the server actually reads is validated
+ * here, so a malformed or adversarial payload can never wrap `StateWrapper`
+ * around garbage and fan corrupted state out to connected clients (issue
+ * #387). `auth` is intentionally not required: the desktop's own snapshot
+ * never includes it, since the control server attaches it separately.
+ */
+export const streamwallStateSchema = z.object({
+  identity: z.object({
+    role: z.enum(validRoles),
+  }),
+  auth: z
+    .object({
+      invites: z.array(authTokenInfoSchema),
+      sessions: z.array(authTokenInfoSchema),
+    })
+    .optional(),
+  config: streamWindowConfigSchema,
+  streams: z.array(streamDataSchema),
+  customStreams: z.array(streamDataSchema),
+  views: z.array(viewStateSchema),
+  fullscreenViewIdx: viewIdxSchema.nullable(),
+  streamdelay: streamDelayStatusSchema.nullable(),
+  layoutPresets: z.array(layoutPresetSchema),
+  favorites: z.array(z.string()),
+  dataSourceHealth: z.array(dataSourceHealthSchema),
 })
