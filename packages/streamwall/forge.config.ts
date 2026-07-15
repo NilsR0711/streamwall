@@ -38,7 +38,11 @@ const config: ForgeConfig = {
       name: '@electron-forge/publisher-github',
       config: {
         repository: publishRepository,
-        prerelease: true,
+        // Publish as a normal (non-prerelease) release so it becomes the
+        // repo's "Latest release": GitHub's latest-release logic — and the
+        // homepage sidebar "Releases" box — deliberately ignores
+        // prereleases, so a prerelease-only repo shows just a tag count.
+        prerelease: false,
       },
     },
   ],
