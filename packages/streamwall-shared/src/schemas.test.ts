@@ -133,6 +133,46 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(true)
   })
 
+  test('accepts a valid set-view-fullscreen command', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-fullscreen',
+        viewIdx: 3,
+        fullscreen: true,
+      }).success,
+    ).toBe(true)
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-fullscreen',
+        viewIdx: 0,
+        fullscreen: false,
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects a set-view-fullscreen command with a non-boolean flag', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-fullscreen',
+        viewIdx: 0,
+        fullscreen: 'yes',
+      }).success,
+    ).toBe(false)
+  })
+
+  test('rejects a set-view-fullscreen command missing the fullscreen flag', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'set-view-fullscreen',
+        viewIdx: 0,
+      }).success,
+    ).toBe(false)
+  })
+
   test('rejects an unknown command type', () => {
     expect(
       controlCommandMessageSchema.safeParse({ id: 1, type: 'rm -rf /' })

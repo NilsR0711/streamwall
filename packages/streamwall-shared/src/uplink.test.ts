@@ -12,6 +12,7 @@ describe('isCommandAllowedFromUplink', () => {
     expect(isCommandAllowedFromUplink('update-custom-stream')).toBe(true)
     expect(isCommandAllowedFromUplink('delete-custom-stream')).toBe(true)
     expect(isCommandAllowedFromUplink('reload-view')).toBe(true)
+    expect(isCommandAllowedFromUplink('set-view-fullscreen')).toBe(true)
     expect(isCommandAllowedFromUplink('set-stream-censored')).toBe(true)
     expect(isCommandAllowedFromUplink('set-stream-running')).toBe(true)
     expect(isCommandAllowedFromUplink('set-grid-size')).toBe(true)

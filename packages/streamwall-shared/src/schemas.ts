@@ -165,6 +165,11 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
     viewIdx: viewIdxSchema,
   }),
   z.object({
+    type: z.literal('set-view-fullscreen'),
+    viewIdx: viewIdxSchema,
+    fullscreen: z.boolean(),
+  }),
+  z.object({
     type: z.literal('browse'),
     url: z.string(),
   }),

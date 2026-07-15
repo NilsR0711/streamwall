@@ -13,6 +13,7 @@ import {
   DataSourceType,
   StreamwallState,
   UplinkErrorReason,
+  fullscreenViewContentMap,
   isCommandAllowedFromUplink,
   isSecureControlEndpoint,
   isSocketOpen,
@@ -509,6 +510,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     streams: [],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     streamdelay: null,
     layoutPresets: db.data.layoutPresets,
     favorites: db.data.favorites,
@@ -517,6 +519,36 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   function updateViewsFromStateDoc() {
     try {
+      // When a view is expanded to fullscreen (issue #362), override the
+      // derived layout so the expanded stream fills every grid cell -- one
+      // wall-spanning box, with the other views torn down. This override is
+      // transient: it reads the expanded stream from `viewsState` but never
+      // writes back, so the persisted grid assignments are untouched and a
+      // later collapse restores the normal layout verbatim.
+      const { fullscreenViewIdx } = clientState
+      if (fullscreenViewIdx != null) {
+        const streamId = viewsState
+          .get(String(fullscreenViewIdx))
+          ?.get('streamId')
+        const stream = clientState.streams.find((s) => s._id === streamId)
+        if (stream) {
+          streamWindow.setViews(
+            fullscreenViewContentMap(
+              streamWindowConfig.cols,
+              streamWindowConfig.rows,
+              { url: stream.link, kind: stream.kind || 'video' },
+            ),
+            clientState.streams,
+          )
+          return
+        }
+        // The expanded stream is gone (its cell was cleared or it dropped out
+        // of the data source): fall back to the normal layout and clear the
+        // stale override so clients stop rendering a phantom expansion. The
+        // setViews() below emits a state update that broadcasts the cleared
+        // value.
+        clientState = { ...clientState, fullscreenViewIdx: null }
+      }
       const viewContentMap = new Map()
       for (const [key, viewData] of viewsState) {
         const streamId = viewData.get('streamId')
@@ -627,6 +659,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     } else if (msg.type === 'reload-view') {
       log.debug('Reloading view:', msg.viewIdx)
       streamWindow.reloadView(msg.viewIdx)
+    } else if (msg.type === 'set-view-fullscreen') {
+      // Runtime-only wall zoom (issue #362): remember which view fills the
+      // wall (or null) and re-derive the layout. Broadcast the new value first
+      // so clients render the expansion consistently, then re-lay-out the wall.
+      log.debug('Setting view fullscreen:', msg.viewIdx, msg.fullscreen)
+      updateState({ fullscreenViewIdx: msg.fullscreen ? msg.viewIdx : null })
+      updateViewsFromStateDoc()
     } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
       if (browseWindow && !browseWindow.isDestroyed()) {
         // DevTools needs a fresh webContents to work. Close any existing window.

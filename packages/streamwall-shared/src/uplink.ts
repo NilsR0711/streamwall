@@ -25,6 +25,7 @@ const UPLINK_ALLOWED_COMMANDS: ReadonlySet<ControlCommand['type']> = new Set<
   'update-custom-stream',
   'delete-custom-stream',
   'reload-view',
+  'set-view-fullscreen',
   'set-stream-censored',
   'set-stream-running',
   'set-grid-size',

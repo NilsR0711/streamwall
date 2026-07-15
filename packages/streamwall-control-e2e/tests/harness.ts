@@ -84,6 +84,7 @@ const E2E_STATE: StreamwallState = {
   streams: DEMO_STREAMS,
   customStreams: [],
   views: [],
+  fullscreenViewIdx: null,
   streamdelay: null,
   layoutPresets: [],
   favorites: [],

@@ -66,6 +66,7 @@ import { StyledButton, StyledDataContainer } from './StyledButton.tsx'
 import { useTileDrag } from './useTileDrag.ts'
 import { useTileResize } from './useTileResize.ts'
 import {
+  resolveAnchorIdx,
   resolveEagerWriteStreamId,
   resolveTargetViewIdx,
 } from './viewPlacement.ts'
@@ -142,6 +143,11 @@ export interface StreamwallConnection {
   streams: StreamData[]
   customStreams: StreamData[]
   views: ViewInfo[]
+  /**
+   * Anchor cell index of the view currently expanded to fill the whole wall,
+   * or `null` for the normal grid layout (issue #362).
+   */
+  fullscreenViewIdx: number | null
   stateIdxMap: Map<number, ViewInfo>
   delayState: StreamDelayStatus | null | undefined
   authState?: StreamwallState['auth']
@@ -159,6 +165,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         streams: [],
         customStreams: [],
         views: [],
+        fullscreenViewIdx: null,
         stateIdxMap: new Map(),
         delayState: undefined,
         authState: undefined,
@@ -174,6 +181,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       config,
       streams: stateStreams,
       views: stateViews,
+      fullscreenViewIdx,
       streamdelay,
       layoutPresets,
       favorites,
@@ -221,6 +229,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       authState: auth,
       delayState: streamdelay,
       views,
+      fullscreenViewIdx,
       config,
       streams,
       customStreams,
@@ -248,6 +257,7 @@ export function ControlUI({
     streams,
     customStreams,
     views,
+    fullscreenViewIdx,
     stateIdxMap,
     delayState,
     authState,
@@ -323,6 +333,21 @@ export function ControlUI({
       })
     },
     [send],
+  )
+
+  // Double-clicking a stream tile expands it to fill the whole wall; double-
+  // clicking again (any tile, since only the expanded one is shown) collapses
+  // back to the grid. Purely runtime state -- the persisted layout is untouched
+  // (issue #362).
+  const handleToggleFullscreen = useCallback(
+    (idx: number) => {
+      send({
+        type: 'set-view-fullscreen',
+        viewIdx: idx,
+        fullscreen: fullscreenViewIdx == null,
+      })
+    },
+    [send, fullscreenViewIdx],
   )
 
   const handleSetGridSize = useCallback(
@@ -883,7 +908,10 @@ export function ControlUI({
                     return null
                   }
 
-                  const { streamId } = sharedState?.views[pos.spaces[0]] ?? {}
+                  const { streamId } =
+                    sharedState?.views[
+                      resolveAnchorIdx(pos.spaces, fullscreenViewIdx)
+                    ] ?? {}
                   const data = streams.find((d) => d._id === streamId)
                   if (streamId == null || data == null) {
                     return null
@@ -930,7 +958,10 @@ export function ControlUI({
                   if (!pos) {
                     return null
                   }
-                  const { streamId } = sharedState?.views[pos.spaces[0]] ?? {}
+                  const { streamId } =
+                    sharedState?.views[
+                      resolveAnchorIdx(pos.spaces, fullscreenViewIdx)
+                    ] ?? {}
                   if (!streamId) {
                     return null
                   }
@@ -939,6 +970,7 @@ export function ControlUI({
                       key={pos.spaces[0]}
                       idx={pos.spaces[0]}
                       streamId={streamId}
+                      onToggleFullscreen={handleToggleFullscreen}
                       style={{
                         left: `${(100 * pos.x) / windowWidth}%`,
                         top: `${(100 * pos.y) / windowHeight}%`,

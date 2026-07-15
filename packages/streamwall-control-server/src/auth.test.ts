@@ -311,6 +311,7 @@ function makeState(): StreamwallState {
     streams: [],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     streamdelay: null,
     layoutPresets: [
       { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },

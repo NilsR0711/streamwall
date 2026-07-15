@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  resolveAnchorIdx,
   resolveEagerWriteStreamId,
   resolveTargetViewIdx,
   resolveWriteStreamId,
 } from './viewPlacement.ts'
+
+describe('resolveAnchorIdx', () => {
+  it('uses the top-left cell when nothing is expanded', () => {
+    expect(resolveAnchorIdx([4, 5], null)).toBe(4)
+  })
+
+  it('resolves a box covering the expanded cell to that cell', () => {
+    // The fullscreen box spans the whole wall; its stream is only recorded at
+    // the expanded cell (5), not at spaces[0] (0).
+    expect(resolveAnchorIdx([0, 1, 2, 3, 4, 5], 5)).toBe(5)
+  })
+
+  it('ignores a stale expanded index no box covers', () => {
+    expect(resolveAnchorIdx([4, 5], 9)).toBe(4)
+  })
+})
 
 describe('resolveTargetViewIdx', () => {
   it('targets the focused input cell regardless of occupancy', () => {

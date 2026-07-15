@@ -47,6 +47,7 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
     streams: [makeStream('a'), makeStream('b'), makeStream('c')],
     customStreams: [],
     views: [makeView(0), makeView(1)],
+    fullscreenViewIdx: null,
     streamdelay: null,
     layoutPresets: [],
     favorites: [],

@@ -56,6 +56,7 @@ function renderControls(
         onBrowse={() => {}}
         onDevTools={() => {}}
         onPointerDown={() => {}}
+        onToggleFullscreen={() => {}}
         {...props}
       />,
       container!,
@@ -90,6 +91,44 @@ describe('GridControls volume slider', () => {
     })
 
     expect(onSetVolume).toHaveBeenCalledWith(3, 0.3)
+  })
+})
+
+describe('GridControls double-click to toggle fullscreen', () => {
+  test('toggles fullscreen for this tile when its open area is double-clicked', () => {
+    const onToggleFullscreen = vi.fn()
+    const box = renderControls({ idx: 4, onToggleFullscreen })
+    const controls = box.firstElementChild as HTMLElement
+
+    act(() => {
+      controls.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    })
+
+    expect(onToggleFullscreen).toHaveBeenCalledWith(4)
+  })
+
+  test('ignores double-clicks that land on a control button', () => {
+    const onToggleFullscreen = vi.fn()
+    const box = renderControls({ onToggleFullscreen })
+    const button = box.querySelector('button') as HTMLButtonElement
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    })
+
+    expect(onToggleFullscreen).not.toHaveBeenCalled()
+  })
+
+  test('does not toggle fullscreen for a monitor role', () => {
+    const onToggleFullscreen = vi.fn()
+    const box = renderControls({ role: 'monitor', onToggleFullscreen })
+    const controls = box.firstElementChild as HTMLElement
+
+    act(() => {
+      controls.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    })
+
+    expect(onToggleFullscreen).not.toHaveBeenCalled()
   })
 })
 

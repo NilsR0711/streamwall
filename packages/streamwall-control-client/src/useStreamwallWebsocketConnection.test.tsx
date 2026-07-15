@@ -68,6 +68,7 @@ const minimalState: StreamwallState = {
   streams: [],
   customStreams: [],
   views: [],
+  fullscreenViewIdx: null,
   streamdelay: null,
   layoutPresets: [],
   favorites: [],

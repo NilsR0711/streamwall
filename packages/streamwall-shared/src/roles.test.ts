@@ -30,6 +30,7 @@ const operatorOnlyActions = [
   'delete-custom-stream',
   'rotate-stream',
   'reload-view',
+  'set-view-fullscreen',
   'set-stream-running',
   'mutate-state-doc',
   'set-grid-size',

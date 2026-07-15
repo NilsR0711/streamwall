@@ -95,6 +95,26 @@ export function boxesFromViewContentMap(
   return boxes
 }
 
+/**
+ * Builds a {@link ViewContentMap} in which a single content fills every cell of
+ * a `cols`×`rows` grid. Feeding this to {@link boxesFromViewContentMap} yields
+ * exactly one box spanning the whole grid, which is how a view is expanded to
+ * fill the entire wall (issue #362). The map is derived entirely from the
+ * arguments and never touches the persisted grid assignments, so expansion
+ * stays a transient, view-local override.
+ */
+export function fullscreenViewContentMap(
+  cols: number,
+  rows: number,
+  content: ViewContent,
+): ViewContentMap {
+  const map: ViewContentMap = new Map()
+  for (let idx = 0; idx < cols * rows; idx++) {
+    map.set(String(idx), content)
+  }
+  return map
+}
+
 /** A box's position and size in grid-cell units, as produced by {@link boxesFromViewContentMap}. */
 export interface GridBox {
   x: number
