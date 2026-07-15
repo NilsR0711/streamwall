@@ -12,13 +12,9 @@ import {
   ControlCommand,
   DataSourceType,
   StreamwallState,
-  UplinkErrorReason,
   fullscreenViewContentMap,
-  isCommandAllowedFromUplink,
-  isSecureControlEndpoint,
   isSocketOpen,
   parseControlEndpoint,
-  parseUplinkError,
 } from 'streamwall-shared'
 import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
@@ -32,11 +28,12 @@ import {
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { dispatchCommand } from './commandDispatch'
 import {
-  ConfigError,
   findUnknownConfigKeys,
   parseConfigToml,
   validateConfig,
 } from './config'
+import { resolveConfigInitError } from './configInitError'
+import { decideControlEndpointConnection } from './controlEndpointConnection'
 import ControlWindow from './ControlWindow'
 import {
   CONTROL_WINDOW_ORIGIN,
@@ -75,25 +72,14 @@ import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
+import { checkUplinkCommandGate } from './uplinkCommandGate'
 import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
+import { routeUplinkWsMessage } from './uplinkMessageRouting'
 import { initializeViewsState } from './viewsStateInit'
 import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
-
-/**
- * Human-readable explanation logged when the control server refuses the uplink
- * connection. These `{error: '...'}` messages carry no command `type`, so
- * without this they would otherwise be logged by `onCommand` as a misleading
- * "disallowed command: undefined" (issue #300).
- */
-const UPLINK_ERROR_MESSAGE: Record<UplinkErrorReason, string> = {
-  unauthorized:
-    'the control server rejected the uplink token (invalid or expired)',
-  'already-connected':
-    'another Streamwall instance is already connected to the control server',
-}
 
 /**
  * Builds a WebSocket subclass for the control uplink.
@@ -639,12 +625,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     // The remote control-server uplink is untrusted: re-validate every command
     // against the uplink allowlist so a compromised or man-in-the-middled
     // server cannot drive code execution (browse/dev-tools) on the desktop.
-    if (source === 'uplink') {
-      const type = (msg as { type?: unknown } | null)?.type
-      if (typeof type !== 'string' || !isCommandAllowedFromUplink(type)) {
-        log.warn('Rejecting disallowed command from control uplink:', type)
-        return
-      }
+    const uplinkGate = checkUplinkCommandGate(msg, source)
+    if (!uplinkGate.allowed) {
+      log.warn(
+        'Rejecting disallowed command from control uplink:',
+        uplinkGate.type,
+      )
+      return
     }
 
     if (msg.type === 'set-listening-view') {
@@ -920,20 +907,23 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       })
   })
 
+  const controlConnection = decideControlEndpointConnection(
+    argv.control.endpoint,
+  )
   if (
-    argv.control.endpoint &&
-    !isSecureControlEndpoint(argv.control.endpoint)
+    controlConnection.action === 'skip' &&
+    controlConnection.reason === 'insecure'
   ) {
     log.error(
-      `Refusing to connect to insecure control endpoint "${argv.control.endpoint}". ` +
+      `Refusing to connect to insecure control endpoint "${controlConnection.endpoint}". ` +
         'The control connection must use wss:// (or ws:// to a loopback host).',
     )
-  } else if (argv.control.endpoint) {
+  } else if (controlConnection.action === 'connect') {
     log.debug('Connecting to control server...')
     // Move the uplink secret out of the URL query string and into an
     // Authorization header so it never reaches server or proxy access logs.
     const { url: controlURL, authorization } = parseControlEndpoint(
-      argv.control.endpoint,
+      controlConnection.endpoint,
     )
     const ws = new ReconnectingWebSocket(controlURL, [], {
       WebSocket: makeControlWebSocket(authorization),
@@ -957,33 +947,23 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       log.debug('Control WebSocket disconnected.')
     })
     ws.addEventListener('message', (ev) => {
-      if (ev.data instanceof ArrayBuffer) {
-        Y.applyUpdate(stateDoc, new Uint8Array(ev.data), UPLINK_ORIGIN)
-        return
+      const route = routeUplinkWsMessage(ev.data)
+      switch (route.kind) {
+        case 'yjs-update':
+          Y.applyUpdate(stateDoc, route.update, UPLINK_ORIGIN)
+          return
+        case 'parse-error':
+          log.warn('Failed to parse control WebSocket message:', route.error)
+          return
+        case 'uplink-error':
+          log.warn(
+            'Control server refused the uplink connection:',
+            route.message,
+          )
+          return
+        case 'command':
+          dispatchCommand(onCommand, route.message as ControlCommand, 'uplink')
       }
-
-      let msg
-      try {
-        msg = JSON.parse(ev.data)
-      } catch (err) {
-        log.warn('Failed to parse control WebSocket message:', err)
-        return
-      }
-
-      // The server sends `{error: '...'}` right before closing the uplink when
-      // it refuses the connection. These carry no command `type`, so surface
-      // the real reason here instead of letting onCommand's uplink allowlist
-      // reject them as a "disallowed command: undefined" (issue #300).
-      const uplinkError = parseUplinkError(msg)
-      if (uplinkError) {
-        log.warn(
-          'Control server refused the uplink connection:',
-          UPLINK_ERROR_MESSAGE[uplinkError],
-        )
-        return
-      }
-
-      dispatchCommand(onCommand, msg, 'uplink')
     })
     stateEmitter.on('state', () => {
       if (!isSocketOpen(ws)) {
@@ -1089,10 +1069,11 @@ function init() {
   try {
     argv = parseArgs()
   } catch (err) {
-    if (err instanceof ConfigError) {
+    const outcome = resolveConfigInitError(err)
+    if (outcome.action === 'exit') {
       // Surface the offending file/key/line cleanly instead of a stack trace.
-      log.error(err.message)
-      process.exit(1)
+      log.error(outcome.message)
+      process.exit(outcome.exitCode)
     }
     throw err
   }
