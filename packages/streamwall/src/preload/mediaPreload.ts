@@ -319,12 +319,19 @@ const MEDIA_ERROR_MESSAGES: Record<string, string> = {
   'src-rejected': 'Stream source rejected (disallowed URL scheme)',
 }
 
+// Guards against reporting more than one view-error per preload load: the
+// playHLS reportError() channel and findMedia's own timeout race each other
+// for the same view, and only the first (more specific, where applicable)
+// cause should reach the operator.
+let hasReportedMediaError = false
+
 const mediaApi = {
   reportError(reason: string) {
     const message = MEDIA_ERROR_MESSAGES[reason]
-    if (message === undefined) {
+    if (message === undefined || hasReportedMediaError) {
       return
     }
+    hasReportedMediaError = true
     ipcRenderer.send('view-error', { error: message })
   },
 }
@@ -369,9 +376,23 @@ async function main() {
         ipcRenderer.send('view-stalled')
         clearInterval(snapshotInterval)
 
-        const newMedia = await acquireMedia(Infinity)
-        if (newMedia !== media) {
-          media.remove()
+        // Unlike main()'s own top-level acquireMedia() call, this one is
+        // awaited within the handler itself, so a plain .catch() chained
+        // onto it wouldn't help: EventTarget.addEventListener discards
+        // whatever an async listener returns, so a rejection here becomes
+        // an unhandled rejection on the listener's own detached promise
+        // unless it's caught in place -- see #316 (same root cause as #309).
+        try {
+          const newMedia = await acquireMedia(Infinity)
+          if (newMedia !== media) {
+            media.remove()
+          }
+        } catch (error) {
+          if (hasReportedMediaError) {
+            return
+          }
+          hasReportedMediaError = true
+          ipcRenderer.send('view-error', { error })
         }
       },
       { once: true },
@@ -381,7 +402,19 @@ async function main() {
 
   if (content.kind === 'video' || content.kind === 'audio') {
     webFrame.insertCSS(VIDEO_OVERRIDE_STYLE, { cssOrigin: 'user' })
-    acquireMedia(INITIAL_TIMEOUT)
+    // Unlike the re-acquisition triggered by the 'emptied' listener inside
+    // acquireMedia (which is awaited within that async handler), this first
+    // call is fire-and-forget from main()'s perspective, so its rejection
+    // must be caught here or it becomes an unhandled rejection and
+    // findMedia's specific reason (e.g. "could not find video") never
+    // reaches the operator -- see #309.
+    acquireMedia(INITIAL_TIMEOUT).catch((error) => {
+      if (hasReportedMediaError) {
+        return
+      }
+      hasReportedMediaError = true
+      ipcRenderer.send('view-error', { error })
+    })
     ipcRenderer.send('view-info', {
       info: {
         title: document.title,

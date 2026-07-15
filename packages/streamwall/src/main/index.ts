@@ -29,6 +29,7 @@ import {
   sentryEnabledSwitchValue,
 } from '../sentryConfig'
 import { createSessionHostResolver, ensureValidURL } from '../util'
+import { dispatchCommand } from './commandDispatch'
 import {
   ConfigError,
   findUnknownConfigKeys,
@@ -36,6 +37,10 @@ import {
   validateConfig,
 } from './config'
 import ControlWindow from './ControlWindow'
+import {
+  CONTROL_WINDOW_ORIGIN,
+  shouldForwardUpdateToControlWindow,
+} from './controlWindowEcho'
 import {
   LocalStreamData,
   OVERLAY_DATA_SOURCE_NAME,
@@ -54,7 +59,12 @@ import {
   applyLayoutPreset,
   buildLayoutPreset,
 } from './layoutPresets'
-import log, { initLogger } from './logger'
+import log, {
+  LOG_LEVELS,
+  initLogger,
+  setLogLevel,
+  type LogLevel,
+} from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
@@ -64,6 +74,7 @@ import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
+import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
 import { initializeViewsState } from './viewsStateInit'
 import {
   shouldHideInsteadOfQuit,
@@ -110,6 +121,9 @@ function makeControlWebSocket(authorization: string | null) {
 
 export interface StreamwallConfig {
   help: boolean
+  log: {
+    level: LogLevel
+  }
   grid: {
     cols: number
     rows: number
@@ -208,6 +222,13 @@ function parseArgs(): StreamwallConfig {
       )
       warnUnknownConfigKeys(config, configFilePath)
       return config
+    })
+    .group(['log.level'], 'Logging')
+    .option('log.level', {
+      describe:
+        'Verbosity of log output, written to both the console and the log file',
+      choices: LOG_LEVELS,
+      default: 'debug',
     })
     .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
     .option('grid.cols', {
@@ -430,7 +451,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   // and the control UI's first-run hint (#86).
   const userConfigPath = join(app.getPath('userData'), 'config.toml')
   const hasUserConfig = fs.existsSync(userConfigPath)
-  installApplicationMenu(userConfigPath, log.transports.file.getFile().path)
+  installApplicationMenu(
+    userConfigPath,
+    log.transports.file.getFile().path,
+    hasUserConfig,
+  )
 
   log.debug('Creating StreamWindow...')
   const idGen = new StreamIDGenerator()
@@ -760,7 +785,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
 
   // Control <- main collab updates
-  stateDoc.on('update', (update) => {
+  stateDoc.on('update', (update, origin) => {
+    if (!shouldForwardUpdateToControlWindow(origin)) {
+      return
+    }
     controlWindow.onYDocUpdate(update)
   })
 
@@ -771,8 +799,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
 
   // Control -> main
-  controlWindow.on('ydoc', (update) => Y.applyUpdate(stateDoc, update))
-  controlWindow.on('command', (command) => onCommand(command, 'local'))
+  controlWindow.on('ydoc', (update) =>
+    Y.applyUpdate(stateDoc, update, CONTROL_WINDOW_ORIGIN),
+  )
+  controlWindow.on('command', (command) =>
+    dispatchCommand(onCommand, command, 'local'),
+  )
 
   // Closing either top-level window quits the app, except on macOS where the
   // convention is to hide the window and keep the app (and its dock icon)
@@ -869,7 +901,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     })
     ws.addEventListener('message', (ev) => {
       if (ev.data instanceof ArrayBuffer) {
-        Y.applyUpdate(stateDoc, new Uint8Array(ev.data))
+        Y.applyUpdate(stateDoc, new Uint8Array(ev.data), UPLINK_ORIGIN)
         return
       }
 
@@ -894,7 +926,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         return
       }
 
-      onCommand(msg, 'uplink')
+      dispatchCommand(onCommand, msg, 'uplink')
     })
     stateEmitter.on('state', () => {
       if (!isSocketOpen(ws)) {
@@ -902,8 +934,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       }
       ws.send(JSON.stringify({ type: 'state', state: clientState }))
     })
-    stateDoc.on('update', (update) => {
-      if (!isSocketOpen(ws)) {
+    stateDoc.on('update', (update, origin) => {
+      if (!shouldForwardUpdateToUplink(origin) || !isSocketOpen(ws)) {
         return
       }
       ws.send(update)
@@ -1003,6 +1035,7 @@ function init() {
     }
     throw err
   }
+  setLogLevel(argv.log.level)
   if (argv.help) {
     return
   }

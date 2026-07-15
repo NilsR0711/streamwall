@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks'
 import { styled } from 'styled-components'
 
 const Banner = styled.div`
@@ -23,6 +24,11 @@ const ConfigPath = styled.code`
   border-radius: var(--r-sm);
   padding: 1px 5px;
   word-break: break-all;
+`
+
+const ErrorText = styled.div`
+  color: #e05252;
+  margin-top: 4px;
 `
 
 const ActionButton = styled.button`
@@ -52,8 +58,11 @@ const DismissButton = styled.button`
 export interface FirstRunHintProps {
   configPath: string
   onOpenConfigFolder: () => void
+  onCreateExampleConfig: () => Promise<void>
   onDismiss: () => void
 }
+
+type CreateExampleConfigStatus = 'idle' | 'pending' | 'done' | 'error'
 
 /**
  * Shown when the app started with no userData config.toml (#86): the wall
@@ -63,22 +72,63 @@ export interface FirstRunHintProps {
 export function FirstRunHint({
   configPath,
   onOpenConfigFolder,
+  onCreateExampleConfig,
   onDismiss,
 }: FirstRunHintProps) {
+  const [createStatus, setCreateStatus] =
+    useState<CreateExampleConfigStatus>('idle')
+
+  async function handleCreateExampleConfig() {
+    setCreateStatus('pending')
+    try {
+      await onCreateExampleConfig()
+      setCreateStatus('done')
+    } catch {
+      setCreateStatus('error')
+    }
+  }
+
   return (
     <Banner>
       <Message>
-        No <ConfigPath>config.toml</ConfigPath> found yet, so the wall has no
-        streams configured. Add one at <ConfigPath>{configPath}</ConfigPath>, or
-        pass <ConfigPath>--config</ConfigPath> / data source flags on the
-        command line.
+        {createStatus === 'done' ? (
+          <>
+            Wrote an example config to <ConfigPath>{configPath}</ConfigPath>.
+            Please restart Streamwall to use it.
+          </>
+        ) : (
+          <>
+            No <ConfigPath>config.toml</ConfigPath> found yet, so the wall has
+            no streams configured. Add one at{' '}
+            <ConfigPath>{configPath}</ConfigPath>, or pass{' '}
+            <ConfigPath>--config</ConfigPath> / data source flags on the command
+            line.
+          </>
+        )}
+        {createStatus === 'error' && (
+          <ErrorText>
+            Couldn't create the example config - a file may already exist at
+            that path. Check the logs for details.
+          </ErrorText>
+        )}
       </Message>
-      <ActionButton
-        data-testid="open-config-folder"
-        onClick={onOpenConfigFolder}
-      >
-        Open Config Folder
-      </ActionButton>
+      {createStatus !== 'done' && (
+        <ActionButton
+          data-testid="create-example-config"
+          disabled={createStatus === 'pending'}
+          onClick={handleCreateExampleConfig}
+        >
+          Create Example Config
+        </ActionButton>
+      )}
+      {createStatus !== 'done' && (
+        <ActionButton
+          data-testid="open-config-folder"
+          onClick={onOpenConfigFolder}
+        >
+          Open Config Folder
+        </ActionButton>
+      )}
       <DismissButton
         data-testid="dismiss-first-run-hint"
         aria-label="Dismiss"

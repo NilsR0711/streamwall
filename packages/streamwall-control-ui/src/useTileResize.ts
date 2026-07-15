@@ -6,11 +6,23 @@ import { isPrimaryButton } from './gestures'
 import {
   computeKeyboardResizeHoverIdx,
   computeResizeAssignments,
+  resizeWouldOverwriteOtherStream,
   type ResizeHandle,
 } from './gridInteractions'
 
 interface CollabViews {
   views: { [viewIdx: string]: { streamId: string | undefined } }
+}
+
+/** Snapshots a `CollabViews.views` map into the `Map<idx, streamId>` shape `resizeWouldOverwriteOtherStream` expects. */
+function collectCurrentAssignments(
+  views: CollabViews['views'] | undefined,
+): Map<number, string | undefined> {
+  const currentAssignments = new Map<number, string | undefined>()
+  for (const [idx, view] of Object.entries(views ?? {})) {
+    currentAssignments.set(Number(idx), view.streamId)
+  }
+  return currentAssignments
 }
 
 /**
@@ -69,6 +81,10 @@ export function useTileResize({
   // Keyboard equivalent of the pointer-drag resize above: each arrow-key
   // press commits a one-cell step immediately (there's no keyboard hover
   // state to preview), rather than opening an in-progress `resize` gesture.
+  // A step that would overwrite a neighbor's cells can't be gated behind the
+  // pointer path's window.confirm (a dialog per keystroke would break the
+  // interaction — see #327), so it's blocked as a no-op instead; holding
+  // Shift explicitly overrides the block and commits the step anyway.
   const handleResizeKeyDown = useCallback(
     (
       anchorIdx: number,
@@ -93,6 +109,20 @@ export function useTileResize({
       ev.preventDefault()
       const streamId = sharedState?.views?.[anchorIdx]?.streamId ?? undefined
       if (streamId == null || streamId === '') {
+        return
+      }
+      if (
+        !ev.shiftKey &&
+        resizeWouldOverwriteOtherStream(
+          cols,
+          anchorIdx,
+          hoverIdx,
+          streamId,
+          handle,
+          originalSpaces,
+          collectCurrentAssignments(sharedState?.views),
+        )
+      ) {
         return
       }
       stateDoc.transact(() => {
@@ -128,6 +158,26 @@ export function useTileResize({
         setResize(undefined)
         return
       }
+      // Growing a tile over part of a neighbor silently claims those cells
+      // and fragments the rest of the neighbor into smaller boxes — warn
+      // before that happens, mirroring handleSetGridSize's confirm.
+      if (
+        resizeWouldOverwriteOtherStream(
+          cols,
+          resize.anchorIdx,
+          hoveringIdx,
+          resize.streamId,
+          resize.handle,
+          resize.originalSpaces,
+          collectCurrentAssignments(sharedState?.views),
+        ) &&
+        !window.confirm(
+          'Resizing this tile will overwrite part of another tile. Continue?',
+        )
+      ) {
+        setResize(undefined)
+        return
+      }
       stateDoc.transact(() => {
         const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
         const assignments = computeResizeAssignments(
@@ -150,7 +200,7 @@ export function useTileResize({
       window.removeEventListener('pointerup', endResize)
       window.removeEventListener('pointercancel', endResize)
     }
-  }, [resize, cols, rows, hoveringIdx, stateDoc])
+  }, [resize, cols, rows, hoveringIdx, stateDoc, sharedState])
 
   // Escape cancels an in-progress resize without committing. The window
   // pointerup/pointercancel listener above is a no-op once resize is

@@ -63,8 +63,20 @@ Configuration precedence is:
 See `example.config.toml` for an example.
 
 On first launch, if no user data `config.toml` exists yet, the control
-window shows a dismissible hint with the exact path above. Use **File →
-Open Config Folder** in the app menu at any time to open that directory.
+window shows a dismissible hint with the exact path above, offering a
+**Create Example Config** action that writes `example.config.toml` there as
+a working starting point (restart Streamwall afterward to load it). The
+same action is available as **File → Create Example Config** in the app
+menu, alongside **File → Open Config Folder**, until a config file exists.
+
+### Logging
+
+Streamwall writes logs to both the console and a file in Electron's userData
+log directory (its exact path is printed to the console on startup). File
+and console verbosity default to `debug`; set `log.level` in your config
+file (see `example.config.toml`) or pass `--log.level=<level>` on the
+command line to change it. Valid levels, from quietest to loudest: `error`,
+`warn`, `info`, `verbose`, `debug`, `silly`.
 
 ### Telemetry
 
@@ -204,9 +216,14 @@ The following hotkeys are available with a "control" webpage focused, whether
 that's the Electron control UI or the standalone web control client:
 
 - **alt+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Listen to the corresponding stream
-  (20 grid positions, in that key order)
+  (grid positions 0-19, in that key order)
+- **alt+ctrl+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Listen to the corresponding
+  stream (grid positions 20-39, same key order, for grids larger than 20 cells)
 - **alt+shift+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Toggle blur on the
-  corresponding stream
+  corresponding stream (grid positions 0-19, in that key order)
+- **alt+ctrl+shift+[1...9,0,q,w,e,r,t,y,u,i,o,p]**: Toggle blur on the
+  corresponding stream (grid positions 20-39, same key order, for grids larger
+  than 20 cells)
 - **alt+s**: Select the currently focused stream box to be swapped
 - **alt+c**: Activate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode
 - **alt+shift+c**: Deactivate [Streamdelay](https://github.com/chromakode/streamdelay) censor mode

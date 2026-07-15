@@ -199,12 +199,7 @@ export default class TwitchBot extends EventEmitter {
       return
     }
 
-    let idx
-    try {
-      idx = Number(match[1])
-    } catch (err) {
-      return
-    }
+    const idx = Number(match[1])
 
     this.votes.set(idx, (this.votes.get(idx) || 0) + 1)
   }

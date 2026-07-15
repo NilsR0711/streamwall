@@ -1,3 +1,4 @@
+import type { PrivmsgMessage } from 'dank-twitch-irc'
 import { EventEmitter } from 'events'
 import type { StreamData } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -120,6 +121,22 @@ describe('TwitchBot', () => {
       expect.stringContaining('announce'),
       expect.any(Error),
     )
+  })
+
+  it('tallies a vote when a chat message matches the vote pattern', () => {
+    const bot = new TwitchBot(CONFIG)
+
+    bot.onMsg({ messageText: '!2' } as PrivmsgMessage)
+
+    expect(bot.votes.get(2)).toBe(1)
+  })
+
+  it('ignores chat messages that do not match the vote pattern', () => {
+    const bot = new TwitchBot(CONFIG)
+
+    bot.onMsg({ messageText: 'hello there' } as PrivmsgMessage)
+
+    expect(bot.votes.size).toBe(0)
   })
 
   it('does not crash the process when the repeat-announce timeout rejects', async () => {

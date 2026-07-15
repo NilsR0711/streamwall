@@ -23,7 +23,11 @@ import {
 } from 'streamwall-shared'
 import { Auth, StateWrapper, uniqueRand62 } from './auth.ts'
 import { TokenBucket } from './rateLimiter.ts'
-import { initSentry } from './sentry.ts'
+import {
+  captureException,
+  initSentry,
+  type SentryCaptureClient,
+} from './sentry.ts'
 import {
   applyValidatedDocUpdate,
   type DocUpdateLimits,
@@ -280,7 +284,15 @@ export async function initApp({
   baseURL,
   clientStaticPath,
   db: injectedDb,
-}: AppOptions & { db?: StorageDB }) {
+  sentryEnabled: injectedSentryEnabled,
+  sentryClient,
+}: AppOptions & {
+  db?: StorageDB
+  /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
+  sentryEnabled?: boolean
+  /** Test-only override for the client `captureException(...)` reports to. */
+  sentryClient?: SentryCaptureClient
+}) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
   const isSecure = baseURL.startsWith('https')
@@ -295,9 +307,21 @@ export async function initApp({
 
   // Opt-in crash reporting (see sentry.ts for why there is no default DSN).
   // Must be wired up before routes are registered so their errors are covered.
-  if (initSentry()) {
+  const sentryEnabled = injectedSentryEnabled ?? initSentry()
+  if (sentryEnabled) {
     Sentry.setupFastifyErrorHandler(app)
   }
+
+  // WebSocket message handling and doc-update delivery below run outside
+  // Fastify's request lifecycle, so `setupFastifyErrorHandler` never sees
+  // their errors — they are caught locally instead. All of those catch sites
+  // report here. This includes the ones that wrap a bare `ws.send()`: `ws`
+  // does not throw for the routine case of sending to an already-closing
+  // socket (it silently buffers via its internal `sendAfterClose` path), so a
+  // throw out of `send()` here signals a genuine anomaly (e.g. a payload
+  // serialization failure), not ordinary client churn.
+  const reportCaughtError = (err: unknown) =>
+    captureException(err, sentryEnabled, sentryClient)
 
   await app.register(fastifyCookie)
 
@@ -540,11 +564,13 @@ export async function initApp({
               client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
               client.lastStateSent = stateView
             } catch (err) {
-              console.error('failed to send client state delta', client)
+              console.error('failed to send client state delta', client, err)
+              reportCaughtError(err)
             }
           }
         } catch (err) {
           console.error('Failed to handle ws message:', rawData, err)
+          reportCaughtError(err)
         }
       })
 
@@ -552,7 +578,8 @@ export async function initApp({
         try {
           ws.send(update)
         } catch (err) {
-          console.error('Failed to send Streamwall doc update')
+          console.error('Failed to send Streamwall doc update', err)
+          reportCaughtError(err)
         }
         for (const client of clients.values()) {
           if (client.clientId === origin) {
@@ -561,7 +588,8 @@ export async function initApp({
           try {
             client.ws.send(update)
           } catch (err) {
-            console.error('Failed to send client doc update:', client)
+            console.error('Failed to send client doc update:', client, err)
+            reportCaughtError(err)
           }
         }
       })
@@ -757,6 +785,7 @@ export async function initApp({
           }
         } catch (err) {
           console.error('Failed to handle ws message:', rawData, err)
+          reportCaughtError(err)
         }
       })
 

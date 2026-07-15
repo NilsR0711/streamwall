@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test'
 import {
   SENTRY_DSN_ENV,
   SENTRY_ENABLED_ENV,
+  captureException,
   getSentryConfig,
   initSentry,
 } from './sentry.ts'
@@ -108,5 +109,36 @@ describe('initSentry', () => {
     assert.equal(client.calls.length, 0)
     assert.equal(warnCalls.length, 1)
     assert.match(String(warnCalls[0][0]), new RegExp(SENTRY_DSN_ENV))
+  })
+})
+
+describe('captureException', () => {
+  function fakeCaptureClient() {
+    const calls: unknown[] = []
+    return {
+      calls,
+      captureException(err: unknown) {
+        calls.push(err)
+        return 'fake-event-id'
+      },
+    }
+  }
+
+  test('does nothing when crash reporting is disabled', () => {
+    const client = fakeCaptureClient()
+    const err = new Error('boom')
+
+    captureException(err, false, client)
+
+    assert.equal(client.calls.length, 0)
+  })
+
+  test('forwards the error to the client when crash reporting is enabled', () => {
+    const client = fakeCaptureClient()
+    const err = new Error('boom')
+
+    captureException(err, true, client)
+
+    assert.deepEqual(client.calls, [err])
   })
 })

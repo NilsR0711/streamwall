@@ -46,8 +46,13 @@ import { GridInput } from './GridInput.tsx'
 import { isIdxInResizeBox } from './gridInteractions'
 import { GridPreviewBox } from './GridPreviewBox.tsx'
 import { GridSizeControls } from './GridSizeControls.tsx'
-import { hotkeyLayerBindings, hotkeyTriggers } from './hotkeyLabel.ts'
+import {
+  blurHotkeyLayerBindings,
+  hotkeyLayerBindings,
+  hotkeyTriggers,
+} from './hotkeyLabel.ts'
 import './index.css'
+import { type Invite, parseInviteResponse } from './invite.ts'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { ResizeHandles } from './ResizeHandles.tsx'
 import {
@@ -75,12 +80,6 @@ export interface ViewInfo {
   isBlurred: boolean
   volume: number
   spaces: number[]
-}
-
-interface Invite {
-  tokenId: string
-  name: string
-  secret: string
 }
 
 const normalStreamKinds = new Set(['video', 'audio', 'web'])
@@ -512,11 +511,18 @@ export function ControlUI({
           role,
         },
         (msg) => {
-          setNewInvite(msg as Invite) // TODO: validate w/ Zod
+          const invite = parseInviteResponse(msg)
+          if (!invite) {
+            setCommandError(
+              'Received a malformed invite response from the server',
+            )
+            return
+          }
+          setNewInvite(invite)
         },
       )
     },
-    [send],
+    [send, setCommandError],
   )
 
   const handleDeleteToken = useCallback(
@@ -625,15 +631,34 @@ export function ControlUI({
     { enableOnFormTags: true },
     [toggleListening],
   )
-  useHotkeys(
-    hotkeyTriggers.map((k) => `alt+shift+${k}`).join(','),
-    (ev, { hotkey }) => {
-      ev.preventDefault()
-      const idx = hotkeyTriggers.indexOf(hotkey[hotkey.length - 1])
+  const toggleBlurred = useCallback(
+    (idx: number) => {
       const isBlurred = stateIdxMap.get(idx)?.isBlurred ?? false
       handleSetBlurred(idx, !isBlurred)
     },
-    [stateIdxMap],
+    [stateIdxMap, handleSetBlurred],
+  )
+  // Blur toggle, layer 0: alt+shift+<key> -> cells 0-19.
+  useHotkeys(
+    blurHotkeyLayerBindings[0],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleBlurred(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]))
+    },
+    [toggleBlurred],
+  )
+  // Blur toggle, layer 1: alt+ctrl+shift+<key> -> cells 20-39 (see
+  // `blurHotkeyLayers`). Same trigger keys, offset by one layer of 20 cells.
+  useHotkeys(
+    blurHotkeyLayerBindings[1],
+    (ev, { hotkey }) => {
+      ev.preventDefault()
+      toggleBlurred(
+        hotkeyTriggers.length +
+          hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+      )
+    },
+    [toggleBlurred],
   )
   useHotkeys(
     `alt+c`,
@@ -980,7 +1005,7 @@ export function ControlUI({
                 className="filter-input"
                 onChange={handleStreamFilterChange}
                 value={streamFilter}
-                placeholder="Quellen filtern…"
+                placeholder="Filter streams…"
               />
               <h3>
                 Favorites <span className="ct">{favoriteStreams.length}</span>
@@ -1435,26 +1460,3 @@ const StyledStatusBar = styled.div`
     accent-color: var(--accent);
   }
 `
-
-// TODO: reuse for server
-/*
-export function main() {
-  const script = document.getElementById('main-script')
-  const wsEndpoint =
-    typeof script?.dataset?.wsEndpoint === 'string'
-      ? script.dataset.wsEndpoint
-      : 'defaultWsEndpoint'
-  const role =
-    typeof script?.dataset?.role === 'string'
-      ? (script.dataset.role as StreamwallRole)
-      : null
-
-  render(
-    <>
-      <GlobalStyle />
-      <App wsEndpoint={wsEndpoint} role={role} />
-    </>,
-    document.body,
-  )
-}
-*/

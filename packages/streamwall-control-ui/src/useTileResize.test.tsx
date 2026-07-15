@@ -32,6 +32,12 @@ afterEach(() => {
     container.remove()
     container = undefined
   }
+  vi.restoreAllMocks()
+  // happy-dom doesn't implement window.confirm; tests that stub it assign it
+  // directly, so undo that here rather than leaving a stale mock behind for
+  // later tests.
+  // @ts-expect-error -- resetting a test-only stub, not a real property
+  delete window.confirm
 })
 
 function seedViews(
@@ -65,8 +71,15 @@ function fakePointerDown(button = 0): PointerEvent {
   } as unknown as PointerEvent
 }
 
-function fakeKeyDown(key: string): KeyboardEvent {
-  return { key, preventDefault: () => {} } as unknown as KeyboardEvent
+function fakeKeyDown(
+  key: string,
+  options: { shiftKey?: boolean } = {},
+): KeyboardEvent {
+  return {
+    key,
+    shiftKey: options.shiftKey ?? false,
+    preventDefault: () => {},
+  } as unknown as KeyboardEvent
 }
 
 // 2-column grid. sharedState views mirror the doc's seeded assignments.
@@ -116,6 +129,19 @@ function Harness({
         }
       >
         keyboard-resize-anchor-0-e-down
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          handleResizeKeyDown(
+            0,
+            'e',
+            [0],
+            fakeKeyDown('ArrowRight', { shiftKey: true }),
+          )
+        }
+      >
+        keyboard-resize-anchor-0-e-right-shift
       </button>
     </div>
   )
@@ -209,6 +235,82 @@ describe('useTileResize', () => {
     expect(resizing()).toBe('')
   })
 
+  test('commits without confirming when the resize does not overwrite another stream', () => {
+    // happy-dom does not implement window.confirm, so it's stubbed directly
+    // rather than spied on.
+    const confirmSpy = vi.fn()
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, undefined],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: { '0': { streamId: 'stream-a' } },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(readViews(doc).get(1)).toBe('stream-a')
+  })
+
+  test('asks for confirmation before a resize would overwrite another stream, and commits when confirmed', () => {
+    const confirmSpy = vi.fn().mockReturnValue(true)
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(confirmSpy).toHaveBeenCalledOnce()
+    expect(readViews(doc).get(1)).toBe('stream-a')
+  })
+
+  test('does not commit a resize that would overwrite another stream when the user cancels', () => {
+    window.confirm = vi.fn().mockReturnValue(false)
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click, resizing } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('start-resize-anchor-0-e')
+    click('hover-1')
+    windowPointerUp()
+
+    expect(readViews(doc).get(1)).toBe('stream-b')
+    expect(resizing()).toBe('')
+  })
+
   test('aborts an in-progress resize on pointercancel without committing', () => {
     const doc = new Y.Doc()
     seedViews(doc, new Map([[0, 'stream-a']]))
@@ -296,6 +398,51 @@ describe('useTileResize keyboard resize', () => {
     click('keyboard-resize-anchor-0-e-right')
 
     expect(readViews(doc).get(1)).toBeUndefined()
+  })
+
+  test('blocks an arrow-key step that would overwrite another stream, without confirming', () => {
+    const confirmSpy = vi.fn()
+    window.confirm = confirmSpy
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('keyboard-resize-anchor-0-e-right')
+
+    expect(readViews(doc).get(1)).toBe('stream-b')
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  test('commits the step when Shift explicitly overrides the overwrite block', () => {
+    const doc = new Y.Doc()
+    seedViews(
+      doc,
+      new Map([
+        [0, 'stream-a'],
+        [1, 'stream-b'],
+      ]),
+    )
+    const { click } = renderHarness(doc, {
+      views: {
+        '0': { streamId: 'stream-a' },
+        '1': { streamId: 'stream-b' },
+      },
+    })
+
+    click('keyboard-resize-anchor-0-e-right-shift')
+
+    expect(readViews(doc).get(1)).toBe('stream-a')
   })
 })
 

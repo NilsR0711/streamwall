@@ -16,6 +16,8 @@ const api = {
   getFirstRunInfo: (): Promise<FirstRunInfo> =>
     ipcRenderer.invoke('control:first-run-info'),
   openConfigFolder: () => ipcRenderer.invoke('control:open-config-folder'),
+  createExampleConfig: (): Promise<void> =>
+    ipcRenderer.invoke('control:create-example-config'),
   onState: (handleState: (state: StreamwallState) => void) => {
     const internalHandler = (_ev: IpcRendererEvent, state: StreamwallState) =>
       handleState(state)

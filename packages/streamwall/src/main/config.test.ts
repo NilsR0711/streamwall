@@ -276,6 +276,30 @@ describe('validateConfig', () => {
     }
     expect(() => validateConfig(config)).toThrow(ConfigError)
   })
+
+  test('accepts each supported log level', () => {
+    for (const level of [
+      'error',
+      'warn',
+      'info',
+      'verbose',
+      'debug',
+      'silly',
+    ]) {
+      const config = { ...baseConfig(), log: { level } }
+      expect(() => validateConfig(config)).not.toThrow()
+    }
+  })
+
+  test('rejects an unsupported log level and names the key', () => {
+    const config = { ...baseConfig(), log: { level: 'chatty' } }
+    expect(() => validateConfig(config)).toThrow(ConfigError)
+    try {
+      validateConfig(config)
+    } catch (err) {
+      expect((err as Error).message).toContain('level')
+    }
+  })
 })
 
 describe('findUnknownConfigKeys', () => {

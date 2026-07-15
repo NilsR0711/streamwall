@@ -32,6 +32,9 @@ vi.mock('electron', () => ({
 
 vi.mock('./loadHTML', () => ({ loadHTML: vi.fn() }))
 
+const createExampleConfig = vi.fn()
+vi.mock('./exampleConfig', () => ({ createExampleConfig }))
+
 const { default: ControlWindow } = await import('./ControlWindow')
 
 const configInfo = {
@@ -88,6 +91,44 @@ describe('ControlWindow first-run info', () => {
     })
 
     expect(result).toBeUndefined()
+  })
+})
+
+describe('ControlWindow create-example-config', () => {
+  it('delegates to createExampleConfig with the configured path', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+
+    ipcHandlers.get('control:create-example-config')!({ sender })
+
+    expect(createExampleConfig).toHaveBeenCalledWith(configInfo.configPath)
+  })
+
+  it('propagates errors (e.g. a file already existing) to the caller instead of swallowing them', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    const err = new Error('EEXIST: file already exists')
+    createExampleConfig.mockImplementationOnce(() => {
+      throw err
+    })
+
+    expect(() =>
+      ipcHandlers.get('control:create-example-config')!({ sender }),
+    ).toThrow(err)
+  })
+
+  it('ignores requests from a sender other than its own window', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    void controlWindow
+    createExampleConfig.mockClear()
+
+    ipcHandlers.get('control:create-example-config')!({
+      sender: { send: vi.fn() },
+    })
+
+    expect(createExampleConfig).not.toHaveBeenCalled()
   })
 })
 

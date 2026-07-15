@@ -1,6 +1,7 @@
 import TOML from '@iarna/toml'
 import { GRID_MAX, GRID_MIN, MAX_VIEW_IDX } from 'streamwall-shared'
 import { z } from 'zod'
+import { LOG_LEVELS } from './logger'
 
 /**
  * Raised for any invalid startup configuration — malformed TOML or a value that
@@ -42,6 +43,11 @@ const viewIdx = z.number().int().min(0).max(MAX_VIEW_IDX)
  */
 const streamwallConfigSchema = z.object({
   help: z.boolean().optional(),
+  log: z
+    .object({
+      level: z.enum(LOG_LEVELS),
+    })
+    .default({ level: 'debug' }),
   grid: z.object({
     cols: gridDimension,
     rows: gridDimension,

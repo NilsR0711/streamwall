@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const executeJavaScript = vi.fn()
 // Never resolves, so the assertions below can prove the visibility spoof
@@ -92,5 +92,146 @@ describe('mediaPreload error channel', () => {
     importedMediaApi().reportError('<img src=x onerror=alert(1)>')
 
     expect(send).not.toHaveBeenCalledWith('view-error', expect.anything())
+  })
+})
+
+describe('mediaPreload initial acquireMedia rejection', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; not exported since it's an
+  // implementation detail, not part of the module's public surface.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    exposeInMainWorld.mockClear()
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  // Resolves view-init with 'video' content (so main() reaches the
+  // acquireMedia() call) and fires process's 'loaded' event (so main()'s own
+  // pageReady wait resolves). The module-scope DOMContentLoaded-gated
+  // pageReady used by waitForQuery is deliberately left unresolved, so no
+  // <video> element is ever "found" and the INITIAL_TIMEOUT sleep always
+  // wins the race in findMedia().
+  async function loadWithVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it("reports findMedia's specific timeout instead of leaving it an unhandled rejection", async () => {
+    await loadWithVideoContent()
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        { error: expect.objectContaining({ message: 'could not find video' }) },
+      ],
+    ])
+  })
+
+  it('does not let a late generic timeout override an already-reported playHLS error', async () => {
+    await loadWithVideoContent()
+
+    importedMediaApi().reportError('hls-unsupported')
+    expect(viewErrorCalls()).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toHaveLength(1)
+  })
+
+  it('does not let a late playHLS report override an already-reported generic timeout', async () => {
+    await loadWithVideoContent()
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+    expect(viewErrorCalls()).toHaveLength(1)
+
+    importedMediaApi().reportError('hls-unsupported')
+
+    expect(viewErrorCalls()).toHaveLength(1)
+  })
+})
+
+describe("mediaPreload emptied handler's re-acquisition rejection", () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; not exported since it's an
+  // implementation detail, not part of the module's public surface.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  it("reports the emptied handler's re-acquisition timeout instead of leaving it an unhandled rejection", async () => {
+    const video = document.createElement('video')
+    // happy-dom's HTMLVideoElement never implements videoWidth (always
+    // undefined), so give it a truthy value here to skip findMedia's "wait
+    // for playing" branch on the initial acquisition and let it resolve
+    // immediately once the element is found.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Confirms the initial acquisition succeeded and attached the 'emptied'
+    // listener under test, rather than this test accidentally exercising
+    // the initial-acquisition rejection path covered above.
+    expect(send).toHaveBeenCalledWith('view-loaded')
+
+    // A real emptied element resets its own readiness; re-acquisition finds
+    // the same <video> again, but this time nothing ever fires 'playing',
+    // so findMedia's fixed-INITIAL_TIMEOUT wait rejects.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 0
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        {
+          error: expect.objectContaining({
+            message: 'timeout waiting for video to start',
+          }),
+        },
+      ],
+    ])
   })
 })

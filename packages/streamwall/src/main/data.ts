@@ -125,13 +125,36 @@ export function presetDataSource(
   })
 }
 
-export async function* markDataSource(dataSource: DataSource, name: string) {
-  for await (const streamList of dataSource) {
-    for (const s of streamList) {
-      s._dataSource = name
+// Built as a Repeater rather than a plain `async function*`: Repeater.latest()
+// (used by combineDataSources) always keeps one speculative `.next()` call
+// in flight per contender, which can be left permanently pending when a
+// source has no further data. A native async generator queues `.return()`
+// calls behind any in-flight `.next()` per the spec, so that dangling call
+// would block teardown forever; Repeater.return() instead settles pending
+// `.next()` calls immediately, which is what makes combineDataSources()'s
+// early return work (see #264).
+export function markDataSource(
+  dataSource: DataSource,
+  name: string,
+): DataSource {
+  return new Repeater(async (push, stop) => {
+    try {
+      while (true) {
+        const nextP = dataSource.next()
+        nextP.catch(() => {})
+        const iteration = await Promise.race([nextP, stop])
+        if (iteration === undefined || iteration.done) {
+          return iteration?.value
+        }
+        for (const s of iteration.value) {
+          s._dataSource = name
+        }
+        await push(iteration.value)
+      }
+    } finally {
+      await dataSource.return?.(undefined)
     }
-    yield streamList
-  }
+  })
 }
 
 /** Name passed to `markDataSource` for the overlay (rotate-stream) source. */

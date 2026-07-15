@@ -120,3 +120,38 @@ describe('alt+ctrl+<n> second-layer listen-toggle hotkey (#240)', () => {
     expect(options).toEqual({ enableOnFormTags: true })
   })
 })
+
+describe('alt+shift+<n> blur-toggle hotkey', () => {
+  test('registers a base alt+shift chord layer covering 20 trigger keys', () => {
+    renderControlUI()
+
+    const baseLayerCall = useHotkeysMock.mock.calls.find(
+      ([keys]) =>
+        typeof keys === 'string' &&
+        keys
+          .split(',')
+          .every((k) => k.startsWith('alt+shift+') && !k.includes('ctrl')),
+    )
+
+    expect(baseLayerCall).toBeDefined()
+    const [keys] = baseLayerCall ?? []
+    expect((keys as string).split(',')).toHaveLength(20)
+  })
+})
+
+describe('alt+ctrl+shift+<n> second-layer blur-toggle hotkey (#294)', () => {
+  test('registers an alt+ctrl+shift chord layer covering the same 20 trigger keys', () => {
+    renderControlUI()
+
+    const secondLayerCall = useHotkeysMock.mock.calls.find(
+      ([keys]) =>
+        typeof keys === 'string' &&
+        keys.split(',').every((k) => k.startsWith('alt+ctrl+shift+')),
+    )
+
+    expect(secondLayerCall).toBeDefined()
+    const [keys] = secondLayerCall ?? []
+    // Same 20 trigger keys as the base blur layer, just chorded with ctrl too.
+    expect((keys as string).split(',')).toHaveLength(20)
+  })
+})
