@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  invitableRoles,
   inviteLink,
+  isInvitableRole,
   roleCan,
   type StreamwallAction,
   validRoles,
@@ -99,6 +101,34 @@ describe('roleCan default-deny for unlisted actions', () => {
   })
   it('denies unauthenticated clients an action absent from every set', () => {
     expect(roleCan(null, unlisted)).toBe(false)
+  })
+})
+
+describe('invitableRoles', () => {
+  it('excludes the local role, which is reserved for the app itself', () => {
+    expect(invitableRoles).not.toContain('local')
+  })
+
+  it('contains every other valid role', () => {
+    expect([...invitableRoles].sort()).toEqual(
+      validRoles.filter((role) => role !== 'local').sort(),
+    )
+  })
+})
+
+describe('isInvitableRole', () => {
+  for (const role of invitableRoles) {
+    it(`accepts ${role}`, () => {
+      expect(isInvitableRole(role)).toBe(true)
+    })
+  }
+
+  it('rejects the local role', () => {
+    expect(isInvitableRole('local')).toBe(false)
+  })
+
+  it('rejects an arbitrary string', () => {
+    expect(isInvitableRole('totally-not-a-role')).toBe(false)
   })
 })
 
