@@ -355,12 +355,17 @@ async function main() {
   let rotationController: RotationController | undefined
   let volumeController: VolumeController | undefined
   let latestVolume = initialVolume ?? 1
+  // The most recently acquired media element (reassigned across a re-
+  // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
+  // message received at any point can act on whichever one is current.
+  let currentMedia: HTMLMediaElement | undefined
   async function acquireMedia(elementTimeout: number) {
     let snapshotInterval: number | undefined
 
     const media = await findMedia(content.kind, elementTimeout)
     console.log('media acquired', media)
 
+    currentMedia = media
     volumeController = new VolumeController(media, latestVolume)
     ipcRenderer.send('view-loaded')
 
@@ -441,6 +446,28 @@ async function main() {
     volumeController?.setVolume(volume)
   }
   ipcRenderer.on('volume', (ev, volume) => updateVolume(volume))
+
+  // Stops/resumes the acquired media element's own playback -- used to pause
+  // a parked (hidden) view instead of keeping it fully live while it's
+  // hidden behind a fullscreen expansion (issue #374). No-ops when no media
+  // has been acquired yet (e.g. a 'web' kind view, or one still loading).
+  ipcRenderer.on('pause', () => {
+    if (!currentMedia) {
+      return
+    }
+    // lockdownMediaTags() permanently shadows the element's own `pause`
+    // method with a no-op (to stop sites like Facebook from auto-pausing),
+    // so call the native implementation directly instead of
+    // `currentMedia.pause()`, which would silently do nothing.
+    HTMLMediaElement.prototype.pause.call(currentMedia)
+  })
+  ipcRenderer.on('resume', () => {
+    // Live streams are typically not seekable on-demand video, so resuming
+    // after a pause may briefly re-buffer or land slightly behind the live
+    // edge -- both cheaper than a full reload and expected to self-correct
+    // as playback continues.
+    currentMedia?.play().catch(() => {})
+  })
 }
 
 main().catch((error) => {
