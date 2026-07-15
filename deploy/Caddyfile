@@ -1,0 +1,7 @@
+{
+	email {$STREAMWALL_ACME_EMAIL}
+}
+
+{$STREAMWALL_DOMAIN} {
+	reverse_proxy control-server:3000
+}
