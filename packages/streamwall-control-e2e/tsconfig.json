@@ -1,0 +1,22 @@
+{
+  "extends": [
+    "@tsconfig/recommended/tsconfig",
+    "@tsconfig/node22/tsconfig",
+    "@tsconfig/node-ts/tsconfig"
+  ],
+  "compilerOptions": {
+    // Mirror @tsconfig/node22's `lib` (it typechecks the imported server
+    // sources too) and add the DOM libs, since Playwright `page.evaluate`
+    // callbacks run in the browser and need `document`/`window`.
+    "lib": [
+      "es2024",
+      "ESNext.Array",
+      "ESNext.Collection",
+      "ESNext.Iterator",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": ["node"]
+  },
+  "include": ["tests", "playwright.config.ts"]
+}

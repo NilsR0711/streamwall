@@ -17,7 +17,8 @@
     "packages/streamwall-shared",
     "packages/streamwall-control-client",
     "packages/streamwall-control-server",
-    "packages/streamwall-control-ui"
+    "packages/streamwall-control-ui",
+    "packages/streamwall-control-e2e"
   ],
   "overrides": {
     "tar": "^7.5.16",

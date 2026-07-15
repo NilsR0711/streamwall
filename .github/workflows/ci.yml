@@ -107,6 +107,26 @@ jobs:
       - uses: ./.github/actions/setup
       - run: npm -w streamwall-control-client run build
 
+  # End-to-end smoke tests: the control client in a real Chromium browser
+  # against a real control server + fake Streamwall uplink. Linux-only (the
+  # Playwright browser install with system deps is Linux-only), so this stays
+  # out of the cross-OS `test` matrix above.
+  e2e:
+    name: E2E smoke (control client)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E smoke tests
+        run: npm -w streamwall-control-e2e run test:e2e
+
   # Reviews the dependency diff of a PR for known vulnerabilities.
   dependency-review:
     name: Dependency review
@@ -147,7 +167,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: ${{ !cancelled() }}
-    needs: [changes, checks, test, build, dependency-review, actionlint]
+    needs: [changes, checks, test, build, e2e, dependency-review, actionlint]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

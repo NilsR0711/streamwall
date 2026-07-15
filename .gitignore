@@ -32,6 +32,12 @@ storage.json
 .eslintcache
 .npm/
 
+# Playwright (E2E) artifacts
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Editors / IDEs
 .vscode/
 .idea/

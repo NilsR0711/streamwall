@@ -1,0 +1,28 @@
+{
+  "name": "streamwall-control-e2e",
+  "version": "1.0.0",
+  "description": "Multiplayer Streamwall: control-client end-to-end smoke tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "NODE_OPTIONS=\"--import tsx\" playwright test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "repository": "github:NilsR0711/streamwall",
+  "author": "Nils Reeh <info@nilsreeh.de>",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@tsconfig/node-ts": "^23.6.4",
+    "@tsconfig/node22": "^22.0.5",
+    "@tsconfig/recommended": "^1.0.13",
+    "@types/ws": "^8.18.1",
+    "lowdb": "^7.0.1",
+    "streamwall-control-server": "*",
+    "streamwall-shared": "*",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "ws": "^8.21.1",
+    "yjs": "^13.6.31"
+  }
+}
