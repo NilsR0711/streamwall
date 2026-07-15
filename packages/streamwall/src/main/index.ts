@@ -1018,6 +1018,10 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   for await (const streams of combineDataSources(dataSources, idGen)) {
     updateState({ streams })
     updateViewsFromStateDoc()
+    // Newly-loaded stream data may resolve a playlist URL that failed to
+    // resolve on startup or a prior interval tick; fill it in immediately
+    // rather than leaving the view empty until the next tick.
+    playlistScheduler.retryPending()
   }
 }
 
