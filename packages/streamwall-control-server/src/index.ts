@@ -961,8 +961,7 @@ export function resolveListenPort(
     overridePort != null && String(overridePort).trim() !== ''
       ? String(overridePort).trim()
       : undefined
-  const fromUrl =
-    url.port || (url.protocol === 'https:' ? '443' : '80')
+  const fromUrl = url.port || (url.protocol === 'https:' ? '443' : '80')
   return Number(explicit ?? fromUrl)
 }
 

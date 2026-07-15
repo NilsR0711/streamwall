@@ -2,11 +2,7 @@ import { Low, Memory } from 'lowdb'
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
-import {
-  initApp,
-  resolveListenPort,
-  SESSION_COOKIE_NAME,
-} from './index.ts'
+import { initApp, resolveListenPort, SESSION_COOKIE_NAME } from './index.ts'
 import type { StoredData } from './storage.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
@@ -123,7 +119,10 @@ describe('resolveListenPort', () => {
 
   test('override port wins over URL (including scheme default)', () => {
     assert.equal(resolveListenPort('https://wall.example.com', '8080'), 8080)
-    assert.equal(resolveListenPort('https://wall.example.com:8443', '9090'), 9090)
+    assert.equal(
+      resolveListenPort('https://wall.example.com:8443', '9090'),
+      9090,
+    )
   })
 
   test('empty override falls through to URL / scheme default', () => {
