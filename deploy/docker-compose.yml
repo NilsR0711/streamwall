@@ -1,0 +1,40 @@
+# Self-hosting stack: streamwall-control-server behind a Caddy reverse
+# proxy that handles automatic Let's Encrypt TLS. See docs/self-hosting.md
+# for the full walkthrough.
+#
+# Usage (from this directory):
+#   cp .env.example .env   # then fill in STREAMWALL_DOMAIN etc.
+#   docker compose up -d --build
+
+services:
+  control-server:
+    build:
+      context: ..
+      dockerfile: packages/streamwall-control-server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - control-server-data:/data
+    # Not published to the host: only Caddy talks to this service, over the
+    # compose-managed internal network (by service name, "control-server").
+    expose:
+      - '3000'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - control-server
+    env_file: .env
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  control-server-data:
+  caddy-data:
+  caddy-config:
