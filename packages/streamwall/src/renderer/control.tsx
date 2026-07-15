@@ -133,6 +133,9 @@ function App() {
         <FirstRunHint
           configPath={firstRunHint.configPath!}
           onOpenConfigFolder={() => window.streamwallControl.openConfigFolder()}
+          onCreateExampleConfig={() =>
+            window.streamwallControl.createExampleConfig()
+          }
           onDismiss={firstRunHint.dismiss}
         />
       )}
