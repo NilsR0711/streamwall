@@ -38,9 +38,9 @@ export function CommandErrorBanner({
   return (
     <StyledCommandErrorBanner className="command-error-banner">
       <FaExclamationTriangle />
-      <span>Aktion fehlgeschlagen: {error}</span>
+      <span>Action failed: {error}</span>
       <button type="button" onClick={onDismiss}>
-        Ausblenden
+        Dismiss
       </button>
     </StyledCommandErrorBanner>
   )
