@@ -1,3 +1,9 @@
+[log]
+# Verbosity of log output, written to both the console and the userData log
+# file (its path is printed to the console on startup; see README.md).
+# One of: error, warn, info, verbose, debug, silly.
+#level = "debug"
+
 [window]
 # Window dimensions
 #width = 1920

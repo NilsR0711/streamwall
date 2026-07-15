@@ -66,6 +66,15 @@ On first launch, if no user data `config.toml` exists yet, the control
 window shows a dismissible hint with the exact path above. Use **File →
 Open Config Folder** in the app menu at any time to open that directory.
 
+### Logging
+
+Streamwall writes logs to both the console and a file in Electron's userData
+log directory (its exact path is printed to the console on startup). File
+and console verbosity default to `debug`; set `log.level` in your config
+file (see `example.config.toml`) or pass `--log.level=<level>` on the
+command line to change it. Valid levels, from quietest to loudest: `error`,
+`warn`, `info`, `verbose`, `debug`, `silly`.
+
 ### Telemetry
 
 Streamwall reports uncaught errors to a Sentry project run by the maintainers
