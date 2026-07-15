@@ -16,14 +16,16 @@ test('an admin invite link signs in and renders the grid from injected state', a
   // receives the session cookie, and redirects to the app.
   await page.goto(await harness.createInviteLink())
 
-  const grid = page.locator('.grid')
+  const grid = page.getByTestId('grid')
   await expect(grid).toBeVisible()
-  await expect(page.locator('.grid input')).toHaveCount(
+  await expect(page.getByTestId('grid-cell')).toHaveCount(
     harness.cols * harness.rows,
   )
   // Header status flips to "connected" only once the client's socket is up and
   // the injected state has arrived.
-  await expect(page.locator('.status')).toContainText('connected')
+  await expect(page.getByTestId('header-connection-status')).toContainText(
+    'connected',
+  )
 })
 
 test('an unauthenticated visitor is rejected with an unauthorized banner', async ({
@@ -34,9 +36,11 @@ test('an unauthenticated visitor is rejected with an unauthorized banner', async
   // socket is refused and the disconnect banner explains why.
   await page.goto(`${harness.baseURL}/`)
 
-  await expect(page.getByRole('status')).toContainText('Session invalid')
+  await expect(page.getByTestId('connection-status-banner')).toContainText(
+    'Session invalid',
+  )
   // Without any state push the grid never renders.
-  await expect(page.locator('.grid')).toHaveCount(0)
+  await expect(page.getByTestId('grid')).toHaveCount(0)
 })
 
 test('a grid-cell edit reaches the Streamwall peer as a shared-doc update', async ({
@@ -45,13 +49,13 @@ test('a grid-cell edit reaches the Streamwall peer as a shared-doc update', asyn
 }) => {
   await page.goto(await harness.createInviteLink())
 
-  const cells = page.locator('.grid input')
+  const cells = page.getByTestId('grid-cell')
   await expect(cells).toHaveCount(harness.cols * harness.rows)
 
   const targetIdx = 4 // center cell of the 3×3 grid
   const [streamId] = harness.streamIds
 
-  await page.locator('.grid').hover()
+  await page.getByTestId('grid').hover()
   await cells.nth(targetIdx).fill(streamId)
   await cells.nth(targetIdx).blur()
 
@@ -66,7 +70,7 @@ test('the layout never overflows horizontally across viewport widths', async ({
   harness,
 }) => {
   await page.goto(await harness.createInviteLink())
-  await expect(page.locator('.grid')).toBeVisible()
+  await expect(page.getByTestId('grid')).toBeVisible()
 
   // Real-browser layout measurement — the only way to catch min-content /
   // margin overflow regressions (issue #225/#239) that unit tests miss.
