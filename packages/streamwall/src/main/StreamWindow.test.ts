@@ -1,7 +1,8 @@
-import type {
-  StreamWindowConfig,
-  ViewContent,
-  ViewContentMap,
+import {
+  fullscreenViewContentMap,
+  type StreamWindowConfig,
+  type ViewContent,
+  type ViewContentMap,
 } from 'streamwall-shared'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -459,6 +460,64 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
       expect.objectContaining({ type: 'DISPLAY', content: streamC }),
     )
     expect(spaceOnly.stop).not.toHaveBeenCalled()
+  })
+})
+
+describe('StreamWindow.setViews expanding a view to fill the wall (issue #362)', () => {
+  it('reuses the running actor and spans it across every grid cell', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    // streamB is currently running in a single cell (index 1) of the 2x2 wall;
+    // streamA occupies another cell and must be torn down when B expands.
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    // The fullscreen override fills every cell with streamB.
+    sw.setViews(fullscreenViewContentMap(2, 2, streamB), {
+      byURL: new Map([[streamB.url, {}]]),
+    })
+
+    // No new view is created: the already-running streamB actor is reused and
+    // repositioned to span the whole wall.
+    expect(sw.createView).not.toHaveBeenCalled()
+    expect(expanding.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'DISPLAY',
+        content: streamB,
+        pos: expect.objectContaining({ spaces: [0, 1, 2, 3] }),
+      }),
+    )
+    // The other stream is torn down (its cell is now hidden behind the
+    // expanded view).
+    expect(other.stop).toHaveBeenCalled()
+    expect(sw.views.size).toBe(1)
+    expect(sw.views.get(1)).toBe(expanding.actor)
   })
 })
 

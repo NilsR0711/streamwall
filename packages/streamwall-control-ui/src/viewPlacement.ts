@@ -30,6 +30,26 @@ export function resolveTargetViewIdx({
 }
 
 /**
+ * The cell index to read a rendered box's persisted stream assignment from.
+ *
+ * Normally a box's assignment lives at its top-left cell (`spaces[0]`). While a
+ * view is expanded to fill the wall (issue #362) the single spanning box covers
+ * every cell, but its stream is only recorded at the cell that was expanded, so
+ * boxes covering the expanded cell resolve to `fullscreenViewIdx` instead. A
+ * stale `fullscreenViewIdx` that no box covers is ignored, so an out-of-date
+ * value never misattributes another box's stream.
+ */
+export function resolveAnchorIdx(
+  spaces: number[],
+  fullscreenViewIdx: number | null,
+): number {
+  if (fullscreenViewIdx != null && spaces.includes(fullscreenViewIdx)) {
+    return fullscreenViewIdx
+  }
+  return spaces[0]
+}
+
+/**
  * The streamId to write into a view cell: the clicked id when it still exists
  * among the known streams, or `''` to clear the cell when it does not.
  *

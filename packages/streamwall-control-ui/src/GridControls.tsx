@@ -61,6 +61,7 @@ export function GridControls({
   onBrowse,
   onDevTools,
   onPointerDown,
+  onToggleFullscreen,
 }: {
   idx: number
   streamId: string
@@ -86,6 +87,7 @@ export function GridControls({
   onBrowse: (streamId: string) => void
   onDevTools: (idx: number) => void
   onPointerDown: JSX.PointerEventHandler<HTMLDivElement>
+  onToggleFullscreen: (idx: number) => void
 }) {
   // TODO: Refactor callbacks to use streamID instead of idx.
   // We should probably also switch the view-state-changing RPCs to use a view id instead of idx like they do currently.
@@ -131,8 +133,29 @@ export function GridControls({
     () => onDevTools(idx),
     [idx, onDevTools],
   )
+  const handleDoubleClick = useCallback<JSX.MouseEventHandler<HTMLDivElement>>(
+    (ev) => {
+      if (!roleCan(role, 'set-view-fullscreen')) {
+        return
+      }
+      // Ignore double-clicks that land on the corner controls (buttons/sliders)
+      // so toggling blur/volume/etc. never doubles as a fullscreen toggle; only
+      // the open area of the tile expands it.
+      if (ev.target instanceof Element && ev.target.closest('button, input')) {
+        return
+      }
+      onToggleFullscreen(idx)
+    },
+    [role, idx, onToggleFullscreen],
+  )
   return (
-    <StyledGridControlsContainer style={style} onPointerDown={onPointerDown}>
+    <StyledGridControlsContainer
+      style={style}
+      onPointerDown={onPointerDown}
+      onDblClick={handleDoubleClick}
+      data-testid="grid-controls"
+      data-idx={idx}
+    >
       {isDisplaying && (
         <StyledGridButtons $side="left">
           {showDebug ? (

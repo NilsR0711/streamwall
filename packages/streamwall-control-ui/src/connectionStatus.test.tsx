@@ -66,6 +66,7 @@ function renderControlUI(isConnected: boolean): HTMLDivElement {
     streams: [],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     stateIdxMap: new Map(),
     delayState,
     authState: undefined,

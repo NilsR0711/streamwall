@@ -118,6 +118,7 @@ function renderControlUI(role: StreamwallRole | null): {
     ],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     stateIdxMap,
     delayState,
     authState: undefined,

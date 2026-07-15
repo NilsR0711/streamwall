@@ -68,6 +68,7 @@ function renderControlUI(
     streams: [],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     stateIdxMap: new Map(),
     delayState,
     authState: undefined,

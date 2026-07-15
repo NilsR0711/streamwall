@@ -118,6 +118,7 @@ function renderControlUI(role: StreamwallRole | null): HTMLDivElement {
     ],
     customStreams: [],
     views: [],
+    fullscreenViewIdx: null,
     stateIdxMap,
     delayState,
     authState: undefined,

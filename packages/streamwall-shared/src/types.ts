@@ -149,6 +149,14 @@ export interface StreamwallState {
   streams: StreamList
   customStreams: StreamList
   views: ViewState[]
+  /**
+   * Anchor grid-cell index of the view currently expanded to fill the whole
+   * wall, or `null` when the normal grid layout is shown. Purely a runtime,
+   * view-local override (issue #362): it is broadcast so every client renders
+   * the expansion consistently, but is never written to the persisted grid
+   * assignments.
+   */
+  fullscreenViewIdx: number | null
   streamdelay: StreamDelayStatus | null
   layoutPresets: LayoutPreset[]
   /** Stream URLs (`StreamDataContent.link`) a user has starred for quick access. */

@@ -64,6 +64,7 @@ function makeConnection(customStreams: StreamData[]): StreamwallConnection {
     streams: [],
     customStreams,
     views: [],
+    fullscreenViewIdx: null,
     stateIdxMap: new Map(),
     delayState,
     authState: undefined,

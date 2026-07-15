@@ -4,6 +4,7 @@ import {
   boxesFromViewContentMap,
   clampGridDimension,
   computeBoxRect,
+  fullscreenViewContentMap,
   GRID_MAX,
   GRID_MIN,
   gridWouldDropAssignments,
@@ -338,5 +339,35 @@ describe('hasGridAssignments', () => {
       [1, 'a'],
     ])
     expect(hasGridAssignments(assignments)).toBe(true)
+  })
+})
+
+describe('fullscreenViewContentMap', () => {
+  const content: ViewContent = { url: 'https://example.com', kind: 'video' }
+
+  it('fills every cell of the grid with the given content', () => {
+    const map = fullscreenViewContentMap(3, 2, content)
+    expect(map.size).toBe(6)
+    for (let idx = 0; idx < 6; idx++) {
+      expect(map.get(String(idx))).toEqual(content)
+    }
+  })
+
+  it('collapses into a single box spanning the whole grid', () => {
+    const map = fullscreenViewContentMap(4, 3, content)
+    const boxes = boxesFromViewContentMap(4, 3, map)
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].spaces).toEqual([...Array(12).keys()])
+    expect(boxes[0]).toMatchObject({ x: 0, y: 0, w: 4, h: 3 })
+  })
+
+  it('produces a single full-screen box even on a 1×1 grid', () => {
+    const boxes = boxesFromViewContentMap(
+      1,
+      1,
+      fullscreenViewContentMap(1, 1, content),
+    )
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].spaces).toEqual([0])
   })
 })

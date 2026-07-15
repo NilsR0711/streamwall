@@ -117,6 +117,7 @@ function makeConnection(viewCount: number): StreamwallConnection {
     streams,
     customStreams: [],
     views,
+    fullscreenViewIdx: null,
     stateIdxMap,
     delayState,
     authState: undefined,

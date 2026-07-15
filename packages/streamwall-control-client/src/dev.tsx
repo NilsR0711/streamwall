@@ -164,6 +164,7 @@ const demoState: StreamwallState = {
   streams: demoStreams,
   customStreams: [],
   views: demoViews as unknown as StreamwallState['views'],
+  fullscreenViewIdx: null,
   streamdelay: null,
   layoutPresets: [],
   favorites: ['https://twitch.tv/woke'],
