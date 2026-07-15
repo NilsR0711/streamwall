@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { GRID_MAX, GRID_MIN } from './geometry.ts'
-import { validRoles } from './roles.ts'
+import { invitableRoles } from './roles.ts'
 
 /**
  * Runtime schemas for every piece of external, untrusted input that crosses a
@@ -182,7 +182,7 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('create-invite'),
-    role: z.enum(validRoles),
+    role: z.enum(invitableRoles),
     name: z.string(),
   }),
   z.object({
