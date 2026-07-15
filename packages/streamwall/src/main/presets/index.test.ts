@@ -20,9 +20,7 @@ describe('buildPresetPack', () => {
   })
 
   test('produces an empty entries list when every input entry is invalid', () => {
-    const pack = buildPresetPack('test-pack', 'Test Pack', [
-      { kind: 'video' },
-    ])
+    const pack = buildPresetPack('test-pack', 'Test Pack', [{ kind: 'video' }])
     expect(pack.entries).toEqual([])
   })
 

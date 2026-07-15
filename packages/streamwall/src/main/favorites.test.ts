@@ -3,9 +3,9 @@ import { addFavorite, removeFavorite } from './favorites'
 
 describe('addFavorite', () => {
   test('appends a new url', () => {
-    expect(
-      addFavorite(['https://a.example/s'], 'https://b.example/s'),
-    ).toEqual(['https://a.example/s', 'https://b.example/s'])
+    expect(addFavorite(['https://a.example/s'], 'https://b.example/s')).toEqual(
+      ['https://a.example/s', 'https://b.example/s'],
+    )
   })
 
   test('appends to an empty list', () => {
@@ -32,9 +32,9 @@ describe('removeFavorite', () => {
 
   test('is a no-op (same array reference) when the url is not a favorite', () => {
     const favorites = ['https://a.example/s']
-    expect(
-      removeFavorite(favorites, 'https://not-a-favorite.example/s'),
-    ).toBe(favorites)
+    expect(removeFavorite(favorites, 'https://not-a-favorite.example/s')).toBe(
+      favorites,
+    )
   })
 
   test('removing from an empty list stays empty', () => {

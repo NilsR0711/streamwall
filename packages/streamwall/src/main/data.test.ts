@@ -704,9 +704,7 @@ describe('presetDataSource', () => {
     const pack: PresetPack = {
       id: 'de-tv',
       name: 'German Free-TV',
-      entries: [
-        { link: 'https://ard.example/s', kind: 'video', label: 'ARD' },
-      ],
+      entries: [{ link: 'https://ard.example/s', kind: 'video', label: 'ARD' }],
     }
     const idGen = new StreamIDGenerator()
     // combineDataSources()'s .return() never resolves (Repeater.latest does

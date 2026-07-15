@@ -143,9 +143,7 @@ describe('favorites', () => {
     document.body.appendChild(container)
     act(() => {
       render(
-        <ControlUI
-          connection={makeConnection([stream], [stream.link])}
-        />,
+        <ControlUI connection={makeConnection([stream], [stream.link])} />,
         container!,
       )
     })
