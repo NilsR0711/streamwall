@@ -98,12 +98,12 @@ of environment variables the server itself understands — including storage
 location and rate-limit tuning — see
 [`packages/streamwall-control-server/README.md`](../packages/streamwall-control-server/README.md#configuration).
 
-One default in that file is important to get right behind Caddy:
-`STREAMWALL_CONTROL_URL` should be a bare `https://your-domain` with **no
-port**, and `STREAMWALL_CONTROL_PORT` must then be set explicitly (the
-compose file already does this). The server does not fill in port 443 when
-`STREAMWALL_CONTROL_URL` omits one, so an explicit `STREAMWALL_CONTROL_PORT`
-is required — the `.env.example` comments explain why.
+Behind Caddy, set `STREAMWALL_CONTROL_URL` to a bare `https://your-domain`
+with **no port** (the public URL clients see). The server listens on
+`STREAMWALL_CONTROL_PORT` inside the container (3000 by default; see
+`.env.example`). Enable `STREAMWALL_TRUST_PROXY=true` so per-IP rate limits
+use each visitor's address rather than Caddy's — the compose file sets this
+for the bundled stack.
 
 ## Operational security notes
 
@@ -116,16 +116,10 @@ is required — the `.env.example` comments explain why.
 - **Rate limits are already enforced** by the server itself (per-IP HTTP
   limits, a stricter limit on the auth route, and per-connection WebSocket
   message caps — see the server README for the exact numbers and how to tune
-  them).
-- **Known limitation:** the server does not currently parse
-  `X-Forwarded-For`, so behind this (or any) reverse proxy, its per-IP rate
-  limiting sees every client as the proxy's own IP rather than each visitor's
-  real address. In practice this means the rate limits apply collectively
-  across all your operators/monitors rather than individually — it does not
-  disable rate limiting, but it is coarser than running the server exposed
-  directly. Tracked as a follow-up; tighten `STREAMWALL_RATE_LIMIT_MAX` /
-  `STREAMWALL_WS_MSG_RATE` accordingly if you expect many concurrent users
-  behind the proxy.
+  them). With `STREAMWALL_TRUST_PROXY=true` (set in the bundled compose
+  stack), those HTTP limits apply per client behind Caddy. Do **not** enable
+  trust proxy if the process is reachable directly from the internet without
+  a trusted reverse proxy in front.
 
 ## Updating
 
@@ -153,3 +147,6 @@ untouched by rebuilds.
   matches the port Caddy proxies to in `deploy/Caddyfile`
   (`reverse_proxy control-server:<port>`, default `3000` on both sides), and
   check `docker compose logs control-server` for a startup error.
+- **All clients share one rate-limit bucket** — confirm
+  `STREAMWALL_TRUST_PROXY=true` in `.env` or compose, and that only Caddy
+  can reach the control-server port (not published to the host).

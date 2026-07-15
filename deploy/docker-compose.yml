@@ -13,6 +13,9 @@ services:
       dockerfile: packages/streamwall-control-server/Dockerfile
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Only Caddy can reach this service; trust its X-Forwarded-For for per-IP limits.
+      STREAMWALL_TRUST_PROXY: 'true'
     volumes:
       - control-server-data:/data
     # Not published to the host: only Caddy talks to this service, over the
