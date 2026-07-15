@@ -71,6 +71,52 @@ describe('CreateInviteInput', () => {
     expect(nameInput.value).toBe('')
     expect(select.value).toBe('operator')
   })
+
+  test('only offers invitable roles, excluding the local role reserved for the app itself', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(<CreateInviteInput onCreateInvite={() => {}} />, container!)
+    })
+
+    const options = Array.from(
+      container.querySelectorAll('option'),
+      (option) => (option as HTMLOptionElement).value,
+    )
+
+    expect(options).toEqual(['admin', 'operator', 'monitor'])
+  })
+
+  test('does not create an invite if the role somehow desyncs from the invitable options', () => {
+    const onCreateInvite = vi.fn()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(<CreateInviteInput onCreateInvite={onCreateInvite} />, container!)
+    })
+
+    const nameInput = container.querySelector('input') as HTMLInputElement
+    const select = container.querySelector('select') as HTMLSelectElement
+    const form = container.querySelector('form') as HTMLFormElement
+
+    act(() => {
+      nameInput.value = 'Jamie'
+      nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => {
+      // Not one of the rendered <option>s, so the browser resets the
+      // select's value to the empty string rather than accepting it.
+      select.value = 'local'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    act(() => {
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+    })
+
+    expect(onCreateInvite).not.toHaveBeenCalled()
+  })
 })
 
 describe('AuthTokenLine', () => {
