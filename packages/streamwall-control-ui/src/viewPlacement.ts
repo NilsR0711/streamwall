@@ -1,9 +1,8 @@
 import { range } from 'lodash-es'
+import { type CollabData } from './collabData.ts'
 
 /** A collaborative view cell as mirrored from the Yjs `views` map. */
-interface ViewSlot {
-  streamId: string | undefined
-}
+type ViewSlot = CollabData['views'][string]
 
 /**
  * Decide which grid cell a stream-id click should fill.

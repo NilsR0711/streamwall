@@ -12,6 +12,7 @@ import { render } from 'preact'
 import { useEffect } from 'preact/hooks'
 import {
   type CollabData,
+  collabDataSchema,
   ControlUI,
   GlobalStyle,
   type StreamwallConnection,
@@ -174,7 +175,7 @@ function useMockConnection(): StreamwallConnection {
     docValue: sharedState,
     doc: stateDoc,
     undoManager,
-  } = useYDoc<CollabData>(['views'])
+  } = useYDoc<CollabData>(['views'], collabDataSchema)
   const appState = useStreamwallState(demoState)
 
   useEffect(() => {

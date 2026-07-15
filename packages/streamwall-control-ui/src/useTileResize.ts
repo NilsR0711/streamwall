@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { roleCan, type StreamwallRole } from 'streamwall-shared'
 import * as Y from 'yjs'
+import { type CollabData } from './collabData.ts'
 import { isPrimaryButton } from './gestures'
 import {
   computeKeyboardResizeHoverIdx,
@@ -10,13 +11,9 @@ import {
   type ResizeHandle,
 } from './gridInteractions'
 
-interface CollabViews {
-  views: { [viewIdx: string]: { streamId: string | undefined } }
-}
-
-/** Snapshots a `CollabViews.views` map into the `Map<idx, streamId>` shape `resizeWouldOverwriteOtherStream` expects. */
+/** Snapshots a `CollabData.views` map into the `Map<idx, streamId>` shape `resizeWouldOverwriteOtherStream` expects. */
 function collectCurrentAssignments(
-  views: CollabViews['views'] | undefined,
+  views: CollabData['views'] | undefined,
 ): Map<number, string | undefined> {
   const currentAssignments = new Map<number, string | undefined>()
   for (const [idx, view] of Object.entries(views ?? {})) {
@@ -44,7 +41,7 @@ export function useTileResize({
   rows: number | null | undefined
   hoveringIdx: number | undefined
   stateDoc: Y.Doc
-  sharedState: CollabViews | undefined
+  sharedState: CollabData | undefined
   role: StreamwallRole | null
 }) {
   const [resize, setResize] = useState<

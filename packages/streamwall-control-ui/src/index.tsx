@@ -36,6 +36,7 @@ import { matchesState } from 'xstate'
 import * as Y from 'yjs'
 import { AuthTokenLine, CreateInviteInput } from './AccessPanel.tsx'
 import { copyTextToClipboard } from './clipboard.ts'
+import { type CollabData } from './collabData.ts'
 import { createErrorSurfacingSend } from './commandError.ts'
 import { CommandErrorBanner } from './CommandErrorBanner.tsx'
 import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx'
@@ -120,11 +121,8 @@ function filterStreams(
   return [wallStreams, liveStreams, otherStreams, favoriteStreams]
 }
 
+export { collabDataSchema, type CollabData } from './collabData.ts'
 export { useYDoc } from './useYDoc.ts'
-
-export interface CollabData {
-  views: { [viewIdx: string]: { streamId: string | undefined } }
-}
 
 export interface StreamwallConnection {
   isConnected: boolean

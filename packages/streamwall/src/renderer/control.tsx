@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
   CollabData,
+  collabDataSchema,
   ControlUI,
   GlobalStyle,
   StreamwallConnection,
@@ -33,7 +34,7 @@ function useStreamwallIPCConnection(): StreamwallConnection {
     docValue: sharedState,
     doc: stateDoc,
     undoManager,
-  } = useYDoc<CollabData>(['views'], 'app')
+  } = useYDoc<CollabData>(['views'], collabDataSchema, 'app')
 
   const [streamwallState, setStreamwallState] = useState<StreamwallState>()
   const appState = useStreamwallState(streamwallState)

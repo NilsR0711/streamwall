@@ -2,6 +2,7 @@ import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
+import { z } from 'zod'
 import { useYDoc } from './useYDoc.ts'
 
 const { docConstructorSpy } = vi.hoisted(() => ({
@@ -29,13 +30,18 @@ afterEach(() => {
   }
 })
 
-function renderUseYDoc(): {
-  get: () => ReturnType<typeof useYDoc<{ views: unknown }>>
+const viewsSchema = z.object({
+  views: z.record(z.string(), z.object({ streamId: z.string().optional() })),
+})
+type ViewsDoc = z.infer<typeof viewsSchema>
+
+function renderUseYDoc(schema: z.ZodType<ViewsDoc> = viewsSchema): {
+  get: () => ReturnType<typeof useYDoc<ViewsDoc>>
   rerender: () => void
 } {
-  let latest: ReturnType<typeof useYDoc<{ views: unknown }>> | undefined
+  let latest: ReturnType<typeof useYDoc<ViewsDoc>> | undefined
   function Harness() {
-    latest = useYDoc<{ views: unknown }>(['views'])
+    latest = useYDoc<ViewsDoc>(['views'], schema)
     return null
   }
   container = document.createElement('div')
@@ -78,5 +84,54 @@ describe('useYDoc', () => {
 
     expect(destroySpy).toHaveBeenCalledTimes(1)
     expect(harness.get().doc).toBe(replacementDoc)
+  })
+
+  it('sets docValue to the validated snapshot after a valid update', () => {
+    const harness = renderUseYDoc()
+
+    act(() => {
+      harness.get().doc.getMap('views').set('0', { streamId: 'abc' })
+    })
+
+    expect(harness.get().docValue).toEqual({
+      views: { '0': { streamId: 'abc' } },
+    })
+  })
+
+  it('rejects an update that fails schema validation, logs a warning, and keeps the last known-good value', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const harness = renderUseYDoc()
+    expect(harness.get().docValue).toEqual({ views: {} })
+
+    act(() => {
+      // `streamId` must be a string per `viewsSchema`.
+      harness.get().doc.getMap('views').set('0', { streamId: 42 })
+    })
+
+    expect(harness.get().docValue).toEqual({ views: {} })
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('keeps a non-empty known-good value when a later update fails validation', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const harness = renderUseYDoc()
+
+    act(() => {
+      harness.get().doc.getMap('views').set('0', { streamId: 'abc' })
+    })
+    expect(harness.get().docValue).toEqual({
+      views: { '0': { streamId: 'abc' } },
+    })
+
+    act(() => {
+      harness.get().doc.getMap('views').set('1', { streamId: 42 })
+    })
+
+    expect(harness.get().docValue).toEqual({
+      views: { '0': { streamId: 'abc' } },
+    })
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 })

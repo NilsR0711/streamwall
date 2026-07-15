@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import * as Y from 'yjs'
+import { type ZodType, prettifyError } from 'zod'
 import { createSharedUndoManager } from './yUndo.ts'
 
 export function useYDoc<T>(
   keys: string[],
+  // Validates each doc snapshot before it replaces `docValue`. The doc is
+  // shared/collaborative state - written to by every connected client and,
+  // on the Electron side, synced from the main process - so a malformed
+  // snapshot (a stale client on an old schema, a manual doc edit, a future
+  // field rename) must be rejected rather than cast, or it would corrupt the
+  // UI silently and only surface later, far from the actual cause (issue
+  // #322).
+  schema: ZodType<T>,
   // Origin string used by this connection when applying remote updates to
   // `doc` (e.g. `'server'` for the websocket client, `'app'` for the
   // Electron IPC renderer). Passed through to the doc's `Y.UndoManager` so
@@ -34,17 +43,25 @@ export function useYDoc<T>(
       const valueCopy = Object.fromEntries(
         keys.map((k) => [k, doc.getMap(k).toJSON()]),
       )
-      // TODO: validate using zod
-      setDocValue(valueCopy as T)
+      const result = schema.safeParse(valueCopy)
+      if (result.success) {
+        setDocValue(result.data)
+      } else {
+        console.warn(
+          'useYDoc: doc snapshot failed validation, keeping the last known-good value',
+          prettifyError(result.error),
+        )
+      }
     }
     updateDocValue()
     doc.on('update', updateDocValue)
     return () => {
       doc.off('update', updateDocValue)
     }
-    // `keys` is deliberately omitted: every caller passes a literal array,
-    // so including it would re-subscribe the listener on every render
-    // without any behavioral benefit.
+    // `keys` and `schema` are deliberately omitted: every caller passes a
+    // literal array/module-level schema, so including them would
+    // re-subscribe the listener on every render without any behavioral
+    // benefit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc])
 

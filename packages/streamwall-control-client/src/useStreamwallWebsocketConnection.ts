@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import {
   type CollabData,
+  collabDataSchema,
   type StreamwallConnection,
   useStreamwallState,
   useYDoc,
@@ -32,7 +33,7 @@ export function useStreamwallWebsocketConnection(
     doc: stateDoc,
     setDoc: setStateDoc,
     undoManager,
-  } = useYDoc<CollabData>(['views'], 'server')
+  } = useYDoc<CollabData>(['views'], collabDataSchema, 'server')
   const [streamwallState, setStreamwallState] = useState<StreamwallState>()
   const appState = useStreamwallState(streamwallState)
 
