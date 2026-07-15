@@ -86,6 +86,7 @@ const E2E_STATE: StreamwallState = {
   views: [],
   streamdelay: null,
   layoutPresets: [],
+  favorites: [],
   dataSourceHealth: [],
 }
 
