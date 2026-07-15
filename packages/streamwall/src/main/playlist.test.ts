@@ -122,4 +122,77 @@ describe('PlaylistScheduler', () => {
     vi.advanceTimersByTime(60_000)
     expect(deps.setViewStream).not.toHaveBeenCalled()
   })
+
+  describe('retryPending', () => {
+    test('resolves a view whose URL only becomes available after startup', () => {
+      const streamIdByURL: Record<string, string | undefined> = { a: undefined }
+      const deps = makeDeps(streamIdByURL)
+      const scheduler = new PlaylistScheduler(
+        [{ view: 0, interval: 10, urls: ['a'] }],
+        deps,
+      )
+
+      scheduler.start()
+      expect(deps.setViewStream).not.toHaveBeenCalled()
+
+      streamIdByURL.a = 'stream-a'
+      scheduler.retryPending()
+
+      expect(deps.setViewStream).toHaveBeenCalledExactlyOnceWith(0, 'stream-a')
+    })
+
+    test('re-resolves the same URL rather than skipping ahead to the next one', () => {
+      const streamIdByURL: Record<string, string | undefined> = {
+        a: undefined,
+        b: 'stream-b',
+      }
+      const deps = makeDeps(streamIdByURL)
+      const scheduler = new PlaylistScheduler(
+        [{ view: 0, interval: 10, urls: ['a', 'b'] }],
+        deps,
+      )
+
+      scheduler.start()
+      streamIdByURL.a = 'stream-a'
+      scheduler.retryPending()
+      expect(deps.setViewStream).toHaveBeenCalledExactlyOnceWith(0, 'stream-a')
+
+      deps.setViewStream.mockClear()
+      vi.advanceTimersByTime(10_000)
+      expect(deps.setViewStream).toHaveBeenCalledExactlyOnceWith(0, 'stream-b')
+    })
+
+    test('is a no-op for views that already resolved', () => {
+      const deps = makeDeps({ a: 'stream-a' })
+      const scheduler = new PlaylistScheduler(
+        [{ view: 0, interval: 10, urls: ['a'] }],
+        deps,
+      )
+
+      scheduler.start()
+      deps.setViewStream.mockClear()
+      deps.resolveStreamId.mockClear()
+
+      scheduler.retryPending()
+
+      expect(deps.resolveStreamId).not.toHaveBeenCalled()
+      expect(deps.setViewStream).not.toHaveBeenCalled()
+    })
+
+    test('does nothing once the scheduler has been stopped', () => {
+      const deps = makeDeps({ a: undefined })
+      const scheduler = new PlaylistScheduler(
+        [{ view: 0, interval: 10, urls: ['a'] }],
+        deps,
+      )
+
+      scheduler.start()
+      scheduler.stop()
+      deps.resolveStreamId.mockClear()
+
+      scheduler.retryPending()
+
+      expect(deps.resolveStreamId).not.toHaveBeenCalled()
+    })
+  })
 })
