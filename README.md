@@ -143,7 +143,11 @@ invites), **operator** (control the grid and streams), and **monitor**
 See
 [`packages/streamwall-control-server/README.md`](packages/streamwall-control-server/README.md)
 for environment variable configuration (hostname/port, storage location, rate
-limits) and a production deployment walkthrough.
+limits).
+
+To put the control server on a public domain with HTTPS (Docker + Caddy), see
+[`docs/self-hosting.md`](docs/self-hosting.md) and the files under
+[`deploy/`](deploy/).
 
 **Known limitation:** grid edits (swap, drag-move, resize) sync as
 independent per-cell updates in the shared Yjs document. If two operators

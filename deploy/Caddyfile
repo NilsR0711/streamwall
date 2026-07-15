@@ -1,0 +1,6 @@
+# Automatic HTTPS for the control server.
+# STREAMWALL_DOMAIN must match STREAMWALL_CONTROL_URL's host (no scheme).
+{$STREAMWALL_DOMAIN} {
+	encode gzip
+	reverse_proxy control:3000
+}

@@ -1,0 +1,44 @@
+# Self-host streamwall-control-server behind Caddy (TLS).
+# From this directory: cp .env.example .env  # then edit domain
+#                   docker compose up -d --build
+#
+# Requires DNS for STREAMWALL_DOMAIN pointing at this host, and ports 80/443 open.
+
+services:
+  control:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Bound inside the container; Caddy is the only public entry.
+      STREAMWALL_CONTROL_HOSTNAME: "0.0.0.0"
+      STREAMWALL_CONTROL_PORT: "3000"
+      STREAMWALL_TRUST_PROXY: "true"
+      DB_PATH: /data/storage.json
+    volumes:
+      - control-data:/data
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      STREAMWALL_DOMAIN: ${STREAMWALL_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - control
+    restart: unless-stopped
+
+volumes:
+  control-data:
+  caddy-data:
+  caddy-config:
