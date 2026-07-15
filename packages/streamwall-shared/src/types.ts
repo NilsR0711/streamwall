@@ -1,6 +1,7 @@
 import type { Delta } from 'jsondiffpatch'
 import type { ViewContent, ViewPos } from './geometry.ts'
 import type { StreamwallRole } from './roles.ts'
+import type { ControlCommand } from './schemas.ts'
 
 export interface StreamWindowConfig {
   cols: number
@@ -159,32 +160,6 @@ type MessageMeta = {
   id: number
   clientId: string
 }
-
-export type ControlCommand =
-  | { type: 'set-listening-view'; viewIdx: number | null }
-  | {
-      type: 'set-view-background-listening'
-      viewIdx: number
-      listening: boolean
-    }
-  | { type: 'set-view-blurred'; viewIdx: number; blurred: boolean }
-  | { type: 'set-view-volume'; viewIdx: number; volume: number }
-  | { type: 'rotate-stream'; url: string; rotation: number }
-  | { type: 'update-custom-stream'; url: string; data: LocalStreamData }
-  | { type: 'delete-custom-stream'; url: string }
-  | { type: 'reload-view'; viewIdx: number }
-  | { type: 'browse'; url: string }
-  | { type: 'dev-tools'; viewIdx: number }
-  | { type: 'set-stream-censored'; isCensored: boolean }
-  | { type: 'set-stream-running'; isStreamRunning: boolean }
-  | { type: 'create-invite'; role: string; name: string }
-  | { type: 'delete-token'; tokenId: string }
-  | { type: 'set-grid-size'; cols: number; rows: number }
-  | { type: 'save-layout-preset'; name: string }
-  | { type: 'load-layout-preset'; presetId: string }
-  | { type: 'delete-layout-preset'; presetId: string }
-  | { type: 'add-favorite'; url: string }
-  | { type: 'remove-favorite'; url: string }
 
 export type ControlUpdate = {
   type: 'state'

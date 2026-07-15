@@ -83,7 +83,7 @@ function stateMessage() {
 const createInviteCommand: ControlCommand = {
   type: 'create-invite',
   name: 'x',
-  role: 'viewer',
+  role: 'operator',
 }
 
 function Harness({
