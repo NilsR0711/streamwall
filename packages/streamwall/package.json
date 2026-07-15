@@ -11,6 +11,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint .",
+    "pretest": "install-electron",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
