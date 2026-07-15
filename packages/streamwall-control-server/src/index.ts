@@ -946,6 +946,25 @@ function logBootstrap({
   console.log('🔑 Admin invite:', adminInviteLink)
 }
 
+/**
+ * Resolve the TCP listen port for the control server.
+ * `URL.port` is `""` (not undefined) when the URL has no explicit port, so
+ * `??` alone would leave an empty string and `Number('') === 0` (ephemeral bind).
+ * Prefer an explicit override, else URL port, else the scheme default.
+ */
+export function resolveListenPort(
+  baseURL: string,
+  overridePort?: string,
+): number {
+  const url = new URL(baseURL)
+  const explicit =
+    overridePort != null && String(overridePort).trim() !== ''
+      ? String(overridePort).trim()
+      : undefined
+  const fromUrl = url.port || (url.protocol === 'https:' ? '443' : '80')
+  return Number(explicit ?? fromUrl)
+}
+
 export default async function runServer({
   port: overridePort,
   hostname: overrideHostname,
@@ -954,7 +973,7 @@ export default async function runServer({
 }: AppOptions & { hostname?: string; port?: string }) {
   const url = new URL(baseURL)
   const hostname = overrideHostname ?? url.hostname
-  const port = Number(overridePort ?? url.port ?? '80')
+  const port = resolveListenPort(baseURL, overridePort)
 
   console.debug('Initializing web server:', { hostname, port })
   const { app, db, auth } = await initApp({
