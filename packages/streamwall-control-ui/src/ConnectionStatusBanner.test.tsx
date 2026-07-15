@@ -68,4 +68,14 @@ describe('ConnectionStatusBanner', () => {
     expect(banner?.textContent).toContain('Too many messages')
     expect(banner?.className).toContain('rate-limited')
   })
+
+  // The E2E suite targets the disconnect banner via this hook rather than
+  // its `role="status"` (which stays for accessibility), so a markup
+  // refactor can't silently break the test (issue #344).
+  test('exposes a stable data-testid for E2E targeting', () => {
+    const el = renderBanner({ isConnected: false, reason: null })
+    expect(
+      el.querySelector('[data-testid="connection-status-banner"]'),
+    ).not.toBeNull()
+  })
 })

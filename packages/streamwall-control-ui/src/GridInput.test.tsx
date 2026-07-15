@@ -61,4 +61,15 @@ describe('GridInput', () => {
 
     expect(onPointerDown).not.toHaveBeenCalled()
   })
+
+  // The E2E suite (packages/streamwall-control-e2e) targets cells via these
+  // hooks instead of styled-components class names, so a markup/styling
+  // refactor can't silently break it (issue #344).
+  test('exposes a stable data-testid and data-idx for E2E cell targeting', () => {
+    const box = renderInput({ idx: 3 })
+    const input = box.querySelector('input')!
+
+    expect(input.getAttribute('data-testid')).toBe('grid-cell')
+    expect(input.getAttribute('data-idx')).toBe('3')
+  })
 })
