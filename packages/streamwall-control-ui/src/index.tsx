@@ -748,7 +748,7 @@ export function ControlUI({
             <div className="livecount">● {liveStreams.length} On Air</div>
           )}
           {role !== 'local' && (
-            <div className="status">
+            <div className="status" data-testid="header-connection-status">
               <span className={`dot ${isConnected ? 'on' : 'off'}`} />
               {isConnected ? 'connected' : 'connecting...'} · {role}
             </div>
@@ -785,6 +785,7 @@ export function ControlUI({
           {cols != null && rows != null && (
             <StyledGridContainer
               className="grid"
+              data-testid="grid"
               onPointerMove={updateHoveringIdx}
               onPointerLeave={clearHoveringIdx}
               $windowWidth={windowWidth}

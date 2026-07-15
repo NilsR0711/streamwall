@@ -78,6 +78,8 @@ export function GridInput({
         onPointerDown={onPointerDown}
         onChange={handleChange}
         isEager
+        data-testid="grid-cell"
+        data-idx={idx}
       />
     </StyledGridInputContainer>
   )

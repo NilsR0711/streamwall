@@ -42,7 +42,11 @@ export function ConnectionStatusBanner({
   }
 
   return (
-    <StyledConnectionStatusBanner className={reason ?? undefined} role="status">
+    <StyledConnectionStatusBanner
+      className={reason ?? undefined}
+      role="status"
+      data-testid="connection-status-banner"
+    >
       <FaExclamationTriangle />
       {reason ? MESSAGE_BY_REASON[reason] : GENERIC_MESSAGE}
     </StyledConnectionStatusBanner>
