@@ -12,6 +12,7 @@ import {
   StreamList,
 } from '../../../streamwall-shared/src/types'
 import log from './logger'
+import type { PresetPack } from './presets'
 
 const sleep = promisify(setTimeout)
 
@@ -107,6 +108,21 @@ export async function* watchDataFile(
   } finally {
     await watcher.close()
   }
+}
+
+/**
+ * Emits a preset pack's entries once. Presets are static, bundled data -
+ * there is nothing to poll or watch - so this pushes its one value and then
+ * stays open, mirroring how `LocalStreamData.gen()` behaves after its
+ * initial push.
+ */
+export function presetDataSource(
+  pack: PresetPack,
+): AsyncIterableIterator<StreamDataContent[]> {
+  return new Repeater(async (push, stop) => {
+    await push(pack.entries as StreamDataContent[])
+    await stop
+  })
 }
 
 // Built as a Repeater rather than a plain `async function*`: Repeater.latest()

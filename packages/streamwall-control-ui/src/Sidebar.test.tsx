@@ -38,6 +38,7 @@ describe('StreamList', () => {
           rows={[baseRow({ _id: 'a' }), baseRow({ _id: 'b' })]}
           disabled={false}
           onClickId={() => {}}
+          favorites={new Set()}
         />,
         container!,
       )
@@ -60,6 +61,7 @@ describe('StreamList', () => {
           rows={[baseRow({ _id: 'xyz' })]}
           disabled={false}
           onClickId={onClickId}
+          favorites={new Set()}
         />,
         container!,
       )
@@ -85,6 +87,7 @@ describe('StreamList', () => {
           rows={[baseRow({ _id: 'xyz' })]}
           disabled={true}
           onClickId={onClickId}
+          favorites={new Set()}
         />,
         container!,
       )
@@ -114,6 +117,7 @@ describe('StreamList', () => {
           ]}
           disabled={false}
           onClickId={() => {}}
+          favorites={new Set()}
         />,
         container!,
       )
@@ -132,6 +136,7 @@ describe('StreamList', () => {
           rows={[baseRow({ source: 'Some Source', city: 'Springfield' })]}
           disabled={false}
           onClickId={() => {}}
+          favorites={new Set()}
         />,
         container!,
       )
@@ -139,6 +144,78 @@ describe('StreamList', () => {
 
     expect(container.textContent).toContain('Some Source')
     expect(container.textContent).toContain('Springfield')
+  })
+})
+
+describe('StreamList favorites', () => {
+  test('renders a filled star for a favorited row and an empty star for a non-favorited one', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[
+            baseRow({ _id: 'a', link: 'https://example.com/a' }),
+            baseRow({ _id: 'b', link: 'https://example.com/b' }),
+          ]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set(['https://example.com/a'])}
+          onToggleFavorite={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    const buttons = container.querySelectorAll('button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0].textContent).toBe('★')
+    expect(buttons[1].textContent).toBe('☆')
+  })
+
+  test('invokes onToggleFavorite with the row link when the star is clicked, without triggering onClickId', () => {
+    const onToggleFavorite = vi.fn()
+    const onClickId = vi.fn()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ _id: 'a', link: 'https://example.com/a' })]}
+          disabled={false}
+          onClickId={onClickId}
+          favorites={new Set()}
+          onToggleFavorite={onToggleFavorite}
+        />,
+        container!,
+      )
+    })
+
+    const button = container.querySelector('button') as HTMLButtonElement
+    act(() => {
+      button.click()
+    })
+
+    expect(onToggleFavorite).toHaveBeenCalledWith('https://example.com/a')
+    expect(onClickId).not.toHaveBeenCalled()
+  })
+
+  test('hides the favorite star entirely when onToggleFavorite is not provided', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ _id: 'a' })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('button')).toBeNull()
   })
 })
 

@@ -48,9 +48,11 @@ import {
   combineDataSources,
   markDataSource,
   pollDataURL,
+  presetDataSource,
   watchDataFile,
 } from './data'
 import { DataSourceHealthTracker } from './dataSourceHealth'
+import { addFavorite, removeFavorite } from './favorites'
 import { applyGridResize } from './gridResize'
 import {
   addLayoutPreset,
@@ -67,6 +69,7 @@ import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
+import { loadPresetPack } from './presets'
 import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -141,6 +144,7 @@ export interface StreamwallConfig {
     'json-url': string[]
     'toml-file': string[]
   }
+  presets: string[]
   streamdelay: {
     endpoint: string
     key: string | null
@@ -302,6 +306,13 @@ function parseArgs(): StreamwallConfig {
       normalize: true,
       array: true,
       default: [],
+    })
+    .group(['presets'], 'Presets')
+    .option('presets', {
+      describe: 'Enabled built-in preset stream packs (e.g. "de-tv")',
+      array: true,
+      string: true,
+      default: ['de-tv'],
     })
     .group(['streamdelay.endpoint', 'streamdelay.key'], 'Streamdelay')
     .option('streamdelay.endpoint', {
@@ -500,6 +511,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     views: [],
     streamdelay: null,
     layoutPresets: db.data.layoutPresets,
+    favorites: db.data.favorites,
     dataSourceHealth: [],
   }
 
@@ -723,6 +735,24 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         data.layoutPresets = layoutPresets
       })
       updateState({ layoutPresets })
+    } else if (msg.type === 'add-favorite') {
+      const favorites = addFavorite(clientState.favorites, msg.url)
+      if (favorites !== clientState.favorites) {
+        log.debug('Adding favorite:', msg.url)
+        safeUpdate(db, (data) => {
+          data.favorites = favorites
+        })
+        updateState({ favorites })
+      }
+    } else if (msg.type === 'remove-favorite') {
+      const favorites = removeFavorite(clientState.favorites, msg.url)
+      if (favorites !== clientState.favorites) {
+        log.debug('Removing favorite:', msg.url)
+        safeUpdate(db, (data) => {
+          data.favorites = favorites
+        })
+        updateState({ favorites })
+      }
     }
   }
 
@@ -971,6 +1001,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         watchDataFile(path, trackDataSourceHealth(path, 'toml-file')),
         'toml-file',
       )
+    }),
+    ...argv.presets.flatMap((packId) => {
+      const pack = loadPresetPack(packId)
+      if (!pack) {
+        log.warn(`Unknown preset pack "${packId}", skipping`)
+        return []
+      }
+      log.debug('Loading preset pack:', pack.id)
+      return [markDataSource(presetDataSource(pack), `preset:${pack.id}`)]
     }),
     markDataSource(localStreamData.gen(), 'custom'),
     markDataSource(overlayStreamData.gen(), OVERLAY_DATA_SOURCE_NAME),

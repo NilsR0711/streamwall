@@ -70,6 +70,7 @@ const minimalState: StreamwallState = {
   views: [],
   streamdelay: null,
   layoutPresets: [],
+  favorites: [],
   dataSourceHealth: [],
 }
 

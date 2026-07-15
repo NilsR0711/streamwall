@@ -387,6 +387,46 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
+  test('accepts a valid add-favorite command', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'add-favorite',
+        url: 'https://example.com/stream',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects add-favorite with an empty url', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'add-favorite',
+        url: '',
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts a valid remove-favorite command', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'remove-favorite',
+        url: 'https://example.com/stream',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects remove-favorite with an empty url', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'remove-favorite',
+        url: '',
+      }).success,
+    ).toBe(false)
+  })
+
   test('parsed commands remain assignable to the ControlCommand type', () => {
     const result = controlCommandMessageSchema.safeParse({
       id: 7,

@@ -121,6 +121,7 @@ function makeConnection(viewCount: number): StreamwallConnection {
     delayState,
     authState: undefined,
     layoutPresets: [],
+    favorites: [],
     dataSourceHealth: [],
   }
 }

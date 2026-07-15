@@ -122,6 +122,7 @@ function renderControlUI(role: StreamwallRole | null): HTMLDivElement {
     delayState,
     authState: undefined,
     layoutPresets: [],
+    favorites: [],
     dataSourceHealth: [],
   }
 

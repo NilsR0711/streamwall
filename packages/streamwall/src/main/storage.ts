@@ -7,12 +7,14 @@ export interface StreamwallStoredData {
   stateDoc: string
   localStreamData: StreamDataContent[]
   layoutPresets: LayoutPreset[]
+  favorites: string[]
 }
 
 const defaultData: StreamwallStoredData = {
   stateDoc: '',
   localStreamData: [],
   layoutPresets: [],
+  favorites: [],
 }
 
 export type StorageDB = Low<StreamwallStoredData>

@@ -16,6 +16,7 @@ function makeDB(initial: Partial<StreamwallStoredData> = {}): StorageDB {
     stateDoc: '',
     localStreamData: [],
     layoutPresets: [],
+    favorites: [],
     ...initial,
   })
 }
@@ -122,6 +123,36 @@ describe('loadStorage', () => {
       expect(db.data.layoutPresets).toEqual([
         { id: 'p1', name: 'My Layout', cols: 2, rows: 2, views: {} },
       ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('favorites persistence', () => {
+  test('defaults favorites to an empty array for a fresh db', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'streamwall-storage-test-'))
+    try {
+      const dbPath = join(dir, 'storage.json')
+      const db = await loadStorage(dbPath)
+
+      expect(db.data.favorites).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('db.update persists a saved favorite onto db.data', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'streamwall-storage-test-'))
+    try {
+      const dbPath = join(dir, 'storage.json')
+      const db = await loadStorage(dbPath)
+
+      await db.update((data) => {
+        data.favorites = ['https://example.com/stream']
+      })
+
+      expect(db.data.favorites).toEqual(['https://example.com/stream'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

@@ -70,6 +70,7 @@ function renderControlUI(isConnected: boolean): HTMLDivElement {
     delayState,
     authState: undefined,
     layoutPresets: [],
+    favorites: [],
     dataSourceHealth: [],
   }
 

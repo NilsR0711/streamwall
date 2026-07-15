@@ -71,6 +71,7 @@ const streamwallConfigSchema = z.object({
     'json-url': z.array(z.string()),
     'toml-file': z.array(z.string()),
   }),
+  presets: z.array(z.string()).default(['de-tv']),
   streamdelay: z.object({
     endpoint: z.string(),
     key: z.string().nullable(),

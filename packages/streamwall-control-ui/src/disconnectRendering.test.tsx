@@ -72,6 +72,7 @@ function renderControlUI(
     delayState,
     authState: undefined,
     layoutPresets: [],
+    favorites: [],
     dataSourceHealth: [],
     ...connectionOverrides,
   }

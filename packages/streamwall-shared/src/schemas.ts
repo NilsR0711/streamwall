@@ -206,6 +206,14 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('delete-layout-preset'),
     presetId: layoutPresetIdSchema,
   }),
+  z.object({
+    type: z.literal('add-favorite'),
+    url: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('remove-favorite'),
+    url: z.string().min(1),
+  }),
 ])
 
 /**
