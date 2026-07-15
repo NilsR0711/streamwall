@@ -3,6 +3,7 @@ import EventEmitter from 'events'
 import { dirname } from 'node:path'
 import path from 'path'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import { createExampleConfig } from './exampleConfig'
 import { loadHTML } from './loadHTML'
 
 export interface ControlWindowEventMap {
@@ -77,6 +78,16 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
         return
       }
       shell.openPath(dirname(configInfo.configPath))
+    })
+
+    ipcMain.handle('control:create-example-config', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      // Lets a write failure (e.g. a file that raced into existence since
+      // hasUserConfig was checked) reject the renderer's invoke() call
+      // rather than being swallowed (#246).
+      createExampleConfig(configInfo.configPath)
     })
   }
 
