@@ -4,12 +4,16 @@ import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
-import type {
-  ClientCommandResponse,
-  ClientStateMessage,
-  ControlCommandMessage,
-  ServerToClientMessage,
-  StreamwallRole,
+import type { Delta } from 'jsondiffpatch'
+import {
+  stateDiff,
+  type ClientCommandResponse,
+  type ClientStateDeltaMessage,
+  type ClientStateMessage,
+  type ControlCommandMessage,
+  type ServerToClientMessage,
+  type StreamwallRole,
+  type StreamwallState,
 } from 'streamwall-shared'
 import {
   buildTestApp,
@@ -38,6 +42,14 @@ function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
 
 const isStateMessage = (m: ServerToClientMessage): m is ClientStateMessage =>
   'type' in m && m.type === 'state'
+
+const isStateDelta = (m: ServerToClientMessage): m is ClientStateDeltaMessage =>
+  'type' in m && m.type === 'state-delta'
+
+/** Applies a `state-delta`'s patch to a client's last-known state, as a real client would. */
+function applyDelta(state: StreamwallState, delta: Delta): StreamwallState {
+  return stateDiff.patch(structuredClone(state), delta) as StreamwallState
+}
 
 /** Temporarily replaces `console.warn`, capturing every call made while active. */
 function spyOnConsoleWarn() {
@@ -350,5 +362,49 @@ test('a state message sent immediately on connect is not dropped while auth vali
     stateMsg.state.config,
     VALID_STATE.config,
     'the state message sent immediately on open must have been applied, not dropped',
+  )
+})
+
+test('creating an invite live-pushes a state-delta to an already-connected admin client', async () => {
+  const { auth, connectClient } = await bootServerWithUplink()
+  const { client: adminClient } = await connectClient('admin')
+
+  // Consume the initial `state` message so later assertions only see deltas
+  // caused by the invite below, not the connect-time snapshot.
+  let state = (await adminClient.waitFor(isStateMessage)).state
+
+  await auth.createToken({ kind: 'invite', role: 'operator', name: 'new op' })
+
+  const delta = await adminClient.waitFor(isStateDelta)
+  state = applyDelta(state, delta.delta)
+  assert.ok(
+    state.auth?.invites.some((invite) => invite.name === 'new op'),
+    'the new invite must appear via a live delta, without waiting for an unrelated desktop state push',
+  )
+})
+
+test('deleting a token live-pushes a state-delta to an already-connected admin client', async () => {
+  const { auth, connectClient } = await bootServerWithUplink()
+  const { client: adminClient } = await connectClient('admin')
+  let state = (await adminClient.waitFor(isStateMessage)).state
+
+  const invite = await auth.createToken({
+    kind: 'invite',
+    role: 'operator',
+    name: 'to revoke',
+  })
+  const createDelta = await adminClient.waitFor(isStateDelta)
+  state = applyDelta(state, createDelta.delta)
+  assert.ok(state.auth?.invites.some((i) => i.tokenId === invite.tokenId))
+
+  auth.deleteToken(invite.tokenId)
+
+  const deleteDelta = await adminClient.waitFor(
+    (m): m is ClientStateDeltaMessage => isStateDelta(m) && m !== createDelta,
+  )
+  state = applyDelta(state, deleteDelta.delta)
+  assert.ok(
+    !state.auth?.invites.some((i) => i.tokenId === invite.tokenId),
+    'the revoked invite must disappear via a live delta, without waiting for an unrelated desktop state push',
   )
 })
