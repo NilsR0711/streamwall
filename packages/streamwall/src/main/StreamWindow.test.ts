@@ -47,6 +47,7 @@ function makeStreamWindow(config: StreamWindowConfig) {
   >
   sw.config = config
   sw.parkedViews = new Map()
+  sw.pauseParkedViews = false
   return sw
 }
 
@@ -712,6 +713,154 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
         2,
       ),
     ).toBe(false)
+  })
+})
+
+describe('StreamWindow parking pauses playback when pauseParkedViews is enabled (issue #374)', () => {
+  it('sends PAUSE to a view when it is parked', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.pauseParkedViews = true
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+    const streamB: ViewContent = { url: 'https://example.com/b', kind: 'video' }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'PAUSE' })
+  })
+
+  it('does not send PAUSE to a parked view when pauseParkedViews is disabled (default)', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+    const streamB: ViewContent = { url: 'https://example.com/b', kind: 'video' }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+
+    expect(other.send).not.toHaveBeenCalledWith({ type: 'PAUSE' })
+  })
+
+  it('sends RESUME to a previously-parked view once it is reused after collapse', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.pauseParkedViews = true
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+    const streamB: ViewContent = { url: 'https://example.com/b', kind: 'video' }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    // Expand: `other` is parked and paused.
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+    expect(other.send).toHaveBeenCalledWith({ type: 'PAUSE' })
+
+    // Collapse: the normal per-cell layout is restored, reusing `other`.
+    const viewContentMap: ViewContentMap = new Map([
+      ['0', streamA],
+      ['1', streamB],
+    ])
+    sw.setViews(viewContentMap, {
+      byURL: new Map([
+        [streamA.url, {}],
+        [streamB.url, {}],
+      ]),
+    })
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'RESUME' })
+  })
+
+  it('does not send RESUME to a view that was reused but was never parked', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.pauseParkedViews = true
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+    const actor = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([[1, actor.actor]])
+    sw.createView = vi.fn()
+
+    // Ordinary re-display of an already-running, never-parked view.
+    sw.setViews(new Map([['0', streamA]]), {
+      byURL: new Map([[streamA.url, {}]]),
+    })
+
+    expect(actor.send).not.toHaveBeenCalledWith({ type: 'RESUME' })
   })
 })
 

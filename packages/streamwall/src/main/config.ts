@@ -86,6 +86,9 @@ const streamwallConfigSchema = z.object({
     'max-retries': z.number().int().nonnegative(),
     'stalled-timeout': nonNegativeNumber,
   }),
+  park: z.object({
+    pause: z.boolean(),
+  }),
   twitch: z.object({
     channel: z.string().nullable(),
     username: z.string().nullable(),

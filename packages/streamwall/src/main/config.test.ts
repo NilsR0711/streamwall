@@ -29,6 +29,7 @@ function baseConfig() {
       'max-retries': 5,
       'stalled-timeout': 30,
     },
+    park: { pause: false },
     twitch: {
       channel: null,
       username: null,

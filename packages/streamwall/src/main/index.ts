@@ -160,6 +160,9 @@ export interface StreamwallConfig {
     'max-retries': number
     'stalled-timeout': number
   }
+  park: {
+    pause: boolean
+  }
   twitch: {
     channel: string | null
     username: string | null
@@ -364,6 +367,13 @@ function parseArgs(): StreamwallConfig {
       number: true,
       default: 30,
     })
+    .group(['park.pause'], 'Fullscreen Parking')
+    .option('park.pause', {
+      describe:
+        'Pause playback of parked (hidden) views instead of keeping them fully live while a stream is expanded to fullscreen',
+      boolean: true,
+      default: false,
+    })
     .group(
       [
         'twitch.channel',
@@ -492,7 +502,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     maxRetries: argv.retry['max-retries'],
     stalledTimeout: argv.retry['stalled-timeout'] * 1000,
   }
-  const streamWindow = new StreamWindow(streamWindowConfig, retryConfig)
+  const streamWindow = new StreamWindow(
+    streamWindowConfig,
+    retryConfig,
+    argv.park.pause,
+  )
   const controlWindow = new ControlWindow({
     configPath: userConfigPath,
     hasUserConfig,

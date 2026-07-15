@@ -52,6 +52,11 @@ export interface StreamWindowEventMap {
 export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   config: StreamWindowConfig
   retryConfig: RetryConfig
+  // Whether a parked (hidden) view also has its underlying media playback
+  // paused, instead of being kept fully live off-screen. Optional (issue
+  // #374): trades the parked view's instant-resume smoothness for lower
+  // CPU/network usage while it's hidden behind a fullscreen expansion.
+  pauseParkedViews: boolean
   win: BrowserWindow
   backgroundView: WebContentsView
   overlayView: WebContentsView
@@ -74,10 +79,12 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   constructor(
     config: StreamWindowConfig,
     retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG,
+    pauseParkedViews = false,
   ) {
     super()
     this.config = config
     this.retryConfig = retryConfig
+    this.pauseParkedViews = pauseParkedViews
     this.views = new Map()
     this.parkedViews = new Map()
     this.viewsByWebContentsId = new Map()
@@ -354,6 +361,9 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     offscreenWin.contentView.addChildView(view)
     const { width, height } = offscreenWin.getBounds()
     view.setBounds({ x: 0, y: 0, width, height })
+    if (this.pauseParkedViews) {
+      actor.send({ type: 'PAUSE' })
+    }
   }
 
   createView() {
@@ -453,6 +463,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       ...views.values(),
       ...this.parkedViews.values(),
     ])
+    // Snapshot which actor ids were parked coming into this call, so a view
+    // matched back into a box below can be told to resume playback (issue
+    // #374) -- `this.parkedViews` itself is cleared right after and
+    // repopulated with whatever is still unused once this call is done.
+    const previouslyParkedIds = new Set(this.parkedViews.keys())
     this.parkedViews.clear()
     const viewsToDisplay = []
 
@@ -539,7 +554,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
       view.send({ type: 'DISPLAY', pos, content })
       view.send({ type: 'OPTIONS', options: getDisplayOptions(stream) })
-      newViews.set(view.getSnapshot().context.id, view)
+      const viewId = view.getSnapshot().context.id
+      if (this.pauseParkedViews && previouslyParkedIds.has(viewId)) {
+        view.send({ type: 'RESUME' })
+      }
+      newViews.set(viewId, view)
     }
     for (const view of unusedViews) {
       if (parkUnused) {
