@@ -1,6 +1,6 @@
 import { test as base } from '@playwright/test'
 import { Low, Memory } from 'lowdb'
-import { once } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import { existsSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import net from 'node:net'
@@ -110,6 +110,16 @@ export interface Harness {
     streamId: string,
     timeoutMs?: number,
   ): Promise<void>
+  /**
+   * Resolves with the next JSON `ControlCommand` message of the given `type`
+   * the fake uplink receives — i.e. a UI-driven action (grid resize, blur
+   * toggle, ...) reached the Streamwall peer over the wire, forwarded by the
+   * control server. Rejects on timeout.
+   */
+  waitForCommand<T extends { type: string } = { type: string }>(
+    type: T['type'],
+    timeoutMs?: number,
+  ): Promise<T>
   close(): Promise<void>
 }
 
@@ -196,9 +206,28 @@ export async function startHarness(): Promise<Harness> {
     }
   })
 
+  // Text frames on the uplink socket are the server-forwarded JSON
+  // `ControlCommand` messages (see control-server's ws handler): re-emitted
+  // here, keyed by `type`, so `waitForCommand` can observe a UI-driven action
+  // reaching the peer without every test having to parse frames itself.
+  const commandEvents = new EventEmitter()
   ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
     if (isBinary) {
       Y.applyUpdate(peerDoc, toUint8Array(data), 'server')
+      return
+    }
+    let msg: unknown
+    try {
+      msg = JSON.parse(data.toString())
+    } catch {
+      return
+    }
+    if (
+      typeof msg === 'object' &&
+      msg !== null &&
+      typeof (msg as { type?: unknown }).type === 'string'
+    ) {
+      commandEvents.emit((msg as { type: string }).type, msg)
     }
   })
 
@@ -315,6 +344,26 @@ export async function startHarness(): Promise<Harness> {
       peerDoc.on('update', onUpdate)
     })
 
+  const waitForCommand = <T extends { type: string } = { type: string }>(
+    type: T['type'],
+    timeoutMs = 5000,
+  ) =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        commandEvents.off(type, onCommand)
+        reject(
+          new Error(
+            `Timed out waiting for a "${type}" command to reach the uplink`,
+          ),
+        )
+      }, timeoutMs)
+      const onCommand = (msg: T) => {
+        clearTimeout(timer)
+        resolve(msg)
+      }
+      commandEvents.once(type, onCommand)
+    })
+
   const close = async () => {
     ws.terminate()
     peerDoc.destroy()
@@ -328,6 +377,7 @@ export async function startHarness(): Promise<Harness> {
     streamIds: DEMO_STREAMS.map((s) => s._id),
     createInviteLink,
     waitForViewAssignment,
+    waitForCommand,
     close,
   }
 }
