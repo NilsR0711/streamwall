@@ -49,7 +49,7 @@ Under the hood, think of Streamwall as a specialized web browser for mosaicing v
 - **Playlists** — optionally cycle a grid cell through a fixed list of stream URLs on an interval.
 - **Twitch chat bot** — an optional bot posts templated announcements and runs viewer polls in a Twitch channel's chat.
 
-![Control UI](docs/images/control-ui.png)
+![The Streamwall control UI: resize the grid, arrange streams by drag-and-drop, add custom sources, and manage role-based operator invites](docs/images/control-ui.png)
 
 ## Configuration
 
