@@ -87,7 +87,8 @@ json-url = []
 # Streamwall and streamwall-control-server speak plain HTTP/WebSocket only —
 # neither terminates TLS itself. For a remote `wss://` control endpoint, put a
 # reverse proxy (e.g. nginx, Caddy) in front to handle certificates and
-# forward to the plain-http server.
+# forward to the plain-http server. See docs/self-hosting.md for a ready-made
+# Docker + Caddy setup.
 
 [streamdelay]
 #endpoint = "http://localhost:8404"

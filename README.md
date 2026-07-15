@@ -145,6 +145,22 @@ See
 for environment variable configuration (hostname/port, storage location, rate
 limits) and a production deployment walkthrough.
 
+### Self-hosting behind your own domain
+
+To control the wall from outside your local network — a phone, another
+device on a different network — put `streamwall-control-server` behind a
+domain with TLS. [`docs/self-hosting.md`](docs/self-hosting.md) walks
+through the provided `Dockerfile` and `docker-compose.yml`
+(`deploy/docker-compose.yml`), which wire the server together with a
+[Caddy](https://caddyserver.com/) reverse proxy for automatic Let's Encrypt
+TLS:
+
+```sh
+cd deploy
+cp .env.example .env   # set your domain, then see docs/self-hosting.md
+docker compose up -d --build
+```
+
 **Known limitation:** grid edits (swap, drag-move, resize) sync as
 independent per-cell updates in the shared Yjs document. If two operators
 swap or move overlapping tiles at nearly the same instant, the last-writer-wins

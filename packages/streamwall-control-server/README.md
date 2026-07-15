@@ -80,7 +80,14 @@ startup and continues running with reporting disabled.
 
 ## Deployment
 
-There is no separate compile step: the source targets Node 22's native
+For a self-contained deployment behind your own domain with TLS, see
+[`docs/self-hosting.md`](../../docs/self-hosting.md) — it covers the
+`Dockerfile` in this directory and the Docker Compose stack in
+[`deploy/`](../../deploy), which pairs this server with a Caddy reverse
+proxy for automatic Let's Encrypt certificates.
+
+To run the server directly instead (no Docker), there is no separate
+compile step: the source targets Node 22's native
 TypeScript support (type-only syntax plus explicit `.ts` import specifiers),
 so it runs directly from `src/`. To run in production:
 
