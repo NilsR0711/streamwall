@@ -286,10 +286,13 @@ async function findMedia(
 
   if (video instanceof HTMLVideoElement && !video.videoWidth) {
     console.log(`video isn't playing yet. waiting for it to start...`)
-    const videoReady = new Promise((resolve) =>
+    let videoReady: Promise<unknown> = new Promise((resolve) =>
       video.addEventListener('playing', resolve, { once: true }),
     )
-    await Promise.race([videoReady, sleep(INITIAL_TIMEOUT)])
+    if (elementTimeout !== Infinity) {
+      videoReady = Promise.race([videoReady, sleep(elementTimeout)])
+    }
+    await videoReady
     if (!video.videoWidth) {
       throw new Error('timeout waiting for video to start')
     }
