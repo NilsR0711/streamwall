@@ -63,8 +63,11 @@ Configuration precedence is:
 See `example.config.toml` for an example.
 
 On first launch, if no user data `config.toml` exists yet, the control
-window shows a dismissible hint with the exact path above. Use **File →
-Open Config Folder** in the app menu at any time to open that directory.
+window shows a dismissible hint with the exact path above, offering a
+**Create Example Config** action that writes `example.config.toml` there as
+a working starting point (restart Streamwall afterward to load it). The
+same action is available as **File → Create Example Config** in the app
+menu, alongside **File → Open Config Folder**, until a config file exists.
 
 ### Telemetry
 
