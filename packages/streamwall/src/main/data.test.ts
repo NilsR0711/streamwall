@@ -633,12 +633,6 @@ describe('markDataSource', () => {
 })
 
 describe('combineDataSources', () => {
-  // combineDataSources() runs for the app's lifetime in production and is
-  // never torn down, so its generator's .return() path is untested upstream
-  // and currently never resolves (Repeater.latest appears not to propagate
-  // return() to contenders once multiple sources are involved). Reading a
-  // single value and letting the generator get garbage-collected avoids
-  // that hang; see the follow-up issue for the cleanup bug itself.
   test('keeps a stream kind when an overlay rotation patch is applied on top of it', async () => {
     const realData = new LocalStreamData([
       { link: 'https://a.example/s', kind: 'web' },
@@ -655,11 +649,15 @@ describe('combineDataSources', () => {
       ],
       new StreamIDGenerator(),
     )
-    const { value } = await gen.next()
-    expect(value?.byURL?.get('https://a.example/s')).toMatchObject({
-      kind: 'web',
-      rotation: 90,
-    })
+    try {
+      const { value } = await gen.next()
+      expect(value?.byURL?.get('https://a.example/s')).toMatchObject({
+        kind: 'web',
+        rotation: 90,
+      })
+    } finally {
+      await gen.return?.(undefined)
+    }
   })
 
   test('does not fabricate a stream from an overlay-only rotation patch', async () => {
@@ -674,8 +672,43 @@ describe('combineDataSources', () => {
       ],
       new StreamIDGenerator(),
     )
-    const { value } = await gen.next()
-    expect(value).toHaveLength(0)
-    expect(value?.byURL?.has('https://ghost.example/s')).toBe(false)
+    try {
+      const { value } = await gen.next()
+      expect(value).toHaveLength(0)
+      expect(value?.byURL?.has('https://ghost.example/s')).toBe(false)
+    } finally {
+      await gen.return?.(undefined)
+    }
+  })
+
+  // Regression test for #264: Repeater.latest() (used internally here) keeps
+  // one speculative .next() call in flight per source. Once two sources have
+  // each produced a value and a second combined value has been pulled, that
+  // speculative call sits pending on a source with no further data. Before
+  // markDataSource() was rewritten as a Repeater (see data.ts), it was a
+  // plain async generator, and native async generators queue .return() calls
+  // behind any in-flight .next() - so tearing down the combined generator at
+  // this point hung forever.
+  test('return() resolves after a second value has been pulled from multiple live sources', async () => {
+    const a = new LocalStreamData([
+      { kind: 'video', link: 'https://a.example/s' },
+    ])
+    const b = new LocalStreamData([
+      { kind: 'video', link: 'https://b.example/s' },
+    ])
+
+    const gen = combineDataSources(
+      [markDataSource(a.gen(), 'a'), markDataSource(b.gen(), 'b')],
+      new StreamIDGenerator(),
+    )
+
+    await gen.next()
+
+    const pending = gen.next()
+    await waitForListener(a, 'update')
+    a.update('https://a.example/s', { label: 'updated' })
+    await pending
+
+    await expect(gen.return(undefined)).resolves.toBeDefined()
   })
 })
