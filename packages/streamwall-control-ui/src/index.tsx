@@ -986,7 +986,7 @@ export function ControlUI({
           )}
           <span className="spacer" />
           <span className="meta">
-            {streams.length} Quellen · {liveStreams.length} live
+            {streams.length} sources · {liveStreams.length} live
           </span>
         </StyledStatusBar>
       </Stack>
