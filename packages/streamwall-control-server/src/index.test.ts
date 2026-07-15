@@ -2,7 +2,11 @@ import { Low, Memory } from 'lowdb'
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
-import { initApp, SESSION_COOKIE_NAME } from './index.ts'
+import {
+  initApp,
+  resolveListenPort,
+  SESSION_COOKIE_NAME,
+} from './index.ts'
 import type { StoredData } from './storage.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
@@ -100,5 +104,31 @@ describe('session cookie security attributes', () => {
 
     assert.equal(response.statusCode, 403)
     assert.equal(response.headers['set-cookie'], undefined)
+  })
+})
+
+describe('resolveListenPort', () => {
+  test('https URL with no explicit port defaults to 443 (not 0)', () => {
+    assert.equal(resolveListenPort('https://wall.example.com'), 443)
+  })
+
+  test('http URL with no explicit port defaults to 80 (not 0)', () => {
+    assert.equal(resolveListenPort('http://wall.example.com'), 80)
+  })
+
+  test('explicit URL port is used when present', () => {
+    assert.equal(resolveListenPort('https://wall.example.com:8443'), 8443)
+    assert.equal(resolveListenPort('http://localhost:3000'), 3000)
+  })
+
+  test('override port wins over URL (including scheme default)', () => {
+    assert.equal(resolveListenPort('https://wall.example.com', '8080'), 8080)
+    assert.equal(resolveListenPort('https://wall.example.com:8443', '9090'), 9090)
+  })
+
+  test('empty override falls through to URL / scheme default', () => {
+    assert.equal(resolveListenPort('https://wall.example.com', ''), 443)
+    assert.equal(resolveListenPort('https://wall.example.com', '   '), 443)
+    assert.equal(resolveListenPort('http://localhost:3000', ''), 3000)
   })
 })
