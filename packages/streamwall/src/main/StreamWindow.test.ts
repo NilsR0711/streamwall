@@ -46,6 +46,7 @@ function makeStreamWindow(config: StreamWindowConfig) {
     typeof StreamWindow
   >
   sw.config = config
+  sw.parkedViews = new Map()
   return sw
 }
 
@@ -270,14 +271,24 @@ function makeReuseTestActor(opts: {
   const send = vi.fn()
   const stop = vi.fn()
   const disposeView = vi.fn()
+  const setBounds = vi.fn()
+  const removeChildViewOnWin = vi.fn()
+  const addChildViewOnOffscreen = vi.fn()
+  const view = { setBounds }
+  const win = { contentView: { removeChildView: removeChildViewOnWin } }
+  const offscreenWin = {
+    contentView: { addChildView: addChildViewOnOffscreen },
+    getBounds: () => ({ width: 100, height: 100 }),
+  }
   const actor = {
     getSnapshot: () => ({
       context: {
         id: opts.id,
         content: opts.content,
         pos: { spaces: opts.spaces },
-        view: {},
-        offscreenWin: {},
+        view,
+        win,
+        offscreenWin,
         next: null,
         disposeView,
       },
@@ -287,7 +298,15 @@ function makeReuseTestActor(opts: {
     send,
     stop,
   } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
-  return { actor, send, stop, disposeView }
+  return {
+    actor,
+    send,
+    stop,
+    disposeView,
+    setBounds,
+    removeChildViewOnWin,
+    addChildViewOnOffscreen,
+  }
 }
 
 describe('StreamWindow.setViews reusing an actor across a genuine content change', () => {
@@ -518,6 +537,181 @@ describe('StreamWindow.setViews expanding a view to fill the wall (issue #362)',
     expect(other.stop).toHaveBeenCalled()
     expect(sw.views.size).toBe(1)
     expect(sw.views.get(1)).toBe(expanding.actor)
+  })
+})
+
+describe('StreamWindow.setViews parking unused views during a fullscreen expansion (issue #369)', () => {
+  it('hides a non-focused running view instead of tearing it down when parkUnused is requested', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+
+    // The non-focused actor survives instead of being stopped/disposed...
+    expect(other.stop).not.toHaveBeenCalled()
+    expect(other.disposeView).not.toHaveBeenCalled()
+    // ...but is moved off the visible wall onto its own offscreen host so it
+    // does not render on top of (or behind) the expanded view.
+    expect(other.removeChildViewOnWin).toHaveBeenCalled()
+    expect(other.addChildViewOnOffscreen).toHaveBeenCalled()
+    // It no longer appears in the emitted view states (only the expanded
+    // view is visible, matching the pre-#369 behavior)...
+    expect(sw.views.size).toBe(1)
+    expect(sw.views.get(1)).toBe(expanding.actor)
+    // ...but StreamWindow retains it internally so a later collapse can
+    // reuse it instead of recreating it from scratch.
+    expect(
+      (sw as unknown as { parkedViews: Map<number, unknown> }).parkedViews.get(
+        2,
+      ),
+    ).toBe(other.actor)
+  })
+
+  it('reuses a parked view instead of creating a new one when the fullscreen view collapses', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    // Expand: `other` is parked instead of disposed.
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+
+    // Collapse: the normal per-cell layout is restored.
+    const viewContentMap: ViewContentMap = new Map([
+      ['0', streamA],
+      ['1', streamB],
+    ])
+    sw.setViews(viewContentMap, {
+      byURL: new Map([
+        [streamA.url, {}],
+        [streamB.url, {}],
+      ]),
+    })
+
+    // The parked actor is reused for its original space instead of a new
+    // view being created for it (which would show a reload/black flash).
+    expect(sw.createView).not.toHaveBeenCalled()
+    expect(other.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamA }),
+    )
+    expect(sw.views.size).toBe(2)
+    expect(sw.views.get(2)).toBe(other.actor)
+  })
+
+  it('still tears down a view left unused after collapse (its cell was cleared while expanded)', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = {
+      url: 'https://example.com/a',
+      kind: 'video',
+    }
+    const streamB: ViewContent = {
+      url: 'https://example.com/b',
+      kind: 'video',
+    }
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      { byURL: new Map([[streamB.url, {}]]) },
+      { parkUnused: true },
+    )
+
+    // Collapse, but the cell `other` used to occupy was cleared while
+    // expanded: the normal layout no longer has any box for streamA.
+    const viewContentMap: ViewContentMap = new Map([['1', streamB]])
+    sw.setViews(viewContentMap, { byURL: new Map([[streamB.url, {}]]) })
+
+    // The parked actor is genuinely no longer needed, so it is torn down
+    // instead of being parked forever.
+    expect(other.stop).toHaveBeenCalled()
+    expect(other.disposeView).toHaveBeenCalledTimes(1)
+    expect(
+      (sw as unknown as { parkedViews: Map<number, unknown> }).parkedViews.has(
+        2,
+      ),
+    ).toBe(false)
   })
 })
 
