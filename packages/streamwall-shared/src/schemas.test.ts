@@ -296,6 +296,17 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
+  test('rejects create-invite with the local role', () => {
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'create-invite',
+        role: 'local',
+        name: 'x',
+      }).success,
+    ).toBe(false)
+  })
+
   test('accepts a save-layout-preset command with a non-empty name', () => {
     expect(
       controlCommandMessageSchema.safeParse({
