@@ -155,3 +155,47 @@ describe('ControlWindow open-config-folder', () => {
     expect(openPath).not.toHaveBeenCalled()
   })
 })
+
+describe('ControlWindow command IPC', () => {
+  it('returns an error response from the registered handler to the renderer', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    controlWindow.setCommandHandler(async () => ({ error: 'invalid url' }))
+
+    const result = await ipcHandlers.get('control:command')!(
+      { sender },
+      { type: 'browse', url: 'file:///etc/passwd' },
+    )
+
+    expect(result).toEqual({ error: 'invalid url' })
+  })
+
+  it('returns undefined when the handler succeeds', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    controlWindow.setCommandHandler(async () => undefined)
+
+    const result = await ipcHandlers.get('control:command')!(
+      { sender },
+      { type: 'set-grid-size', cols: 2, rows: 2 },
+    )
+
+    expect(result).toBeUndefined()
+  })
+
+  it('ignores requests from a sender other than its own window', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const handler = vi.fn().mockResolvedValue({ error: 'nope' })
+    controlWindow.setCommandHandler(handler)
+
+    const result = await ipcHandlers.get('control:command')!(
+      { sender: { send: vi.fn() } },
+      { type: 'ping' },
+    )
+
+    expect(result).toBeUndefined()
+    expect(handler).not.toHaveBeenCalled()
+  })
+})

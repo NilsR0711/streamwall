@@ -30,7 +30,7 @@ import {
   sentryEnabledSwitchValue,
 } from '../sentryConfig'
 import { createSessionHostResolver, ensureValidURL } from '../util'
-import { dispatchCommand } from './commandDispatch'
+import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
 import {
   ConfigError,
   findUnknownConfigKeys,
@@ -633,7 +633,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   const onCommand = async (
     msg: ControlCommand,
     source: 'local' | 'uplink' = 'local',
-  ) => {
+  ): Promise<{ error: string } | void> => {
     log.debug('Received message:', msg)
 
     // The remote control-server uplink is untrusted: re-validate every command
@@ -716,6 +716,7 @@ async function main(argv: ReturnType<typeof parseArgs>) {
         } catch (error) {
           log.error('Invalid URL:', msg.url)
           log.error('Error:', error)
+          return { error: 'invalid url' }
         }
       } else if (msg.type === 'dev-tools') {
         log.debug('Opening DevTools for view:', msg.viewIdx)
@@ -859,8 +860,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   controlWindow.on('ydoc', (update) =>
     Y.applyUpdate(stateDoc, update, CONTROL_WINDOW_ORIGIN),
   )
-  controlWindow.on('command', (command) =>
-    dispatchCommand(onCommand, command, 'local'),
+  controlWindow.setCommandHandler((command) =>
+    dispatchLocalCommand(onCommand, command),
   )
 
   // Closing either top-level window quits the app, except on macOS where the
