@@ -41,6 +41,21 @@ describe('CommandErrorBanner', () => {
     )
   })
 
+  test('renders English copy', () => {
+    const el = renderBanner('unauthorized')
+    const text = el.querySelector('.command-error-banner')?.textContent
+    expect(text).toContain('Action failed: unauthorized')
+    expect(text).not.toContain('Aktion fehlgeschlagen')
+  })
+
+  test('labels the dismiss button in English', () => {
+    const el = renderBanner('unauthorized')
+    const dismissButton = el.querySelector(
+      '.command-error-banner button',
+    ) as HTMLButtonElement
+    expect(dismissButton.textContent).toBe('Dismiss')
+  })
+
   test('calls onDismiss when the dismiss control is clicked', () => {
     const onDismiss = vi.fn()
     const el = renderBanner('unauthorized', onDismiss)
