@@ -57,7 +57,6 @@ test('dispatchCommand tags the logged error with the local source', async () => 
   assert.match(message, /local/)
 })
 
-
 test('dispatchLocalCommand returns an error result from onCommand', async () => {
   const onCommand = vi.fn().mockResolvedValue({ error: 'invalid url' })
 

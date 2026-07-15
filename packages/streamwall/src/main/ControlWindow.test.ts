@@ -156,7 +156,6 @@ describe('ControlWindow open-config-folder', () => {
   })
 })
 
-
 describe('ControlWindow command IPC', () => {
   it('returns an error response from the registered handler to the renderer', async () => {
     const controlWindow = new ControlWindow(configInfo)
