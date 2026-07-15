@@ -1,6 +1,10 @@
 import { type JSX } from 'preact'
 import { useCallback, useState } from 'preact/hooks'
-import { type StreamwallRole } from 'streamwall-shared'
+import {
+  invitableRoles,
+  isInvitableRole,
+  type StreamwallRole,
+} from 'streamwall-shared'
 
 export function CreateInviteInput({
   onCreateInvite,
@@ -26,9 +30,12 @@ export function CreateInviteInput({
   const handleSubmit = useCallback<JSX.SubmitEventHandler<HTMLFormElement>>(
     (ev) => {
       ev.preventDefault()
+      if (!isInvitableRole(inviteRole)) {
+        return
+      }
       setInviteName('')
       setInviteRole('operator')
-      onCreateInvite({ name: inviteName, role: inviteRole as StreamwallRole }) // TODO: validate
+      onCreateInvite({ name: inviteName, role: inviteRole })
     },
     [onCreateInvite, inviteName, inviteRole],
   )
@@ -41,9 +48,11 @@ export function CreateInviteInput({
           value={inviteName}
         />
         <select onChange={handleChangeRole} value={inviteRole}>
-          <option value="admin">admin</option>
-          <option value="operator">operator</option>
-          <option value="monitor">monitor</option>
+          {invitableRoles.map((role) => (
+            <option key={role} value={role}>
+              {role}
+            </option>
+          ))}
         </select>
         <button type="submit">create invite</button>
       </form>
