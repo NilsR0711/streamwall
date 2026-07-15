@@ -34,9 +34,7 @@ Prefer to run from source instead of installing? See [Configuration](#configurat
 
 Under the hood, think of Streamwall as a specialized web browser for mosaicing video streams. It uses [Electron](https://www.electronjs.org) to create a grid of web browser views, loading the specified webpages into them. Once the page loads, Streamwall finds the `<video>` tag and reformats the page so that the video fills the space. This works for a wide variety of web pages without specialized scrapers.
 
-<!-- TODO(screenshots): the wall grid itself still has no image here — it
-     needs to be captured on a machine with a display and real streams
-     running, which isn't possible in a headless environment. See #165. -->
+![The Streamwall wall: a 3×3 mosaic of live German public-TV streams, each tile labeled with its source](docs/images/wall.jpg)
 
 ## Features
 
