@@ -119,6 +119,13 @@ const viewStateMachine = setup({
       desiredAudio: 'muted' | 'listening' | 'background'
       // Same idea as `desiredAudio`, for BLUR/UNBLUR.
       desiredBlurred: boolean
+      // Same idea as `desiredAudio`, for PAUSE/RESUME: whether this view's
+      // underlying media playback should be paused. Distinct from BLUR,
+      // which only hides the video visually via the overlay -- this stops
+      // the view actually decoding/fetching. Used by StreamWindow to pause a
+      // parked (hidden) view instead of keeping it fully live while it's
+      // hidden behind a fullscreen expansion (issue #374).
+      desiredPaused: boolean
     },
 
     events: {} as
@@ -146,6 +153,8 @@ const viewStateMachine = setup({
       | { type: 'UNBACKGROUND' }
       | { type: 'BLUR' }
       | { type: 'UNBLUR' }
+      | { type: 'PAUSE' }
+      | { type: 'RESUME' }
       | { type: 'RELOAD' }
       | { type: 'DEVTOOLS'; inWebContents: WebContents },
   },
@@ -201,6 +210,16 @@ const viewStateMachine = setup({
     sendViewVolume: ({ context }, params: { volume: number }) => {
       const { view } = context
       view.webContents.send('volume', params.volume)
+    },
+
+    sendViewPause: ({ context }) => {
+      const { view } = context
+      view.webContents.send('pause')
+    },
+
+    sendViewResume: ({ context }) => {
+      const { view } = context
+      view.webContents.send('resume')
     },
 
     offscreenView: ({ context }) => {
@@ -337,6 +356,7 @@ const viewStateMachine = setup({
     desiredAudioIsBackground: ({ context }) =>
       context.desiredAudio === 'background',
     desiredVideoIsBlurred: ({ context }) => context.desiredBlurred,
+    desiredPlaybackIsPaused: ({ context }) => context.desiredPaused,
   },
 
   delays: {
@@ -400,6 +420,7 @@ const viewStateMachine = setup({
     volume: 1,
     desiredAudio: 'muted',
     desiredBlurred: false,
+    desiredPaused: false,
   }),
   on: {
     DISPLAY: {
@@ -502,6 +523,8 @@ const viewStateMachine = setup({
             UNBACKGROUND: { actions: assign({ desiredAudio: 'muted' }) },
             BLUR: { actions: assign({ desiredBlurred: true }) },
             UNBLUR: { actions: assign({ desiredBlurred: false }) },
+            PAUSE: { actions: assign({ desiredPaused: true }) },
+            RESUME: { actions: assign({ desiredPaused: false }) },
           },
           // If the whole loading phase stalls (e.g. the renderer never sends
           // VIEW_INIT/VIEW_LOADED), fail the view instead of hanging forever.
@@ -707,6 +730,37 @@ const viewStateMachine = setup({
                 blurred: {},
               },
             },
+            // Whether this view's underlying media playback is paused,
+            // independent of `video` (BLUR) above -- see `desiredPaused`.
+            // Used by StreamWindow to stop a parked (hidden) view actually
+            // decoding/fetching instead of keeping it fully live while it's
+            // hidden behind a fullscreen expansion (issue #374).
+            pause: {
+              initial: 'unpaused',
+              on: {
+                PAUSE: {
+                  target: '.paused',
+                  actions: assign({ desiredPaused: true }),
+                },
+                RESUME: {
+                  target: '.unpaused',
+                  actions: [assign({ desiredPaused: false }), 'sendViewResume'],
+                },
+              },
+              states: {
+                unpaused: {
+                  // Applies a PAUSE requested while the view was still
+                  // loading (or recovering from an error).
+                  always: {
+                    target: 'paused',
+                    guard: 'desiredPlaybackIsPaused',
+                  },
+                },
+                paused: {
+                  entry: 'sendViewPause',
+                },
+              },
+            },
             // Preloads the next WebContentsView for a content swap in the
             // background, independent of playback/audio/video above, so the
             // currently displayed view is never disturbed until the new one
@@ -841,6 +895,8 @@ const viewStateMachine = setup({
             UNBACKGROUND: { actions: assign({ desiredAudio: 'muted' }) },
             BLUR: { actions: assign({ desiredBlurred: true }) },
             UNBLUR: { actions: assign({ desiredBlurred: false }) },
+            PAUSE: { actions: assign({ desiredPaused: true }) },
+            RESUME: { actions: assign({ desiredPaused: false }) },
           },
           // Automatically reload after the backoff delay until the retry budget
           // is spent; then this is a terminal state surfaced to the operator.

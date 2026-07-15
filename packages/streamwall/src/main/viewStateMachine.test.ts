@@ -53,6 +53,8 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
       openDevTools: noop,
       sendViewOptions: noop,
       sendViewVolume: noop,
+      sendViewPause: noop,
+      sendViewResume: noop,
       logError: noop,
     },
     actors: {
@@ -341,6 +343,8 @@ describe('viewStateMachine volume control', () => {
         openDevTools: noop,
         sendViewOptions: noop,
         sendViewVolume,
+        sendViewPause: noop,
+        sendViewResume: noop,
         logError: noop,
       },
       actors: {
@@ -450,6 +454,8 @@ describe('viewStateMachine content swap while running (seamless preload)', () =>
         openDevTools: noop,
         sendViewOptions: noop,
         sendViewVolume: noop,
+        sendViewPause: noop,
+        sendViewResume: noop,
         logError: noop,
       },
       actors: {
@@ -708,6 +714,8 @@ describe('viewStateMachine loadPage navigation', () => {
         openDevTools: noop,
         sendViewOptions: noop,
         sendViewVolume: noop,
+        sendViewPause: noop,
+        sendViewResume: noop,
         logError: noop,
       },
     })
@@ -1123,5 +1131,207 @@ describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
       matchesState('displaying.running.audio.background', snapshot.value),
     ).toBe(true)
     expect(snapshot.context.desiredAudio).toBe('background')
+  })
+})
+
+describe('viewStateMachine deferred PAUSE/RESUME requests (issue #374)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('defaults desiredPaused to false', () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+
+    expect(actor.getSnapshot().context.desiredPaused).toBe(false)
+  })
+
+  it('applies a deferred PAUSE requested while still loading once running is reached', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    actor.send({ type: 'PAUSE' })
+    // Still loading: the pause region doesn't exist yet, so nothing visible
+    // changes yet -- the request is only recorded.
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.pause.paused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('applies a deferred PAUSE requested while recovering from an error', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    display(actor)
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    actor.send({ type: 'PAUSE' })
+
+    await vi.advanceTimersByTimeAsync(1000) // delay * 2^0 -> back to loading
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.pause.paused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a paused view paused across an automatic stalled reload', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+    expect(
+      matchesState(
+        'displaying.running.pause.paused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000) // stalledTimeout -> reload
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.pause.paused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+
+  it('returns to unpaused on RESUME and clears the desired-paused flag', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+
+    actor.send({ type: 'RESUME' })
+
+    const snapshot = actor.getSnapshot()
+    expect(
+      matchesState('displaying.running.pause.unpaused', snapshot.value),
+    ).toBe(true)
+    expect(snapshot.context.desiredPaused).toBe(false)
+  })
+
+  it('does not pause a freshly-running view that was never asked to pause', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    expect(
+      matchesState(
+        'displaying.running.pause.unpaused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('viewStateMachine pause/resume IPC (issue #374)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Same setup as makeActor, but with spies on sendViewPause/sendViewResume
+  // so tests can assert on what was forwarded to the view's webContents.
+  function makeActorWithPauseSpies(retry: RetryConfig) {
+    const sendViewPause = vi.fn()
+    const sendViewResume = vi.fn()
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView: noop,
+        positionView: noop,
+        offscreenNextView: noop,
+        performSwap: noop,
+        resyncSwappedView: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        sendViewPause,
+        sendViewResume,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: {} as never,
+        win: {} as never,
+        offscreenWin: {} as never,
+        retry,
+        createNextView: noopCreateNextView,
+        disposeView: noopDisposeView,
+      },
+    })
+    return { actor, sendViewPause, sendViewResume }
+  }
+
+  it('sends a pause message to the view on PAUSE while running', async () => {
+    const { actor, sendViewPause } = makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'PAUSE' })
+
+    expect(sendViewPause).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send a pause message for a view that was never asked to pause', async () => {
+    const { actor, sendViewPause } = makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    expect(sendViewPause).not.toHaveBeenCalled()
+  })
+
+  it('sends a resume message to the view on RESUME after a PAUSE', async () => {
+    const { actor, sendViewResume } = makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+
+    actor.send({ type: 'RESUME' })
+
+    expect(sendViewResume).toHaveBeenCalledTimes(1)
   })
 })

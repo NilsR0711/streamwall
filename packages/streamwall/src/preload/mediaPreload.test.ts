@@ -6,11 +6,12 @@ const executeJavaScript = vi.fn()
 // does not wait on the view-init round trip before running.
 const invoke = vi.fn(() => new Promise(() => {}))
 const send = vi.fn()
+const on = vi.fn()
 const exposeInMainWorld = vi.fn()
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld },
-  ipcRenderer: { invoke, send, on: vi.fn() },
+  ipcRenderer: { invoke, send, on },
   webFrame: { executeJavaScript, insertCSS: vi.fn() },
 }))
 
@@ -30,6 +31,7 @@ describe('mediaPreload visibility spoofing', () => {
     executeJavaScript.mockClear()
     invoke.mockClear()
     send.mockClear()
+    on.mockClear()
     exposeInMainWorld.mockClear()
   })
 
@@ -54,6 +56,7 @@ describe('mediaPreload error channel', () => {
   afterEach(() => {
     vi.resetModules()
     send.mockClear()
+    on.mockClear()
     exposeInMainWorld.mockClear()
   })
 
@@ -109,6 +112,7 @@ describe('mediaPreload initial acquireMedia rejection', () => {
     vi.resetModules()
     invoke.mockClear()
     send.mockClear()
+    on.mockClear()
     exposeInMainWorld.mockClear()
   })
 
@@ -183,6 +187,7 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
     vi.resetModules()
     invoke.mockClear()
     send.mockClear()
+    on.mockClear()
     exposeInMainWorld.mockClear()
     document.body.innerHTML = ''
   })
@@ -236,5 +241,92 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
       send.mock.calls.filter(([channel]) => channel === 'view-loaded'),
     ).toHaveLength(2)
     expect(viewErrorCalls()).toEqual([])
+  })
+})
+
+describe('mediaPreload pause/resume handling (issue #374)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredHandler(channel: string): () => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as () => void
+  }
+
+  // Same acquisition setup as the emptied-handler tests above: a real <video>
+  // with a truthy videoWidth so findMedia() resolves immediately instead of
+  // waiting for a 'playing' event.
+  async function loadAcquiredVideo(): Promise<HTMLVideoElement> {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    return video
+  }
+
+  it('pauses the acquired media element on a pause message, bypassing an instance-level pause override', async () => {
+    const video = await loadAcquiredVideo()
+    // Mirrors lockdownMediaTags' own shadowing of `pause` with a no-op (done
+    // for real via webFrame.executeJavaScript against the page's main world,
+    // which this preload-only harness can't exercise) -- proves the handler
+    // reaches the native implementation instead of a shadowed one.
+    Object.defineProperty(video, 'pause', { writable: false, value: () => {} })
+
+    registeredHandler('pause')()
+
+    expect(video.paused).toBe(true)
+  })
+
+  it('resumes a paused media element on a resume message', async () => {
+    const video = await loadAcquiredVideo()
+    video.pause()
+    expect(video.paused).toBe(true)
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(video.paused).toBe(false)
+  })
+
+  it('does not throw when a pause/resume message arrives before any media has been acquired', async () => {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+    // No DOMContentLoaded is dispatched, so the module-scope pageReady used
+    // by waitForQuery never resolves and acquireMedia never finds a video.
+
+    expect(() => registeredHandler('pause')()).not.toThrow()
+    expect(() => registeredHandler('resume')()).not.toThrow()
   })
 })
