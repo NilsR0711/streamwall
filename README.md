@@ -1,11 +1,34 @@
 # Streamwall
 
+[![Release](https://img.shields.io/github/v/release/NilsR0711/streamwall?include_prereleases&sort=semver&label=release)](https://github.com/NilsR0711/streamwall/releases/latest)
 [![CI](https://github.com/NilsR0711/streamwall/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NilsR0711/streamwall/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/NilsR0711/streamwall/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/NilsR0711/streamwall/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)
 
 Streamwall makes it easy to compose multiple livestreams into a mosaic, with source attributions and audio control.
 
 It's a cross-platform desktop app built with Electron and TypeScript. Streams are arranged in a grid you can rearrange on the fly, audio is switchable per tile, and the whole wall runs locally with an optional control server for remote operation.
+
+## Download
+
+Grab the latest build from the [**Releases**](https://github.com/NilsR0711/streamwall/releases/latest) page:
+
+| OS          | Artifact                           | Architecture             |
+| ----------- | ---------------------------------- | ------------------------ |
+| **Windows** | Installer (`.exe`, Squirrel)       | x64                      |
+| **macOS**   | `.zip` containing `Streamwall.app` | Apple Silicon (arm64)    |
+| **Linux**   | `.deb` and `.rpm`                  | x64 (Debian/Ubuntu, RPM) |
+
+> [!NOTE]
+> Current builds are **unsigned pre-releases**, so the OS will warn before running them:
+>
+> - **macOS** quarantines the unsigned app. After unzipping, run `xattr -cr /Applications/Streamwall.app`, or right-click the app and choose **Open** — see [Building & releasing the desktop app](#building--releasing-the-desktop-app).
+> - **Windows** SmartScreen shows an "unknown publisher" prompt: click **More info → Run anyway**.
+>
+> Signed builds are opt-in and produced automatically once the signing secrets are provisioned (see the same section).
+
+Prefer to run from source instead of installing? See [Configuration](#configuration) and the `start:app` script below.
 
 ## How it works
 
