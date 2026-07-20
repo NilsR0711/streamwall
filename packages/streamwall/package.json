@@ -65,7 +65,7 @@
     "reconnecting-websocket": "^4.4.0",
     "source-map-support": "^0.5.21",
     "streamwall-shared": "*",
-    "styled-components": "^6.4.3",
+    "styled-components": "^6.4.4",
     "update-electron-app": "^3.3.0",
     "utf-8-validate": "^6.0.6",
     "ws": "^8.21.1",
