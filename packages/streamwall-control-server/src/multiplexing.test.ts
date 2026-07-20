@@ -408,3 +408,60 @@ test('deleting a token live-pushes a state-delta to an already-connected admin c
     'the revoked invite must disappear via a live delta, without waiting for an unrelated desktop state push',
   )
 })
+
+test("an admin's delete-token command revokes the token and live-pushes the removal to other connected clients", async () => {
+  const { auth, connectClient } = await bootServerWithUplink()
+  const { clientWs: actingAdminWs } = await connectClient('admin')
+  // A second admin client (only admins are ever sent `auth` state, see
+  // `StateWrapper.view`) proves the removal is broadcast, not just reflected
+  // back to the client that sent the command.
+  const { client: otherAdminClient } = await connectClient('admin')
+  let state = (await otherAdminClient.waitFor(isStateMessage)).state
+
+  const invite = await auth.createToken({
+    kind: 'invite',
+    role: 'operator',
+    name: 'to revoke',
+  })
+  const createDelta = await otherAdminClient.waitFor(isStateDelta)
+  state = applyDelta(state, createDelta.delta)
+  assert.ok(state.auth?.invites.some((i) => i.tokenId === invite.tokenId))
+
+  actingAdminWs.send(
+    JSON.stringify({ id: 20, type: 'delete-token', tokenId: invite.tokenId }),
+  )
+
+  const deleteDelta = await otherAdminClient.waitFor(
+    (m): m is ClientStateDeltaMessage => isStateDelta(m) && m !== createDelta,
+  )
+  state = applyDelta(state, deleteDelta.delta)
+  assert.ok(
+    !state.auth?.invites.some((i) => i.tokenId === invite.tokenId),
+    'the revoked invite must disappear via a live delta pushed to another connected client, not just the actor',
+  )
+  assert.ok(
+    !auth.getStoredData().tokens.some((t) => t.tokenId === invite.tokenId),
+    'the delete-token command must remove the token from storage',
+  )
+})
+
+test('an admin revoking their own session via delete-token closes their own socket', async () => {
+  const { connectClient } = await bootServerWithUplink()
+  const { clientWs: adminWs, client: adminClient } =
+    await connectClient('admin')
+
+  const state = (await adminClient.waitFor(isStateMessage)).state
+  const ownTokenId = state.auth?.sessions[0]?.tokenId
+  assert.ok(
+    ownTokenId,
+    'the initial state pushed on connect must include the just-redeemed session',
+  )
+
+  const closed = once(adminWs, 'close', { signal: AbortSignal.timeout(3000) })
+  adminWs.send(
+    JSON.stringify({ id: 21, type: 'delete-token', tokenId: ownTokenId }),
+  )
+
+  await closed
+  assert.equal(adminWs.readyState, WebSocket.CLOSED)
+})
