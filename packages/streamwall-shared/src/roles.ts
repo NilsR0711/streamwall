@@ -1,7 +1,12 @@
 export const validRoles = ['local', 'admin', 'operator', 'monitor'] as const
 export const validRolesSet = new Set(validRoles)
 
-type AdminAction = 'dev-tools' | 'browse' | 'create-invite' | 'delete-token'
+type AdminAction =
+  | 'dev-tools'
+  | 'browse'
+  | 'create-invite'
+  | 'delete-token'
+  | 'view-server-status'
 
 const operatorActions = [
   'set-listening-view',

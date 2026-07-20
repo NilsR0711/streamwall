@@ -33,6 +33,11 @@ import {
   type DocUpdateLimits,
 } from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
+import {
+  createUpdateChecker,
+  SERVER_VERSION,
+  type UpdateChecker,
+} from './updateCheck.ts'
 
 export const SESSION_COOKIE_NAME = 's'
 // `@fastify/cookie` serializes `maxAge` into the RFC 6265 `Max-Age` attribute,
@@ -308,6 +313,7 @@ export async function initApp({
   sentryEnabled: injectedSentryEnabled,
   sentryClient,
   trustProxy: injectedTrustProxy,
+  updateChecker: injectedUpdateChecker,
 }: AppOptions & {
   db?: StorageDB
   /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
@@ -316,6 +322,8 @@ export async function initApp({
   sentryClient?: SentryCaptureClient
   /** Test-only override for Fastify trustProxy (else STREAMWALL_TRUST_PROXY / false). */
   trustProxy?: boolean | string
+  /** Injectable so specs exercise `/admin/status` without reaching GitHub. */
+  updateChecker?: UpdateChecker
 }) {
   const expectedOrigin = new URL(baseURL).origin
   const clients = new Map<string, Client>()
@@ -326,6 +334,7 @@ export async function initApp({
 
   const db = injectedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth)
+  const updateChecker = injectedUpdateChecker ?? createUpdateChecker()
 
   const trustProxy =
     injectedTrustProxy ?? parseTrustProxy(process.env.STREAMWALL_TRUST_PROXY)
@@ -666,6 +675,19 @@ export async function initApp({
       }
     })
 
+    // Deployment status for self-hosters (issue #382): the running version
+    // plus whether a newer release exists. Admin-only — the version of a
+    // publicly reachable server is exactly the kind of detail that helps
+    // someone shop for a known vulnerability, so it stays behind auth.
+    fastify.get('/admin/status', async (request, reply) => {
+      if (!roleCan(request.identity?.role ?? null, 'view-server-status')) {
+        return reply.code(403).send()
+      }
+      return reply
+        .header('cache-control', 'no-store')
+        .send(updateChecker.getStatus())
+    })
+
     // Serve frontend assets
     await fastify.register(fastifyStatic, {
       root: clientStaticPath,
@@ -868,7 +890,7 @@ export async function initApp({
     currentStreamwallConn?.clientState.update({ auth: auth.getState() })
   })
 
-  return { app, db, auth }
+  return { app, db, auth, updateChecker }
 }
 
 /** Builds the uplink WebSocket endpoint URL, which never embeds the secret. */
@@ -1014,8 +1036,9 @@ export default async function runServer({
   const hostname = overrideHostname ?? url.hostname
   const port = resolveListenPort(baseURL, overridePort)
 
+  console.log(`Starting streamwall-control-server ${SERVER_VERSION}`)
   console.debug('Initializing web server:', { hostname, port })
-  const { app, db, auth } = await initApp({
+  const { app, db, auth, updateChecker } = await initApp({
     baseURL,
     clientStaticPath,
   })
@@ -1024,6 +1047,12 @@ export default async function runServer({
   logBootstrap(bootstrap)
 
   await app.listen({ port, host: hostname })
+
+  // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
+  void updateChecker.start()
+  app.addHook('onClose', async () => {
+    updateChecker.stop()
+  })
 
   return { server: app.server }
 }

@@ -121,6 +121,54 @@ for the bundled stack.
   trust proxy if the process is reachable directly from the internet without
   a trusted reverse proxy in front.
 
+## Version and update notifications
+
+The server prints its version on every start:
+
+```sh
+docker compose logs control-server | grep 'Starting streamwall-control-server'
+```
+
+```
+Starting streamwall-control-server 0.9.1
+```
+
+Once a day it asks the GitHub Releases API whether a newer release exists,
+and logs a single line per newly discovered version:
+
+```
+⬆️  streamwall-control-server 1.0.0 is available (running 0.9.1): https://github.com/NilsR0711/streamwall/releases/tag/v1.0.0
+```
+
+The same information is available to a signed-in **admin** at
+`GET /admin/status` (any other role, or no session, gets a `403`):
+
+```json
+{
+  "version": "0.9.1",
+  "latestVersion": "1.0.0",
+  "updateAvailable": true,
+  "releaseUrl": "https://github.com/NilsR0711/streamwall/releases/tag/v1.0.0",
+  "lastCheckedAt": "2026-07-20T09:00:00.000Z",
+  "checkEnabled": true
+}
+```
+
+This is **notify-only** — the server never updates itself. Applying an
+update is deliberately a decision you make (see below); an unattended
+rebuild-and-restart would drop live uplink and client connections at an
+arbitrary moment.
+
+The check is the server's only outbound connection. To run fully
+egress-free, disable it in `.env`:
+
+```sh
+STREAMWALL_UPDATE_CHECK=false
+```
+
+`updateAvailable` then stays `false` and `checkEnabled` reports `false`, so
+the endpoint still tells you the running version.
+
 ## Updating
 
 ```sh
@@ -131,7 +179,23 @@ docker compose up -d --build
 ```
 
 The `control-server-data` volume (and its `storage.json` inside) is
-untouched by rebuilds.
+untouched by rebuilds, so uplink and session tokens survive. Back that
+volume up before updating if you cannot afford to re-issue them:
+
+```sh
+docker compose stop control-server
+docker run --rm -v deploy_control-server-data:/data -v "$PWD:/backup" \
+  busybox tar czf /backup/streamwall-data-backup.tar.gz -C /data .
+docker compose up -d
+```
+
+Expect a short interruption while the container restarts: the desktop app
+and any web clients reconnect on their own, and the wall keeps rendering
+locally throughout (the Electron app composites the video, not the server).
+
+Check the release notes linked from the log line above before updating —
+they call out any change to the on-disk state format or to required
+environment variables.
 
 ## Troubleshooting
 

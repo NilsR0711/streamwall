@@ -15,6 +15,7 @@ import WebSocket from 'ws'
 import { type AppOptions, initApp } from './index.ts'
 import type { SentryCaptureClient } from './sentry.ts'
 import type { StorageDB, StoredData } from './storage.ts'
+import type { UpdateChecker } from './updateCheck.ts'
 
 /**
  * Creates a throwaway directory containing a minimal index.html so that
@@ -46,6 +47,7 @@ export function buildTestApp(
     db?: StorageDB
     sentryEnabled?: boolean
     sentryClient?: SentryCaptureClient
+    updateChecker?: UpdateChecker
   } = {},
 ) {
   return initApp({
