@@ -1,5 +1,6 @@
 {
   "name": "streamwall",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },
@@ -10,7 +11,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "node --test test/*.test.mjs && npm run test --workspaces --if-present"
   },
   "workspaces": [
     "packages/streamwall",
