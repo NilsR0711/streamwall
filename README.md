@@ -16,7 +16,7 @@ Grab the latest build from the [**Releases**](https://github.com/NilsR0711/strea
 
 | OS          | Artifact                           | Architecture             |
 | ----------- | ---------------------------------- | ------------------------ |
-| **Windows** | Installer (`.exe`, Squirrel)       | x64                      |
+| **Windows** | Installer (`.exe`, NSIS)           | x64                      |
 | **macOS**   | `.zip` containing `Streamwall.app` | Apple Silicon (arm64)    |
 | **Linux**   | `.deb` and `.rpm`                  | x64 (Debian/Ubuntu, RPM) |
 
@@ -281,17 +281,20 @@ auto-updater requires a signed app on macOS.
 ### In-app updates
 
 A packaged app checks GitHub Releases for a newer version on start and
-periodically afterwards. When one is found, Squirrel downloads it in the
-background and the control window shows a banner offering **Restart &
-Install**, plus a link to the release notes.
+periodically afterwards. When one is found, the control window shows a banner
+naming the new version with a **Download** button — nothing is downloaded
+until you ask, so an update never competes for bandwidth with a live stream
+unannounced. The download shows byte-level progress, and once it completes the
+banner offers **Restart & Install**, plus a link to the release notes.
 
-Because Electron's built-in updater downloads automatically and reports no
-byte-level progress, the banner shows an indeterminate indicator rather than a
-percentage. Update-check failures are logged, not surfaced — they are usually
-just an offline machine.
+Updates are driven by [electron-updater](https://www.electron.build/auto-update),
+which reads the `latest.yml`/`latest-mac.yml` metadata generated at publish
+time (see `packages/streamwall/forge.updateMetadata.ts`). Update-check
+failures are logged, not surfaced — they are usually just an offline machine.
 
-This only runs in packaged builds, and only on macOS and Windows: Squirrel is
-a no-op on Linux. Linux builds instead poll the GitHub Releases API directly
+This only runs in packaged builds, and only on macOS and Windows:
+electron-updater has no update path for `.deb`/`.rpm` installs. Linux builds
+instead poll the GitHub Releases API directly
 once a day and show a **View Release** banner when a newer version is found —
 notification only, since `.deb`/`.rpm` installs go through the OS package
 manager rather than a self-updater. Note that macOS additionally requires the
