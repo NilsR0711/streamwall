@@ -34,3 +34,33 @@ test('creating an invite from the Access panel renders the resulting link and li
   // ...and the token now shows up live in the persistent Invites list.
   await expect(page.getByText('field-crew: operator')).toBeVisible()
 })
+
+/**
+ * Coverage for issue #438: the Access panel's "revoke" button (`AuthTokenLine`'s
+ * `onDelete`) had no E2E coverage at all. Revokes a freshly created invite -
+ * never the browser's own admin session, which the harness names "e2e" and
+ * which revoking would immediately close this very socket (a distinct
+ * scenario from the one under test here).
+ */
+test('revoking an invite from the Access panel removes it from the Invites list', async ({
+  page,
+  harness,
+}) => {
+  await page.goto(await harness.createInviteLink())
+
+  const createInviteForm = page
+    .locator('form')
+    .filter({ has: page.getByRole('button', { name: 'create invite' }) })
+  await createInviteForm
+    .getByPlaceholder('Name', { exact: true })
+    .fill('to-revoke')
+  await createInviteForm.getByRole('combobox').selectOption('operator')
+  await createInviteForm.getByRole('button', { name: 'create invite' }).click()
+
+  await expect(page.getByText('to-revoke: operator')).toBeVisible()
+
+  const inviteRow = page.getByText('to-revoke', { exact: true }).locator('..')
+  await inviteRow.getByRole('button', { name: 'revoke' }).click()
+
+  await expect(page.getByText('to-revoke: operator')).not.toBeVisible()
+})
