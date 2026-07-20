@@ -107,6 +107,30 @@ jobs:
       - uses: ./.github/actions/setup
       - run: npm -w streamwall-control-client run build
 
+  # Packaging smoke test for the Electron desktop app. Catches Vite/Forge
+  # misconfiguration, native module unpacking (bufferutil, utf-8-validate)
+  # and missing packaged assets at PR time instead of during a release,
+  # where the same failure burns runner minutes across three OS legs.
+  #
+  # `package` only, not `make`: it exercises the Vite builds, asar packing
+  # and native rebuild without paying for the maker-specific installer
+  # steps (Squirrel, deb, rpm), which are release concerns. Ubuntu alone is
+  # enough for a smoke test — the shared failure modes are OS-independent.
+  # Runtime: ~45 seconds (measured on ubuntu-latest, cached npm), and it runs
+  # in parallel with the other jobs, so wall-clock CI time is unchanged.
+  package:
+    name: Package smoke (Electron app)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm -w streamwall run package
+
   # End-to-end smoke tests: the control client in a real Chromium browser
   # against a real control server + fake Streamwall uplink. Linux-only (the
   # Playwright browser install with system deps is Linux-only), so this stays
@@ -167,7 +191,17 @@ jobs:
   ci-ok:
     name: CI OK
     if: ${{ !cancelled() }}
-    needs: [changes, checks, test, build, e2e, dependency-review, actionlint]
+    needs:
+      [
+        changes,
+        checks,
+        test,
+        build,
+        package,
+        e2e,
+        dependency-review,
+        actionlint,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
