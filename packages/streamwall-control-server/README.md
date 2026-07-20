@@ -66,7 +66,9 @@ The Content-Security-Policy is kept compatible with the served control client.
 The server logs its version at startup and, once a day, checks the GitHub
 Releases API for a newer release. It only ever notifies — it never updates
 itself. A signed-in **admin** can read the same state from
-`GET /admin/status` (`403` for every other role and for anonymous requests):
+`GET /admin/status` (`403` for every other role and for anonymous requests),
+which the web control UI also surfaces directly (running version plus a
+dismissible update notice) for admins signed in there:
 
 ```json
 {
