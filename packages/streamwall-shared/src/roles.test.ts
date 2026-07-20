@@ -20,6 +20,7 @@ const adminOnlyActions = [
   'browse',
   'create-invite',
   'delete-token',
+  'view-server-status',
 ] as const satisfies readonly StreamwallAction[]
 
 // Actions an operator may perform that a monitor may not.

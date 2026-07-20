@@ -61,6 +61,33 @@ The Content-Security-Policy is kept compatible with the served control client.
 `upgrade-insecure-requests` is only emitted when `STREAMWALL_CONTROL_URL` uses
 `https`, so the plain-`http` local setup keeps working over `ws://`.
 
+### Update notifications
+
+The server logs its version at startup and, once a day, checks the GitHub
+Releases API for a newer release. It only ever notifies — it never updates
+itself. A signed-in **admin** can read the same state from
+`GET /admin/status` (`403` for every other role and for anonymous requests):
+
+```json
+{
+  "version": "0.9.1",
+  "latestVersion": "1.0.0",
+  "updateAvailable": true,
+  "releaseUrl": "https://github.com/NilsR0711/streamwall/releases/tag/v1.0.0",
+  "lastCheckedAt": "2026-07-20T09:00:00.000Z",
+  "checkEnabled": true
+}
+```
+
+| Variable                  | Default | Description                                                                                                    |
+| ------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `STREAMWALL_UPDATE_CHECK` | on      | Set to `false`/`0`/`no`/`off` to disable the release check. `/admin/status` still reports the running version. |
+
+This check is the server's only outbound connection; a failed check (offline
+host, rate limit, malformed response) is non-fatal and simply leaves the last
+known result in place. See
+[`docs/self-hosting.md`](../../docs/self-hosting.md) for the update procedure.
+
 ### Telemetry
 
 Crash reporting to [Sentry](https://sentry.io) (via `@sentry/node`) is
