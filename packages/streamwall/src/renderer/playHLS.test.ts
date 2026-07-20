@@ -26,6 +26,7 @@ class MockHls {
   attachMedia = vi.fn()
   loadSource = vi.fn()
   startLoad = vi.fn()
+  stopLoad = vi.fn()
   recoverMediaError = vi.fn()
   destroy = vi.fn()
 
@@ -198,6 +199,38 @@ describe('playHLS', () => {
     window.dispatchEvent(new Event('pagehide'))
 
     expect(lastInstance!.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops hls.js segment loading when the view is parked (issue #384)', async () => {
+    setSrc('https://stream.example/live.m3u8')
+    await import('./playHLS')
+
+    document.dispatchEvent(new CustomEvent('streamwall:media-pause'))
+
+    expect(lastInstance!.stopLoad).toHaveBeenCalledTimes(1)
+    expect(lastInstance!.destroy).not.toHaveBeenCalled()
+  })
+
+  it('resumes hls.js segment loading when the parked view is unparked', async () => {
+    setSrc('https://stream.example/live.m3u8')
+    await import('./playHLS')
+
+    document.dispatchEvent(new CustomEvent('streamwall:media-pause'))
+    document.dispatchEvent(new CustomEvent('streamwall:media-resume'))
+
+    expect(lastInstance!.startLoad).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores park events after teardown instead of touching a destroyed instance', async () => {
+    setSrc('https://stream.example/live.m3u8')
+    await import('./playHLS')
+
+    window.dispatchEvent(new Event('pagehide'))
+    document.dispatchEvent(new CustomEvent('streamwall:media-pause'))
+    document.dispatchEvent(new CustomEvent('streamwall:media-resume'))
+
+    expect(lastInstance!.stopLoad).not.toHaveBeenCalled()
+    expect(lastInstance!.startLoad).not.toHaveBeenCalled()
   })
 
   it('falls back to native playback and appends the video once metadata loads', async () => {

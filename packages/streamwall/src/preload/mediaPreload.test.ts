@@ -314,6 +314,58 @@ describe('mediaPreload pause/resume handling (issue #374)', () => {
     expect(video.paused).toBe(false)
   })
 
+  // The bundled HLS player page (renderer/playHLS.ts) keeps its hls.js
+  // instance in a closure the preload cannot reach, so pausing the <video>
+  // alone leaves segment fetching to taper off on its own. These events are
+  // the same-document channel that lets it call stopLoad()/startLoad()
+  // instead (issue #384).
+  function parkEventNames(): string[] {
+    const names: string[] = []
+    const record = (event: Event) => names.push(event.type)
+    document.addEventListener('streamwall:media-pause', record)
+    document.addEventListener('streamwall:media-resume', record)
+    return names
+  }
+
+  it('announces a pause to the page world so an HLS player can stop loading segments', async () => {
+    await loadAcquiredVideo()
+    const events = parkEventNames()
+
+    registeredHandler('pause')()
+
+    expect(events).toEqual(['streamwall:media-pause'])
+  })
+
+  it('announces a resume to the page world so an HLS player can start loading again', async () => {
+    await loadAcquiredVideo()
+    const events = parkEventNames()
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(events).toEqual(['streamwall:media-resume'])
+  })
+
+  it('announces pause/resume even when no media element has been acquired yet', async () => {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+    const events = parkEventNames()
+
+    registeredHandler('pause')()
+    registeredHandler('resume')()
+
+    expect(events).toEqual([
+      'streamwall:media-pause',
+      'streamwall:media-resume',
+    ])
+  })
+
   it('does not throw when a pause/resume message arrives before any media has been acquired', async () => {
     invoke.mockResolvedValueOnce({
       content: { kind: 'video', link: 'https://example.com/stream' },
