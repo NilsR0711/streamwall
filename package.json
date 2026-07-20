@@ -11,7 +11,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "node --test test/*.test.mjs && npm run test --workspaces --if-present"
+    "test": "node --test test/*.test.mjs && npm run test --workspaces --if-present",
+    "release:version": "node scripts/release-version.mjs"
   },
   "workspaces": [
     "packages/streamwall",
