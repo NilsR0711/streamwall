@@ -26,6 +26,7 @@ export interface ControlWindowEventMap {
 export interface UpdateHandlers {
   getAppVersion: () => string
   getStatus: () => UpdateStatus
+  download: () => void
   install: () => void
   openReleaseNotes: () => void
 }
@@ -127,6 +128,13 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
         return
       }
       return this.updateHandlers?.getAppVersion() ?? ''
+    })
+
+    ipcMain.handle('control:download-update', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      this.updateHandlers?.download()
     })
 
     ipcMain.handle('control:install-update', (ev) => {

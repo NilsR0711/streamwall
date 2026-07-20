@@ -3,30 +3,44 @@
  * main process (which owns the updater) and the sandboxed control preload
  * (which only forwards it), the same way sentryConfig.ts is shared.
  *
- * The shape deliberately mirrors what Electron's built-in `autoUpdater`
- * (Squirrel) actually reports: it starts downloading as soon as an update is
- * found, and emits no byte-level progress. So `downloading` carries no
- * percentage and there is no separate user-triggered download step - see
- * appUpdater.ts for the full rationale.
+ * The shape mirrors what `electron-updater` reports (#432): an update is
+ * announced first (`available`), the download only starts on user consent,
+ * and `download-progress` events carry byte counts, so `downloading` can show
+ * determinate progress. `progress` stays null until the first progress event
+ * (and if the backend never reports one), letting the UI fall back to an
+ * indeterminate indicator.
  *
- * `available` is a separate state (rather than reusing `ready`) for Linux
- * (#433), where Squirrel is a no-op: linuxUpdateChecker.ts polls GitHub
- * Releases directly and can only ever offer a link, never an install action.
+ * `available` doubles as Linux's notify-only state (#433): there
+ * linuxUpdateChecker.ts polls GitHub Releases directly and can only ever
+ * offer a link, never a download, hence `canDownload: false`.
  */
 export type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
-  | { state: 'downloading' }
-  | { state: 'available'; version: string; releaseUrl: string }
+  | {
+      state: 'available'
+      version: string
+      releaseUrl: string | null
+      canDownload: boolean
+    }
+  | { state: 'downloading'; version: string; progress: DownloadProgress | null }
   | { state: 'ready'; version: string; releaseNotesUrl: string | null }
   | { state: 'error'; message: string }
 
+/** Byte-level progress of an in-flight update download. */
+export interface DownloadProgress {
+  /** 0-100, as reported by electron-updater. */
+  percent: number
+  transferred: number
+  total: number
+}
+
 /**
- * Builds the GitHub release page URL for a downloaded update.
+ * Builds the GitHub release page URL for an update.
  *
- * Squirrel reports the release name, which is the `v*` tag for releases cut by
- * the forge publisher but is not guaranteed to carry the prefix, so normalize
- * it rather than double-prefixing.
+ * The updater reports the release version, which is the `v*` tag for releases
+ * cut by the forge publisher but is not guaranteed to carry the prefix, so
+ * normalize it rather than double-prefixing.
  */
 export function releaseNotesUrl(
   repository: string | null,
@@ -54,7 +68,7 @@ export function parseRepositorySlug(
   return match ? `${match[1]}/${match[2]}` : null
 }
 
-/** Strips the `v` prefix Squirrel may include, for display next to `app.getVersion()`. */
+/** Strips a `v` prefix from a release tag, for display next to `app.getVersion()`. */
 export function normalizeVersion(version: string): string {
   return version.startsWith('v') ? version.slice(1) : version
 }

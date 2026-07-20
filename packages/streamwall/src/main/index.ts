@@ -1,12 +1,6 @@
 import * as Sentry from '@sentry/electron/main'
-import {
-  BrowserWindow,
-  Event as ElectronEvent,
-  app,
-  autoUpdater,
-  shell,
-} from 'electron'
-import started from 'electron-squirrel-startup'
+import { BrowserWindow, Event as ElectronEvent, app, shell } from 'electron'
+import { MacUpdater, NsisUpdater } from 'electron-updater'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
 import { randomUUID } from 'node:crypto'
@@ -22,7 +16,6 @@ import {
   isSocketOpen,
   parseControlEndpoint,
 } from 'streamwall-shared'
-import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
@@ -508,14 +501,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     hasUserConfig,
   })
 
-  // Squirrel's autoUpdater (and update-electron-app, below) is a no-op on
-  // Linux, so it never notifies users there. LinuxUpdateChecker polls GitHub
-  // Releases directly instead, and only ever offers a link since .deb/.rpm
-  // installs go through the OS package manager, not a self-updater (#433).
+  // electron-updater has no self-update story for .deb/.rpm installs, so on
+  // Linux it never notifies users. LinuxUpdateChecker polls GitHub Releases
+  // directly instead, and only ever offers a link since those installs go
+  // through the OS package manager, not a self-updater (#433).
+  const repositorySlug = parseRepositorySlug(packageJson.repository)
   if (process.platform === 'linux') {
     const linuxUpdateChecker = new LinuxUpdateChecker({
       currentVersion: app.getVersion(),
-      repository: parseRepositorySlug(packageJson.repository),
+      repository: repositorySlug,
     })
     linuxUpdateChecker.on('status', (status) => {
       log.debug('Update status:', status.state)
@@ -524,23 +518,37 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => app.getVersion(),
       getStatus: () => linuxUpdateChecker.getStatus(),
+      download: () => {
+        // Never reachable from the banner (`available` carries
+        // `canDownload: false` on Linux), but the handler bundle requires one.
+      },
       install: () => {
         // Never reachable from the banner (no install action is offered for
         // `available`), but the handler bundle requires one.
       },
       openReleaseNotes: () => {
         const status = linuxUpdateChecker.getStatus()
-        if (status.state === 'available') {
+        if (status.state === 'available' && status.releaseUrl) {
           shell.openExternal(status.releaseUrl)
         }
       },
     })
     linuxUpdateChecker.start()
   } else {
-    const appUpdater = new AppUpdater(
-      autoUpdater,
-      parseRepositorySlug(packageJson.repository),
-    )
+    // electron-updater instead of Electron's built-in Squirrel autoUpdater
+    // (#432): Squirrel starts downloading as soon as it finds an update and
+    // reports no byte-level progress, so it could neither ask for consent nor
+    // show how far along a download is. The release feed is GitHub Releases,
+    // with latest.yml/latest-mac.yml generated at publish time (see
+    // forge.updateMetadata.ts).
+    const backend =
+      process.platform === 'darwin' ? new MacUpdater() : new NsisUpdater()
+    backend.logger = log
+    if (repositorySlug) {
+      const [owner, repo] = repositorySlug.split('/')
+      backend.setFeedURL({ provider: 'github', owner, repo })
+    }
+    const appUpdater = new AppUpdater(backend, repositorySlug)
     appUpdater.on('status', (status) => {
       if (status.state === 'error') {
         // Not surfaced in the UI: a failed update check is routine (offline,
@@ -554,14 +562,22 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => app.getVersion(),
       getStatus: () => appUpdater.getStatus(),
+      download: () => appUpdater.download(),
       install: () => appUpdater.install(),
       openReleaseNotes: () => {
         const status = appUpdater.getStatus()
-        if (status.state === 'ready' && status.releaseNotesUrl) {
+        if (status.state === 'available' && status.releaseUrl) {
+          shell.openExternal(status.releaseUrl)
+        } else if (status.state === 'ready' && status.releaseNotesUrl) {
           shell.openExternal(status.releaseNotesUrl)
         }
       },
     })
+    // In development there is no packaged app to update against; electron-
+    // updater would just log a skip message every interval.
+    if (app.isPackaged && repositorySlug) {
+      appUpdater.start()
+    }
   }
 
   let browseWindow: BrowserWindow | null = null
@@ -1161,10 +1177,6 @@ function init() {
     sentryEnabledSwitchValue(argv.telemetry.sentry),
   )
 
-  // Keeps update-electron-app as the feed/interval owner, but silences its
-  // native dialog: the in-app banner (#381) is the notification surface now.
-  updateElectronApp({ notifyUser: false })
-
   log.debug('Setting up Electron...')
   app.commandLine.appendSwitch('high-dpi-support', '1')
   app.commandLine.appendSwitch('force-device-scale-factor', '1')
@@ -1179,11 +1191,6 @@ function init() {
       log.error(err)
       process.exit(1)
     })
-}
-
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (started) {
-  app.quit()
 }
 
 log.debug('Starting Streamwall...')

@@ -5,8 +5,8 @@ import { type UpdateStatus } from '../updateStatus'
 /**
  * Linux update notifications (#433).
  *
- * Electron's built-in `autoUpdater` (Squirrel) and `update-electron-app` are
- * both no-ops on Linux, so main/index.ts never touches `appUpdater.ts` there.
+ * electron-updater has no self-update story for `.deb`/`.rpm` installs, so
+ * main/index.ts never touches `appUpdater.ts` on Linux.
  * This polls the GitHub Releases API directly instead, and is deliberately
  * notify-only: it never downloads or installs anything, since `.deb`/`.rpm`
  * users expect their package manager to handle installs, matching platform
@@ -222,6 +222,9 @@ export class LinuxUpdateChecker extends EventEmitter<LinuxUpdateCheckerEventMap>
           state: 'available',
           version: release.version,
           releaseUrl: release.url,
+          // .deb/.rpm installs go through the OS package manager; there is
+          // nothing the in-app updater could download for them (#433).
+          canDownload: false,
         }
       : { state: 'idle' }
     this.setStatus(nextStatus)

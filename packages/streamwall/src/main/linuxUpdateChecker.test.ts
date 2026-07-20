@@ -71,6 +71,7 @@ describe('LinuxUpdateChecker.checkNow', () => {
       state: 'available',
       version: '1.0.0',
       releaseUrl: 'https://github.com/NilsR0711/streamwall/releases/tag/v1.0.0',
+      canDownload: false,
     })
     expect(statuses).toEqual([status])
   })

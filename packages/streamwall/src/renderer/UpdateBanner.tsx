@@ -1,5 +1,5 @@
 import { keyframes, styled } from 'styled-components'
-import { type UpdateStatus } from '../updateStatus'
+import { type DownloadProgress, type UpdateStatus } from '../updateStatus'
 
 const Banner = styled.div`
   display: flex;
@@ -25,6 +25,12 @@ const Version = styled.code`
   padding: 1px 5px;
 `
 
+const ProgressDetail = styled.span`
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+`
+
 const indeterminate = keyframes`
   from { transform: translateX(-100%); }
   to { transform: translateX(300%); }
@@ -39,12 +45,19 @@ const ProgressTrack = styled.div`
   overflow: hidden;
 `
 
-const ProgressBar = styled.div`
+const IndeterminateProgressBar = styled.div`
   width: 33%;
   height: 100%;
   border-radius: var(--r-sm);
   background: var(--accent-2);
   animation: ${indeterminate} 1.2s ease-in-out infinite;
+`
+
+const DeterminateProgressBar = styled.div`
+  height: 100%;
+  border-radius: var(--r-sm);
+  background: var(--accent-2);
+  transition: width 0.3s ease-out;
 `
 
 const ActionButton = styled.button`
@@ -86,9 +99,56 @@ const DismissButton = styled.button`
 export interface UpdateBannerProps {
   status: UpdateStatus
   currentVersion: string
+  onDownload: () => void
   onInstall: () => void
   onOpenReleaseNotes: (url: string) => void
   onDismiss: () => void
+}
+
+/** 43_515_904 bytes → "41.5 MB", rounded to integers once the number gets wide. */
+function formatMegabytes(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024)
+  return `${megabytes >= 100 ? Math.round(megabytes) : megabytes.toFixed(1)} MB`
+}
+
+function Dismiss({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <DismissButton
+      data-testid="dismiss-update-banner"
+      aria-label="Dismiss"
+      onClick={onDismiss}
+    >
+      ×
+    </DismissButton>
+  )
+}
+
+function Progress({ progress }: { progress: DownloadProgress | null }) {
+  if (progress === null) {
+    return (
+      <ProgressTrack role="progressbar" aria-label="Downloading update">
+        <IndeterminateProgressBar />
+      </ProgressTrack>
+    )
+  }
+  const percent = Math.round(progress.percent)
+  return (
+    <>
+      <ProgressDetail>
+        {formatMegabytes(progress.transferred)} of{' '}
+        {formatMegabytes(progress.total)} ({percent}%)
+      </ProgressDetail>
+      <ProgressTrack
+        role="progressbar"
+        aria-label="Downloading update"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <DeterminateProgressBar style={{ width: `${progress.percent}%` }} />
+      </ProgressTrack>
+    </>
+  )
 }
 
 /**
@@ -99,35 +159,43 @@ export interface UpdateBannerProps {
  * background noise, and a failed check (`error`) is not actionable from here -
  * main/index.ts logs it instead of nagging.
  *
- * The download indicator is deliberately indeterminate: Electron's Squirrel
- * autoUpdater emits no byte-level progress (see main/appUpdater.ts), so a
- * percentage would have to be invented.
+ * `available` announces the update without downloading anything: the download
+ * only starts on the Download action (#432), so a full app bundle never
+ * competes for bandwidth with a live stream unasked. On Linux
+ * (`canDownload: false`, #433) the same state is notify-only - updates go
+ * through the package manager, so the only action is opening the release
+ * page (see main/linuxUpdateChecker.ts).
  *
- * `available` (#433) is Linux's notify-only counterpart to `ready`: Squirrel
- * cannot download or install there, so the only action offered is opening the
- * release page - see main/linuxUpdateChecker.ts.
+ * `downloading` shows byte-level progress once electron-updater reports it,
+ * and falls back to an indeterminate indicator until then.
  */
 export function UpdateBanner({
   status,
   currentVersion,
+  onDownload,
   onInstall,
   onOpenReleaseNotes,
   onDismiss,
 }: UpdateBannerProps) {
-  if (status.state === 'downloading') {
+  if (status.state === 'available' && status.canDownload) {
     return (
       <Banner>
-        <Message>Downloading a new version of Streamwall...</Message>
-        <ProgressTrack role="progressbar" aria-label="Downloading update">
-          <ProgressBar />
-        </ProgressTrack>
-        <DismissButton
-          data-testid="dismiss-update-banner"
-          aria-label="Dismiss"
-          onClick={onDismiss}
-        >
-          ×
-        </DismissButton>
+        <Message>
+          Streamwall <Version>{status.version}</Version> is available (you're on{' '}
+          <Version>{currentVersion}</Version>).
+        </Message>
+        {status.releaseUrl && (
+          <LinkButton
+            data-testid="open-release-notes"
+            onClick={() => onOpenReleaseNotes(status.releaseUrl!)}
+          >
+            Release notes
+          </LinkButton>
+        )}
+        <ActionButton data-testid="download-update" onClick={onDownload}>
+          Download
+        </ActionButton>
+        <Dismiss onDismiss={onDismiss} />
       </Banner>
     )
   }
@@ -140,19 +208,27 @@ export function UpdateBanner({
           <Version>{currentVersion}</Version>). Update via your package manager,
           or view the release.
         </Message>
-        <ActionButton
-          data-testid="view-release"
-          onClick={() => onOpenReleaseNotes(status.releaseUrl)}
-        >
-          View Release
-        </ActionButton>
-        <DismissButton
-          data-testid="dismiss-update-banner"
-          aria-label="Dismiss"
-          onClick={onDismiss}
-        >
-          ×
-        </DismissButton>
+        {status.releaseUrl && (
+          <ActionButton
+            data-testid="view-release"
+            onClick={() => onOpenReleaseNotes(status.releaseUrl!)}
+          >
+            View Release
+          </ActionButton>
+        )}
+        <Dismiss onDismiss={onDismiss} />
+      </Banner>
+    )
+  }
+
+  if (status.state === 'downloading') {
+    return (
+      <Banner>
+        <Message>
+          Downloading Streamwall <Version>{status.version}</Version>...
+        </Message>
+        <Progress progress={status.progress} />
+        <Dismiss onDismiss={onDismiss} />
       </Banner>
     )
   }
@@ -178,13 +254,7 @@ export function UpdateBanner({
       <ActionButton data-testid="install-update" onClick={onInstall}>
         Restart &amp; Install
       </ActionButton>
-      <DismissButton
-        data-testid="dismiss-update-banner"
-        aria-label="Dismiss"
-        onClick={onDismiss}
-      >
-        ×
-      </DismissButton>
+      <Dismiss onDismiss={onDismiss} />
     </Banner>
   )
 }

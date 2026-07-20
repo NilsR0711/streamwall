@@ -141,18 +141,16 @@ function useUpdateStatus() {
     return window.streamwallControl.onUpdateStatus(setStatus)
   }, [])
 
-  const dismiss = useCallback(() => {
-    setDismissedVersion(
-      status.state === 'ready' || status.state === 'available'
-        ? status.version
-        : 'pending',
-    )
-  }, [status])
+  // Keyed on state *and* version: dismissing the "downloading" notice for a
+  // version must not also swallow its later "ready to install" notice.
+  const dismissKey =
+    'version' in status ? `${status.state}:${status.version}` : 'pending'
 
-  const isDismissed =
-    status.state === 'ready' || status.state === 'available'
-      ? dismissedVersion === status.version
-      : dismissedVersion === 'pending'
+  const dismiss = useCallback(() => {
+    setDismissedVersion(dismissKey)
+  }, [dismissKey])
+
+  const isDismissed = dismissedVersion === dismissKey
 
   return {
     status: isDismissed ? ({ state: 'idle' } as const) : status,
@@ -176,6 +174,7 @@ function App() {
       <UpdateBanner
         status={update.status}
         currentVersion={update.appVersion}
+        onDownload={() => window.streamwallControl.downloadUpdate()}
         onInstall={() => window.streamwallControl.installUpdate()}
         onOpenReleaseNotes={() => window.streamwallControl.openReleaseNotes()}
         onDismiss={update.dismiss}

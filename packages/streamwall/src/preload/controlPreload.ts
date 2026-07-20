@@ -23,6 +23,8 @@ const api = {
     ipcRenderer.invoke('control:app-version'),
   getUpdateStatus: (): Promise<UpdateStatus> =>
     ipcRenderer.invoke('control:update-status'),
+  downloadUpdate: (): Promise<void> =>
+    ipcRenderer.invoke('control:download-update'),
   installUpdate: (): Promise<void> =>
     ipcRenderer.invoke('control:install-update'),
   // Takes no URL: main opens the release page for the update it actually
