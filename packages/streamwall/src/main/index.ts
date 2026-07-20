@@ -66,6 +66,7 @@ import {
   applyLayoutPreset,
   buildLayoutPreset,
 } from './layoutPresets'
+import { LinuxUpdateChecker } from './linuxUpdateChecker'
 import log, {
   LOG_LEVELS,
   initLogger,
@@ -507,31 +508,61 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     hasUserConfig,
   })
 
-  const appUpdater = new AppUpdater(
-    autoUpdater,
-    parseRepositorySlug(packageJson.repository),
-  )
-  appUpdater.on('status', (status) => {
-    if (status.state === 'error') {
-      // Not surfaced in the UI: a failed update check is routine (offline,
-      // rate limit) and not actionable by the user.
-      log.warn('Update check failed:', status.message)
-    } else {
+  // Squirrel's autoUpdater (and update-electron-app, below) is a no-op on
+  // Linux, so it never notifies users there. LinuxUpdateChecker polls GitHub
+  // Releases directly instead, and only ever offers a link since .deb/.rpm
+  // installs go through the OS package manager, not a self-updater (#433).
+  if (process.platform === 'linux') {
+    const linuxUpdateChecker = new LinuxUpdateChecker({
+      currentVersion: app.getVersion(),
+      repository: parseRepositorySlug(packageJson.repository),
+    })
+    linuxUpdateChecker.on('status', (status) => {
       log.debug('Update status:', status.state)
-    }
-    controlWindow.onUpdateStatus(status)
-  })
-  controlWindow.setUpdateHandlers({
-    getAppVersion: () => app.getVersion(),
-    getStatus: () => appUpdater.getStatus(),
-    install: () => appUpdater.install(),
-    openReleaseNotes: () => {
-      const status = appUpdater.getStatus()
-      if (status.state === 'ready' && status.releaseNotesUrl) {
-        shell.openExternal(status.releaseNotesUrl)
+      controlWindow.onUpdateStatus(status)
+    })
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => app.getVersion(),
+      getStatus: () => linuxUpdateChecker.getStatus(),
+      install: () => {
+        // Never reachable from the banner (no install action is offered for
+        // `available`), but the handler bundle requires one.
+      },
+      openReleaseNotes: () => {
+        const status = linuxUpdateChecker.getStatus()
+        if (status.state === 'available') {
+          shell.openExternal(status.releaseUrl)
+        }
+      },
+    })
+    linuxUpdateChecker.start()
+  } else {
+    const appUpdater = new AppUpdater(
+      autoUpdater,
+      parseRepositorySlug(packageJson.repository),
+    )
+    appUpdater.on('status', (status) => {
+      if (status.state === 'error') {
+        // Not surfaced in the UI: a failed update check is routine (offline,
+        // rate limit) and not actionable by the user.
+        log.warn('Update check failed:', status.message)
+      } else {
+        log.debug('Update status:', status.state)
       }
-    },
-  })
+      controlWindow.onUpdateStatus(status)
+    })
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => app.getVersion(),
+      getStatus: () => appUpdater.getStatus(),
+      install: () => appUpdater.install(),
+      openReleaseNotes: () => {
+        const status = appUpdater.getStatus()
+        if (status.state === 'ready' && status.releaseNotesUrl) {
+          shell.openExternal(status.releaseNotesUrl)
+        }
+      },
+    })
+  }
 
   let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
