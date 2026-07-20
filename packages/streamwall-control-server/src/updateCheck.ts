@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import {
+  fetchLatestGithubRelease,
+  isNewerVersion,
+  type GithubReleaseFetchImpl,
+  type LatestRelease,
+} from 'streamwall-shared'
 
 /**
  * Update *notification* for self-hosted deployments (issue #382).
@@ -40,82 +46,6 @@ function readServerVersion(): string {
   return manifest.version
 }
 
-interface ParsedVersion {
-  core: number[]
-  prerelease: string[]
-}
-
-/**
- * Parses the `MAJOR.MINOR.PATCH[-prerelease]` subset of semver we actually
- * publish (`v0.9.1`, `v2.0.0-pre3`). Build metadata is ignored, and anything
- * that does not match returns null so callers can degrade to "no update".
- */
-function parseVersion(raw: string): ParsedVersion | null {
-  const match =
-    /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[\w.-]+)?$/.exec(
-      raw.trim(),
-    )
-  if (!match) {
-    return null
-  }
-  return {
-    core: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4] ? match[4].split('.') : [],
-  }
-}
-
-/** Semver precedence for prerelease identifiers: numeric < alphanumeric. */
-function comparePrerelease(a: string[], b: string[]): number {
-  // A version without a prerelease outranks the same core with one (1.0.0 > 1.0.0-pre1).
-  if (a.length === 0 || b.length === 0) {
-    return a.length === b.length ? 0 : a.length === 0 ? 1 : -1
-  }
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const left = a[i]
-    const right = b[i]
-    if (left === undefined) {
-      return -1
-    }
-    if (right === undefined) {
-      return 1
-    }
-    const leftNumeric = /^\d+$/.test(left)
-    const rightNumeric = /^\d+$/.test(right)
-    if (leftNumeric && rightNumeric) {
-      if (Number(left) !== Number(right)) {
-        return Number(left) < Number(right) ? -1 : 1
-      }
-      continue
-    }
-    if (leftNumeric !== rightNumeric) {
-      return leftNumeric ? -1 : 1
-    }
-    if (left !== right) {
-      return left < right ? -1 : 1
-    }
-  }
-  return 0
-}
-
-/**
- * True when `candidate` is strictly newer than `current`. Unparsable input on
- * either side yields false: a version we cannot reason about must never
- * produce a bogus "update available" notice.
- */
-export function isNewerVersion(candidate: string, current: string): boolean {
-  const a = parseVersion(candidate)
-  const b = parseVersion(current)
-  if (!a || !b) {
-    return false
-  }
-  for (let i = 0; i < 3; i++) {
-    if (a.core[i] !== b.core[i]) {
-      return a.core[i] > b.core[i]
-    }
-  }
-  return comparePrerelease(a.prerelease, b.prerelease) > 0
-}
-
 /**
  * The update check reaches out to the GitHub API, so operators who want a
  * fully egress-free deployment can turn it off. Enabled by default; the same
@@ -127,69 +57,6 @@ export function isUpdateCheckEnabled(raw: string | undefined): boolean {
   }
   const v = raw.trim().toLowerCase()
   return !(v === '0' || v === 'false' || v === 'no' || v === 'off')
-}
-
-export interface LatestRelease {
-  version: string
-  url: string
-}
-
-type FetchImpl = (
-  url: string,
-  init?: { signal?: AbortSignal; headers?: Record<string, string> },
-) => Promise<Response>
-
-/**
- * Fetches the latest published (non-draft, non-prerelease) release. Every
- * failure mode — offline host, rate limit, malformed body, hung connection —
- * resolves to null: an update check must never take the server down with it.
- */
-export async function fetchLatestRelease({
-  fetchImpl = fetch as FetchImpl,
-  url = RELEASES_API_URL,
-  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
-}: {
-  fetchImpl?: FetchImpl
-  url?: string
-  timeoutMs?: number
-} = {}): Promise<LatestRelease | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const response = await fetchImpl(url, {
-      signal: controller.signal,
-      headers: {
-        accept: 'application/vnd.github+json',
-        'user-agent': `streamwall-control-server/${SERVER_VERSION}`,
-      },
-    })
-    if (!response.ok) {
-      return null
-    }
-    const body = (await response.json()) as {
-      tag_name?: unknown
-      html_url?: unknown
-      draft?: unknown
-      prerelease?: unknown
-    }
-    if (body.draft === true || body.prerelease === true) {
-      return null
-    }
-    if (
-      typeof body.tag_name !== 'string' ||
-      typeof body.html_url !== 'string'
-    ) {
-      return null
-    }
-    return {
-      version: body.tag_name.replace(/^v/, ''),
-      url: body.html_url,
-    }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 export interface UpdateStatus {
@@ -217,7 +84,7 @@ export interface UpdateCheckerOptions {
   currentVersion?: string
   enabled?: boolean
   intervalMs?: number
-  fetchImpl?: FetchImpl
+  fetchImpl?: GithubReleaseFetchImpl
   url?: string
   log?: (message: string) => void
   setIntervalImpl?: (fn: () => void, ms: number) => unknown
@@ -238,8 +105,8 @@ export function createUpdateChecker({
   currentVersion = SERVER_VERSION,
   enabled = isUpdateCheckEnabled(process.env.STREAMWALL_UPDATE_CHECK),
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
-  fetchImpl,
-  url,
+  fetchImpl = fetch as GithubReleaseFetchImpl,
+  url = RELEASES_API_URL,
   log = console.log,
   setIntervalImpl = defaultSetInterval,
   clearIntervalImpl = (handle) => clearInterval(handle as NodeJS.Timeout),
@@ -264,7 +131,12 @@ export function createUpdateChecker({
     if (!enabled) {
       return getStatus()
     }
-    const release = await fetchLatestRelease({ fetchImpl, url })
+    const release = await fetchLatestGithubRelease({
+      url,
+      fetchImpl,
+      timeoutMs: DEFAULT_FETCH_TIMEOUT_MS,
+      headers: { 'user-agent': `streamwall-control-server/${SERVER_VERSION}` },
+    })
     if (release) {
       latest = release
       lastCheckedAt = new Date().toISOString()
