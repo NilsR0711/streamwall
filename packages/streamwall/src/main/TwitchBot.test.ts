@@ -58,7 +58,8 @@ describe('TwitchBot', () => {
   })
 
   afterEach(() => {
-    process.off('unhandledRejection', onUnhandledRejection)
+    if (onUnhandledRejection)
+      process.off('unhandledRejection', onUnhandledRejection)
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
