@@ -28,7 +28,7 @@
     "@types/lodash-es": "^4.17.12",
     "@types/luxon": "^3.7.2",
     "happy-dom": "^20.11.0",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
   "scripts": {
