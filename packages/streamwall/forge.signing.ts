@@ -56,9 +56,9 @@ export interface WindowsSigningConfig {
 }
 
 /**
- * Builds the Windows Squirrel installer signing config from a PFX
- * certificate. Returns undefined when unconfigured, leaving Windows builds
- * unsigned as today.
+ * Builds the Windows installer signing config from a PFX certificate,
+ * consumed by the NSIS maker (see forge.makerNsis.ts). Returns undefined
+ * when unconfigured, leaving Windows builds unsigned as today.
  */
 export function getWindowsSigningConfig(
   env: SigningEnv,

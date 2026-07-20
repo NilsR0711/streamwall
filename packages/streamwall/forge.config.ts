@@ -1,18 +1,19 @@
 import { MakerDeb } from '@electron-forge/maker-deb'
 import { MakerRpm } from '@electron-forge/maker-rpm'
-import { MakerSquirrel } from '@electron-forge/maker-squirrel'
 import { MakerZIP } from '@electron-forge/maker-zip'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
 
+import MakerNsis from './forge.makerNsis'
 import { parseGithubRepository } from './forge.publisher'
 import {
   getMacSigningConfig,
   getWindowsSigningConfig,
   isSigningConfigured,
 } from './forge.signing'
+import { appendUpdateMetadata } from './forge.updateMetadata'
 import packageJson from './package.json'
 
 const macSigning = getMacSigningConfig(process.env)
@@ -22,16 +23,22 @@ const publishRepository = parseGithubRepository(packageJson.repository)
 
 const config: ForgeConfig = {
   packagerConfig: {
-    executableName: 'streamwall',
+    // No explicit executableName: it defaults to the product name
+    // ("Streamwall"), which the NSIS installer template requires the
+    // executable to match. The Linux makers still install a lowercase
+    // `streamwall` command via their `bin` option below.
     asar: true,
     ...macSigning,
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({ ...windowsSigning }),
+    // NSIS instead of Squirrel.Windows (#432): electron-updater - which
+    // provides the user-gated download and byte-level progress - only
+    // supports NSIS installers on Windows.
+    new MakerNsis({ ...windowsSigning }),
     new MakerZIP({}, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerRpm({ options: { bin: 'Streamwall' } }),
+    new MakerDeb({ options: { bin: 'Streamwall' } }),
   ],
   publishers: [
     {
@@ -46,6 +53,12 @@ const config: ForgeConfig = {
       },
     },
   ],
+  hooks: {
+    // latest.yml / latest-mac.yml for electron-updater (#432); uploaded to
+    // the release alongside the installers by the GitHub publisher.
+    postMake: async (_forgeConfig, makeResults) =>
+      appendUpdateMetadata(makeResults),
+  },
   plugins: [
     new VitePlugin({
       build: [
