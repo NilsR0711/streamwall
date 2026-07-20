@@ -3,6 +3,7 @@ import EventEmitter from 'events'
 import { dirname } from 'node:path'
 import path from 'path'
 import { ControlCommand, StreamwallState } from 'streamwall-shared'
+import { type UpdateStatus } from '../updateStatus'
 import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
 import { loadHTML } from './loadHTML'
@@ -17,6 +18,18 @@ export interface ControlWindowEventMap {
   ydoc: [Uint8Array]
 }
 
+/**
+ * How the control window reaches the app updater (#381). Kept as a handler
+ * bundle rather than a constructor argument so ControlWindow stays independent
+ * of the updater's lifetime, matching `setCommandHandler`.
+ */
+export interface UpdateHandlers {
+  getAppVersion: () => string
+  getStatus: () => UpdateStatus
+  install: () => void
+  openReleaseNotes: () => void
+}
+
 /** Where the user data `config.toml` would live, and whether it exists yet. */
 export interface ConfigInfo {
   configPath: string
@@ -26,6 +39,7 @@ export interface ConfigInfo {
 export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
   win: BrowserWindow
   private commandHandler?: ControlCommandHandler
+  private updateHandlers?: UpdateHandlers
 
   constructor(configInfo: ConfigInfo) {
     super()
@@ -97,10 +111,52 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
       // rather than being swallowed (#246).
       createExampleConfig(configInfo.configPath)
     })
+
+    ipcMain.handle('control:update-status', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      // The renderer may mount after the updater already moved past `idle`,
+      // so it pulls the current status once instead of only listening for
+      // future transitions.
+      return this.updateHandlers?.getStatus() ?? { state: 'idle' }
+    })
+
+    ipcMain.handle('control:app-version', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      return this.updateHandlers?.getAppVersion() ?? ''
+    })
+
+    ipcMain.handle('control:install-update', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      this.updateHandlers?.install()
+    })
+
+    ipcMain.handle('control:open-release-notes', (ev) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      // Deliberately takes no URL from the renderer: main owns the updater
+      // status, so a compromised renderer cannot turn this into an
+      // open-anything shell.openExternal gadget.
+      this.updateHandlers?.openReleaseNotes()
+    })
   }
 
   setCommandHandler(handler: ControlCommandHandler) {
     this.commandHandler = handler
+  }
+
+  setUpdateHandlers(handlers: UpdateHandlers) {
+    this.updateHandlers = handlers
+  }
+
+  onUpdateStatus(status: UpdateStatus) {
+    this.win.webContents.send('update-status', status)
   }
 
   onState(state: StreamwallState) {

@@ -1,5 +1,11 @@
 import * as Sentry from '@sentry/electron/main'
-import { BrowserWindow, Event as ElectronEvent, app } from 'electron'
+import {
+  BrowserWindow,
+  Event as ElectronEvent,
+  app,
+  autoUpdater,
+  shell,
+} from 'electron'
 import started from 'electron-squirrel-startup'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
@@ -20,12 +26,15 @@ import { updateElectronApp } from 'update-electron-app'
 import WebSocket from 'ws'
 import yargs from 'yargs'
 import * as Y from 'yjs'
+import packageJson from '../../package.json'
 import {
   SENTRY_DSN,
   SENTRY_ENABLED_SWITCH,
   sentryEnabledSwitchValue,
 } from '../sentryConfig'
+import { parseRepositorySlug } from '../updateStatus'
 import { createSessionHostResolver, ensureValidURL } from '../util'
+import { AppUpdater } from './appUpdater'
 import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
 import {
   findUnknownConfigKeys,
@@ -496,6 +505,32 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   const controlWindow = new ControlWindow({
     configPath: userConfigPath,
     hasUserConfig,
+  })
+
+  const appUpdater = new AppUpdater(
+    autoUpdater,
+    parseRepositorySlug(packageJson.repository),
+  )
+  appUpdater.on('status', (status) => {
+    if (status.state === 'error') {
+      // Not surfaced in the UI: a failed update check is routine (offline,
+      // rate limit) and not actionable by the user.
+      log.warn('Update check failed:', status.message)
+    } else {
+      log.debug('Update status:', status.state)
+    }
+    controlWindow.onUpdateStatus(status)
+  })
+  controlWindow.setUpdateHandlers({
+    getAppVersion: () => app.getVersion(),
+    getStatus: () => appUpdater.getStatus(),
+    install: () => appUpdater.install(),
+    openReleaseNotes: () => {
+      const status = appUpdater.getStatus()
+      if (status.state === 'ready' && status.releaseNotesUrl) {
+        shell.openExternal(status.releaseNotesUrl)
+      }
+    },
   })
 
   let browseWindow: BrowserWindow | null = null
@@ -1095,7 +1130,9 @@ function init() {
     sentryEnabledSwitchValue(argv.telemetry.sentry),
   )
 
-  updateElectronApp()
+  // Keeps update-electron-app as the feed/interval owner, but silences its
+  // native dialog: the in-app banner (#381) is the notification surface now.
+  updateElectronApp({ notifyUser: false })
 
   log.debug('Setting up Electron...')
   app.commandLine.appendSwitch('high-dpi-support', '1')

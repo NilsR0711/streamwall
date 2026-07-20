@@ -278,6 +278,23 @@ The overlay window has its own hotkey:
 both warn or outright block unsigned apps for end users, and Electron's
 auto-updater requires a signed app on macOS.
 
+### In-app updates
+
+A packaged app checks GitHub Releases for a newer version on start and
+periodically afterwards. When one is found, Squirrel downloads it in the
+background and the control window shows a banner offering **Restart &
+Install**, plus a link to the release notes.
+
+Because Electron's built-in updater downloads automatically and reports no
+byte-level progress, the banner shows an indeterminate indicator rather than a
+percentage. Update-check failures are logged, not surfaced — they are usually
+just an offline machine.
+
+This only runs in packaged builds, and only on macOS and Windows; on Linux the
+updater is a no-op and users install from the released packages. Note that
+macOS additionally requires the app to be **signed** (see below) before updates
+can install.
+
 To produce signed, notarized builds, set these environment variables before
 running `make`/`publish` (see `packages/streamwall/forge.signing.ts`):
 

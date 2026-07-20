@@ -16,8 +16,10 @@ import {
   FirstRunInfo,
   StreamwallControlGlobal,
 } from '../preload/controlPreload'
+import { type UpdateStatus } from '../updateStatus'
 import { FirstRunHint } from './FirstRunHint'
 import { initRendererSentry } from './initSentry'
+import { UpdateBanner } from './UpdateBanner'
 
 const DISMISSED_STORAGE_KEY = 'streamwall:first-run-hint-dismissed'
 
@@ -119,9 +121,46 @@ function useFirstRunHint() {
   }
 }
 
+/**
+ * Tracks the main-process updater (#381). Pulls the current status once on
+ * mount (the updater may already have moved past `idle` before the renderer
+ * existed) and follows transitions from there.
+ *
+ * Dismissal is keyed on the version rather than a plain boolean, so dismissing
+ * one update does not hide the next one - and is deliberately not persisted:
+ * a downloaded update is worth re-offering after a restart.
+ */
+function useUpdateStatus() {
+  const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' })
+  const [appVersion, setAppVersion] = useState('')
+  const [dismissedVersion, setDismissedVersion] = useState<string>()
+
+  useEffect(() => {
+    window.streamwallControl.getUpdateStatus().then(setStatus)
+    window.streamwallControl.getAppVersion().then(setAppVersion)
+    return window.streamwallControl.onUpdateStatus(setStatus)
+  }, [])
+
+  const dismiss = useCallback(() => {
+    setDismissedVersion(status.state === 'ready' ? status.version : 'pending')
+  }, [status])
+
+  const isDismissed =
+    status.state === 'ready'
+      ? dismissedVersion === status.version
+      : dismissedVersion === 'pending'
+
+  return {
+    status: isDismissed ? ({ state: 'idle' } as const) : status,
+    appVersion,
+    dismiss,
+  }
+}
+
 function App() {
   const connection = useStreamwallIPCConnection()
   const firstRunHint = useFirstRunHint()
+  const update = useUpdateStatus()
 
   useHotkeys('ctrl+shift+i', () => {
     window.streamwallControl.openDevTools()
@@ -130,6 +169,13 @@ function App() {
   return (
     <>
       <GlobalStyle />
+      <UpdateBanner
+        status={update.status}
+        currentVersion={update.appVersion}
+        onInstall={() => window.streamwallControl.installUpdate()}
+        onOpenReleaseNotes={() => window.streamwallControl.openReleaseNotes()}
+        onDismiss={update.dismiss}
+      />
       {firstRunHint.isVisible && (
         <FirstRunHint
           configPath={firstRunHint.configPath!}

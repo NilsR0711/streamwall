@@ -23,8 +23,13 @@ type ControlApi = {
   getFirstRunInfo: () => unknown
   openConfigFolder: () => unknown
   createExampleConfig: () => unknown
+  getAppVersion: () => unknown
+  getUpdateStatus: () => unknown
+  installUpdate: () => unknown
+  openReleaseNotes: () => unknown
   onState: (handleState: (state: unknown) => void) => () => void
   onYDoc: (handleUpdate: (update: Uint8Array) => void) => () => void
+  onUpdateStatus: (handleStatus: (status: unknown) => void) => () => void
 }
 
 function importedControlApi(): ControlApi {
@@ -50,13 +55,18 @@ describe('controlPreload bridge shape', () => {
     expect(Object.keys(importedControlApi()).sort()).toEqual(
       [
         'createExampleConfig',
+        'getAppVersion',
         'getFirstRunInfo',
+        'getUpdateStatus',
+        'installUpdate',
         'invokeCommand',
         'load',
         'onState',
+        'onUpdateStatus',
         'onYDoc',
         'openConfigFolder',
         'openDevTools',
+        'openReleaseNotes',
         'updateYDoc',
       ].sort(),
     )
@@ -88,6 +98,10 @@ describe('controlPreload channel wiring', () => {
     ['getFirstRunInfo', 'control:first-run-info'],
     ['openConfigFolder', 'control:open-config-folder'],
     ['createExampleConfig', 'control:create-example-config'],
+    ['getAppVersion', 'control:app-version'],
+    ['getUpdateStatus', 'control:update-status'],
+    ['installUpdate', 'control:install-update'],
+    ['openReleaseNotes', 'control:open-release-notes'],
   ] as const)('invokes %s on the %s channel', async (method, channel) => {
     await import('./controlPreload')
 
@@ -148,5 +162,50 @@ describe('controlPreload onYDoc listener lifecycle', () => {
     unsubscribe()
 
     expect(off).toHaveBeenCalledWith('ydoc', internalHandler)
+  })
+})
+
+describe('controlPreload onUpdateStatus listener lifecycle', () => {
+  it('subscribes to the update-status IPC channel and forwards the status payload', async () => {
+    await import('./controlPreload')
+    const handleStatus = vi.fn()
+
+    importedControlApi().onUpdateStatus(handleStatus)
+
+    expect(on).toHaveBeenCalledWith('update-status', expect.any(Function))
+    const [, internalHandler] = on.mock.calls.find(
+      ([ch]) => ch === 'update-status',
+    )!
+    const status = { state: 'ready', version: '0.9.2', releaseNotesUrl: null }
+    internalHandler({}, status)
+
+    expect(handleStatus).toHaveBeenCalledWith(status)
+  })
+
+  it('removes the same listener it registered when unsubscribed', async () => {
+    await import('./controlPreload')
+
+    const unsubscribe = importedControlApi().onUpdateStatus(vi.fn())
+    const [, internalHandler] = on.mock.calls.find(
+      ([ch]) => ch === 'update-status',
+    )!
+
+    unsubscribe()
+
+    expect(off).toHaveBeenCalledWith('update-status', internalHandler)
+  })
+})
+
+describe('controlPreload update bridge safety', () => {
+  it('sends no renderer-supplied URL when opening release notes, so the target cannot be spoofed', async () => {
+    await import('./controlPreload')
+
+    // A compromised renderer could only ever call this with arguments; the
+    // bridge must drop them so main opens the release it actually downloaded.
+    ;(importedControlApi().openReleaseNotes as (...args: unknown[]) => unknown)(
+      'https://evil.example/pwn',
+    )
+
+    expect(invoke).toHaveBeenCalledWith('control:open-release-notes')
   })
 })

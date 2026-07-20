@@ -199,3 +199,122 @@ describe('ControlWindow command IPC', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 })
+
+describe('ControlWindow update notifications', () => {
+  it('pushes update status to the renderer so the banner can react without polling', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    controlWindow.onUpdateStatus({ state: 'downloading' })
+
+    expect(webContents.send).toHaveBeenCalledWith('update-status', {
+      state: 'downloading',
+    })
+  })
+
+  it('serves the current status on request, so a renderer that mounts late is not stuck on idle', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    const status = {
+      state: 'ready' as const,
+      version: '0.9.2',
+      releaseNotesUrl: null,
+    }
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => status,
+      install: vi.fn(),
+      openReleaseNotes: vi.fn(),
+    })
+
+    expect(await ipcHandlers.get('control:update-status')!({ sender })).toEqual(
+      status,
+    )
+  })
+
+  it('reports idle before any updater is wired up', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+
+    expect(await ipcHandlers.get('control:update-status')!({ sender })).toEqual(
+      { state: 'idle' },
+    )
+  })
+
+  it('installs the update when the renderer asks', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    const install = vi.fn()
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => ({ state: 'idle' }),
+      install,
+      openReleaseNotes: vi.fn(),
+    })
+
+    await ipcHandlers.get('control:install-update')!({ sender })
+
+    expect(install).toHaveBeenCalledOnce()
+  })
+
+  it('opens release notes without taking a URL from the renderer, so the target cannot be spoofed', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    const openReleaseNotes = vi.fn()
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => ({ state: 'idle' }),
+      install: vi.fn(),
+      openReleaseNotes,
+    })
+
+    await ipcHandlers.get('control:open-release-notes')!(
+      { sender },
+      'https://evil.example/pwn',
+    )
+
+    expect(openReleaseNotes).toHaveBeenCalledOnce()
+    expect(openReleaseNotes).toHaveBeenCalledWith()
+  })
+
+  it('ignores update IPC from a sender other than its own window', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const install = vi.fn()
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => ({ state: 'checking' }),
+      install,
+      openReleaseNotes: vi.fn(),
+    })
+    const foreignSender = { sender: { send: vi.fn() } }
+
+    await ipcHandlers.get('control:install-update')!(foreignSender)
+
+    expect(install).not.toHaveBeenCalled()
+    expect(
+      await ipcHandlers.get('control:update-status')!(foreignSender),
+    ).toBeUndefined()
+  })
+})
+
+describe('ControlWindow app version', () => {
+  it('reports the running version so the update banner can name what is being replaced', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => ({ state: 'idle' }),
+      install: vi.fn(),
+      openReleaseNotes: vi.fn(),
+    })
+
+    expect(await ipcHandlers.get('control:app-version')!({ sender })).toBe(
+      '0.9.1',
+    )
+  })
+})

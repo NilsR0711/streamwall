@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { StreamwallState } from 'streamwall-shared'
+import { type UpdateStatus } from '../updateStatus'
 import './sentryPreload'
 
 export interface FirstRunInfo {
@@ -18,6 +19,24 @@ const api = {
   openConfigFolder: () => ipcRenderer.invoke('control:open-config-folder'),
   createExampleConfig: (): Promise<void> =>
     ipcRenderer.invoke('control:create-example-config'),
+  getAppVersion: (): Promise<string> =>
+    ipcRenderer.invoke('control:app-version'),
+  getUpdateStatus: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke('control:update-status'),
+  installUpdate: (): Promise<void> =>
+    ipcRenderer.invoke('control:install-update'),
+  // Takes no URL: main opens the release page for the update it actually
+  // downloaded, so the renderer cannot steer shell.openExternal.
+  openReleaseNotes: (): Promise<void> =>
+    ipcRenderer.invoke('control:open-release-notes'),
+  onUpdateStatus: (handleStatus: (status: UpdateStatus) => void) => {
+    const internalHandler = (_ev: IpcRendererEvent, status: UpdateStatus) =>
+      handleStatus(status)
+    ipcRenderer.on('update-status', internalHandler)
+    return () => {
+      ipcRenderer.off('update-status', internalHandler)
+    }
+  },
   onState: (handleState: (state: StreamwallState) => void) => {
     const internalHandler = (_ev: IpcRendererEvent, state: StreamwallState) =>
       handleState(state)
