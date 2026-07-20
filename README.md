@@ -333,3 +333,8 @@ temporary files for the Windows certificate and the Apple API key, and sets
 the corresponding `APPLE_*`/`WINDOWS_*` environment variables (see
 `packages/streamwall/forge.signing.ts`) before publishing. macOS and Windows
 signing are independent — provision either, both, or neither.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the local quality-gate commands
+and the license policy for workspace packages and dependencies.
