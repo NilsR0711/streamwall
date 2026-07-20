@@ -20,7 +20,8 @@ jobs:
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Raised from 15 to cover the added packaging step.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -32,6 +33,12 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+      # Packaging smoke test before the three-OS publish matrix fans out: a
+      # Vite/Forge misconfiguration or a native-module unpacking failure
+      # fails here once (~45 seconds) instead of three times in parallel,
+      # each after a full Electron download.
+      - name: Package smoke build
+        run: npm -w streamwall run package
 
   publish:
     name: Publish (${{ matrix.platform.name }})
