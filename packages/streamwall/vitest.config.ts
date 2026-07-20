@@ -19,6 +19,19 @@ import { defineConfig } from 'vitest/config'
 // (see issue #182); it was replaced with a first-party inlined component
 // (see OverlayViewTile.tsx's TailSpin import) rather than extending this fix
 // to a third dependency.
+//
+// `logger.ts` imports `electron-log/main`, whose entry point is CJS-only (no
+// ESM/browser build to route through the fix above) and does a bare
+// `require('electron')` at module scope. That require is real Node
+// resolution rooted at electron-log's own install location, not this
+// package's - so it only finds `electron` when npm happens to hoist both to
+// the same node_modules directory, and throws "Cannot find module 'electron'"
+// whenever npm nests `electron` under this package instead (see issue #439).
+// electron-log also ships `electron-log/node`, a Node-only build with the
+// same Logger API (transports, log levels) that never touches `electron` at
+// all - main-process code under test never runs inside a real Electron
+// process anyway, so redirecting to it here sidesteps the hoisting-dependent
+// require entirely instead of trying to make it resolve reliably.
 export default defineConfig({
   esbuild: {
     jsx: 'automatic',
@@ -29,6 +42,7 @@ export default defineConfig({
     alias: {
       react: 'preact/compat',
       'react-dom': 'preact/compat',
+      'electron-log/main': 'electron-log/node',
     },
   },
   test: {
