@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import throttle from 'lodash/throttle'
 import { ContentDisplayOptions } from 'streamwall-shared'
+import { MEDIA_PAUSE_EVENT, MEDIA_RESUME_EVENT } from './mediaParkEvents'
 import { VolumeController } from './volumeController'
 
 const SCAN_THROTTLE = 500
@@ -452,6 +453,11 @@ async function main() {
   // hidden behind a fullscreen expansion (issue #374). No-ops when no media
   // has been acquired yet (e.g. a 'web' kind view, or one still loading).
   ipcRenderer.on('pause', () => {
+    // Announced unconditionally, before the media guard below: the bundled
+    // HLS player page keeps its hls.js instance in a closure this preload
+    // cannot reach, and it should stop fetching segments whether or not a
+    // <video> has been acquired here yet (issue #384).
+    document.dispatchEvent(new CustomEvent(MEDIA_PAUSE_EVENT))
     if (!currentMedia) {
       return
     }
@@ -462,6 +468,7 @@ async function main() {
     HTMLMediaElement.prototype.pause.call(currentMedia)
   })
   ipcRenderer.on('resume', () => {
+    document.dispatchEvent(new CustomEvent(MEDIA_RESUME_EVENT))
     // Live streams are typically not seekable on-demand video, so resuming
     // after a pause may briefly re-buffer or land slightly behind the live
     // edge -- both cheaper than a full reload and expected to self-correct

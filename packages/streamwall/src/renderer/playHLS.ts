@@ -1,4 +1,8 @@
 import Hls, { ErrorTypes, Events, type ErrorData } from 'hls.js'
+import {
+  MEDIA_PAUSE_EVENT,
+  MEDIA_RESUME_EVENT,
+} from '../preload/mediaParkEvents'
 import type { StreamwallMediaGlobal } from '../preload/mediaPreload'
 
 declare global {
@@ -29,9 +33,27 @@ function loadWithHlsJs(src: string) {
   let fatalErrorRetries = 0
   let destroyed = false
 
+  // Dispatched on `document` by mediaPreload.ts when this view is parked
+  // behind a fullscreen expansion (issue #384). Pausing the <video> alone
+  // only lets segment fetching taper off once hls.js reaches its buffer
+  // target; stopLoad() ends it outright. startLoad() resumes from wherever
+  // hls.js's own live-edge logic lands, so no catch-up handling is needed.
+  const onPark = () => {
+    if (destroyed) return
+    hls.stopLoad()
+  }
+  const onUnpark = () => {
+    if (destroyed) return
+    hls.startLoad()
+  }
+  document.addEventListener(MEDIA_PAUSE_EVENT, onPark)
+  document.addEventListener(MEDIA_RESUME_EVENT, onUnpark)
+
   const teardown = () => {
     if (destroyed) return
     destroyed = true
+    document.removeEventListener(MEDIA_PAUSE_EVENT, onPark)
+    document.removeEventListener(MEDIA_RESUME_EVENT, onUnpark)
     hls.destroy()
   }
 
