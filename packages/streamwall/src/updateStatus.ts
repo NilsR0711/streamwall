@@ -8,11 +8,16 @@
  * found, and emits no byte-level progress. So `downloading` carries no
  * percentage and there is no separate user-triggered download step - see
  * appUpdater.ts for the full rationale.
+ *
+ * `available` is a separate state (rather than reusing `ready`) for Linux
+ * (#433), where Squirrel is a no-op: linuxUpdateChecker.ts polls GitHub
+ * Releases directly and can only ever offer a link, never an install action.
  */
 export type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
   | { state: 'downloading' }
+  | { state: 'available'; version: string; releaseUrl: string }
   | { state: 'ready'; version: string; releaseNotesUrl: string | null }
   | { state: 'error'; message: string }
 
