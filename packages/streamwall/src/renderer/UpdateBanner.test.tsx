@@ -90,6 +90,45 @@ describe('UpdateBanner downloading', () => {
   })
 })
 
+describe('UpdateBanner available', () => {
+  const availableStatus: UpdateStatus = {
+    state: 'available',
+    version: '0.9.2',
+    releaseUrl: 'https://github.com/NilsR0711/streamwall/releases/tag/v0.9.2',
+  }
+
+  test('names the new version and the version being replaced', () => {
+    renderBanner(availableStatus, { currentVersion: '0.9.1' })
+
+    expect(container!.textContent).toContain('0.9.2')
+    expect(container!.textContent).toContain('0.9.1')
+  })
+
+  test('offers no install action, since Linux updates go through the package manager', () => {
+    renderBanner(availableStatus)
+
+    expect(
+      container!.querySelector('[data-testid="install-update"]'),
+    ).toBeNull()
+  })
+
+  test('opens the release page externally rather than navigating the control window', () => {
+    const { onOpenReleaseNotes } = renderBanner(availableStatus)
+
+    click('view-release')
+
+    expect(onOpenReleaseNotes).toHaveBeenCalledWith(availableStatus.releaseUrl)
+  })
+
+  test('can be dismissed, keeping the notification non-intrusive', () => {
+    const { onDismiss } = renderBanner(availableStatus)
+
+    click('dismiss-update-banner')
+
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+})
+
 describe('UpdateBanner ready', () => {
   const readyStatus: UpdateStatus = {
     state: 'ready',

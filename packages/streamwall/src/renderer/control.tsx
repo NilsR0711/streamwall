@@ -142,11 +142,15 @@ function useUpdateStatus() {
   }, [])
 
   const dismiss = useCallback(() => {
-    setDismissedVersion(status.state === 'ready' ? status.version : 'pending')
+    setDismissedVersion(
+      status.state === 'ready' || status.state === 'available'
+        ? status.version
+        : 'pending',
+    )
   }, [status])
 
   const isDismissed =
-    status.state === 'ready'
+    status.state === 'ready' || status.state === 'available'
       ? dismissedVersion === status.version
       : dismissedVersion === 'pending'
 

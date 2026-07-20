@@ -102,6 +102,10 @@ export interface UpdateBannerProps {
  * The download indicator is deliberately indeterminate: Electron's Squirrel
  * autoUpdater emits no byte-level progress (see main/appUpdater.ts), so a
  * percentage would have to be invented.
+ *
+ * `available` (#433) is Linux's notify-only counterpart to `ready`: Squirrel
+ * cannot download or install there, so the only action offered is opening the
+ * release page - see main/linuxUpdateChecker.ts.
  */
 export function UpdateBanner({
   status,
@@ -117,6 +121,31 @@ export function UpdateBanner({
         <ProgressTrack role="progressbar" aria-label="Downloading update">
           <ProgressBar />
         </ProgressTrack>
+        <DismissButton
+          data-testid="dismiss-update-banner"
+          aria-label="Dismiss"
+          onClick={onDismiss}
+        >
+          ×
+        </DismissButton>
+      </Banner>
+    )
+  }
+
+  if (status.state === 'available') {
+    return (
+      <Banner>
+        <Message>
+          Streamwall <Version>{status.version}</Version> is available (you're on{' '}
+          <Version>{currentVersion}</Version>). Update via your package manager,
+          or view the release.
+        </Message>
+        <ActionButton
+          data-testid="view-release"
+          onClick={() => onOpenReleaseNotes(status.releaseUrl)}
+        >
+          View Release
+        </ActionButton>
         <DismissButton
           data-testid="dismiss-update-banner"
           aria-label="Dismiss"
