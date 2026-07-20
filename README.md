@@ -290,10 +290,12 @@ byte-level progress, the banner shows an indeterminate indicator rather than a
 percentage. Update-check failures are logged, not surfaced — they are usually
 just an offline machine.
 
-This only runs in packaged builds, and only on macOS and Windows; on Linux the
-updater is a no-op and users install from the released packages. Note that
-macOS additionally requires the app to be **signed** (see below) before updates
-can install.
+This only runs in packaged builds, and only on macOS and Windows: Squirrel is
+a no-op on Linux. Linux builds instead poll the GitHub Releases API directly
+once a day and show a **View Release** banner when a newer version is found —
+notification only, since `.deb`/`.rpm` installs go through the OS package
+manager rather than a self-updater. Note that macOS additionally requires the
+app to be **signed** (see below) before updates can install.
 
 To produce signed, notarized builds, set these environment variables before
 running `make`/`publish` (see `packages/streamwall/forge.signing.ts`):
