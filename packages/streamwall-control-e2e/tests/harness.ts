@@ -121,6 +121,15 @@ export interface Harness {
     type: T['type'],
     timeoutMs?: number,
   ): Promise<T>
+  /**
+   * Pushes an updated `StreamwallState` from the fake uplink, shallow-merged
+   * over whatever was last pushed (starting from the initial seed). Lets a
+   * test simulate the real Streamwall peer re-broadcasting a snapshot after
+   * processing a forwarded command — e.g. reflecting a `customStreams` entry
+   * back into `streams` — which the static initial seed does not do on its
+   * own.
+   */
+  pushState(patch: Partial<StreamwallState>): void
   close(): Promise<void>
 }
 
@@ -233,8 +242,14 @@ export async function startHarness(): Promise<Harness> {
   })
 
   await once(ws, 'open')
-  ws.send(JSON.stringify({ type: 'state', state: E2E_STATE }))
+  let currentState: StreamwallState = E2E_STATE
+  ws.send(JSON.stringify({ type: 'state', state: currentState }))
   ws.send(Y.encodeStateAsUpdate(peerDoc))
+
+  const pushState = (patch: Partial<StreamwallState>) => {
+    currentState = { ...currentState, ...patch }
+    ws.send(JSON.stringify({ type: 'state', state: currentState }))
+  }
 
   const redeemSessionCookie = async (role: StreamwallRole) => {
     const invite = await auth.createToken({ kind: 'invite', role, name: 'e2e' })
@@ -379,6 +394,7 @@ export async function startHarness(): Promise<Harness> {
     createInviteLink,
     waitForViewAssignment,
     waitForCommand,
+    pushState,
     close,
   }
 }
