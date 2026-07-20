@@ -169,6 +169,11 @@ STREAMWALL_UPDATE_CHECK=false
 `updateAvailable` then stays `false` and `checkEnabled` reports `false`, so
 the endpoint still tells you the running version.
 
+A signed-in admin also sees this in the web control UI itself — the running
+version next to the connection status, and a dismissible notice when an
+update is available — so checking no longer requires shelling into the host
+or querying `/admin/status` by hand. Every other role sees neither.
+
 ## Updating
 
 ```sh

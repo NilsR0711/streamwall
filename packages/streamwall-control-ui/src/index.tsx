@@ -57,12 +57,15 @@ import './index.css'
 import { type Invite, parseInviteResponse } from './invite.ts'
 import { LayoutPresetControls } from './LayoutPresetControls.tsx'
 import { ResizeHandles } from './ResizeHandles.tsx'
+import { ServerUpdateBanner } from './ServerUpdateBanner.tsx'
+import { ServerVersionLabel } from './ServerVersionLabel.tsx'
 import {
   CreateCustomStreamInput,
   CustomStreamInput,
   StreamList,
 } from './Sidebar.tsx'
 import { StyledButton, StyledDataContainer } from './StyledButton.tsx'
+import { useServerStatus } from './useServerStatus.ts'
 import { useTileDrag } from './useTileDrag.ts'
 import { useTileResize } from './useTileResize.ts'
 import {
@@ -272,6 +275,13 @@ export function ControlUI({
     width: windowWidth,
     height: windowHeight,
   } = config ?? { cols: null, rows: null, width: null, height: null }
+
+  // `local` is the desktop app's own IPC role, which has no `/admin/status`
+  // HTTP endpoint to fetch (issue #436) - the Electron app surfaces its own
+  // update state separately (issue #382).
+  const serverStatus = useServerStatus(
+    role !== 'local' && roleCan(role, 'view-server-status'),
+  )
 
   // Surfaces `{ error }` command responses that would otherwise be dropped
   // silently by the many call sites below that don't pass their own
@@ -777,6 +787,7 @@ export function ControlUI({
             <div className="status" data-testid="header-connection-status">
               <span className={`dot ${isConnected ? 'on' : 'off'}`} />
               {isConnected ? 'connected' : 'connecting...'} · {role}
+              <ServerVersionLabel version={serverStatus?.version ?? null} />
             </div>
           )}
           <ThemeToggle />
@@ -786,6 +797,7 @@ export function ControlUI({
           reason={disconnectReason}
         />
         <DataSourceHealthBanner dataSourceHealth={dataSourceHealth} />
+        <ServerUpdateBanner status={serverStatus} />
         <CommandErrorBanner
           error={commandError}
           onDismiss={() => setCommandError(null)}
