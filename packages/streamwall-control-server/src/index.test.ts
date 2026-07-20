@@ -2,8 +2,13 @@ import { Low, Memory } from 'lowdb'
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
-import { initApp, resolveListenPort, SESSION_COOKIE_NAME } from './index.ts'
+import runServer, {
+  initApp,
+  resolveListenPort,
+  SESSION_COOKIE_NAME,
+} from './index.ts'
 import type { StoredData } from './storage.ts'
+import type { UpdateChecker, UpdateStatus } from './updateCheck.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
 
@@ -12,6 +17,24 @@ function inMemoryDb(): Low<StoredData> {
     auth: { salt: null, tokens: [] },
     streamwallToken: null,
   })
+}
+
+/** Stub `UpdateChecker` so specs never reach GitHub. */
+function fakeUpdateChecker(): UpdateChecker {
+  const status: UpdateStatus = {
+    version: 'test',
+    latestVersion: null,
+    updateAvailable: false,
+    releaseUrl: null,
+    lastCheckedAt: null,
+    checkEnabled: false,
+  }
+  return {
+    getStatus: () => status,
+    checkNow: async () => status,
+    start: async () => {},
+    stop: () => {},
+  }
 }
 
 /**
@@ -100,6 +123,29 @@ describe('session cookie security attributes', () => {
 
     assert.equal(response.statusCode, 403)
     assert.equal(response.headers['set-cookie'], undefined)
+  })
+})
+
+describe('runServer', () => {
+  test('starts for real via app.listen() without throwing (issue #442)', async () => {
+    // Regression test: `fastify.inject()` (used by every other spec in this
+    // file) drives the app *before* it ever listens, so a hook registered
+    // after `app.listen()` slips past the whole suite. Only a real
+    // `app.listen()` call reproduces FST_ERR_INSTANCE_ALREADY_LISTENING.
+    const { server } = await runServer({
+      baseURL: 'http://127.0.0.1:0',
+      clientStaticPath: import.meta.dirname,
+      db: inMemoryDb(),
+      updateChecker: fakeUpdateChecker(),
+    })
+    after(() => {
+      server.close()
+    })
+
+    assert.ok(
+      server.listening,
+      'server should be listening after runServer resolves',
+    )
   })
 })
 
