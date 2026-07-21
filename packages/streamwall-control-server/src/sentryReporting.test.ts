@@ -12,6 +12,7 @@ import {
   listenTestApp,
   redeemInviteAndConnectClient,
   VALID_STATE,
+  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
 /** Encodes a full-state update from a fresh doc mutated by `mutate`. */
@@ -58,9 +59,6 @@ function fakeSentryClient(): SentryCaptureClient & { calls: unknown[] } {
 }
 
 test('a synchronous ws.send() failure while broadcasting a state delta is reported to Sentry', async (t) => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
-
   const sentryClient = fakeSentryClient()
   const logs = captureLogs()
   const { app, auth } = await buildTestApp({
@@ -68,6 +66,7 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
     sentryEnabled: true,
     sentryClient,
     logs,
+    rateLimit: WIDE_RATE_LIMITS,
   })
   t.after(() => app.close())
   const port = await listenTestApp(app)
@@ -124,9 +123,6 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
 })
 
 test('a synchronous ws.send() failure while relaying a doc update is reported to Sentry and logged locally for both the uplink and connected clients', async (t) => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
-
   const sentryClient = fakeSentryClient()
   const logs = captureLogs()
   const { app, auth } = await buildTestApp({
@@ -134,6 +130,7 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
     sentryEnabled: true,
     sentryClient,
     logs,
+    rateLimit: WIDE_RATE_LIMITS,
   })
   t.after(() => app.close())
   const port = await listenTestApp(app)

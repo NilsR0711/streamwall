@@ -8,6 +8,7 @@ import {
   listenTestApp,
   messageCollector,
   mintUplinkToken,
+  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
 /**
@@ -15,8 +16,7 @@ import {
  * the details needed to open an uplink WebSocket various ways.
  */
 async function startUplinkServer() {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '1000'
-  const { app, auth } = await buildTestApp()
+  const { app, auth } = await buildTestApp({ rateLimit: WIDE_RATE_LIMITS })
   const port = await listenTestApp(app)
   after(() => app.close())
   const { tokenId, secret, base } = await mintUplinkToken(auth, port)
