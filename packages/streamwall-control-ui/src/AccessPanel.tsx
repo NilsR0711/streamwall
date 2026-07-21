@@ -44,11 +44,16 @@ export function CreateInviteInput({
     <div>
       <form onSubmit={handleSubmit}>
         <input
+          aria-label="Invite name"
           onChange={handleChangeName}
           placeholder="Name"
           value={inviteName}
         />
-        <select onChange={handleChangeRole} value={inviteRole}>
+        <select
+          aria-label="Invite role"
+          onChange={handleChangeRole}
+          value={inviteRole}
+        >
           {invitableRoles.map((role) => (
             <option key={role} value={role}>
               {role}

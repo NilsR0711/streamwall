@@ -119,6 +119,23 @@ describe('CreateInviteInput', () => {
   })
 })
 
+describe('CreateInviteInput accessible names', () => {
+  test('gives the name field and role select programmatic names', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(<CreateInviteInput onCreateInvite={() => {}} />, container!)
+    })
+
+    expect(
+      container.querySelector('input[aria-label="Invite name"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('select[aria-label="Invite role"]'),
+    ).not.toBeNull()
+  })
+})
+
 describe('AuthTokenLine', () => {
   test('shows the token name and role', () => {
     container = document.createElement('div')

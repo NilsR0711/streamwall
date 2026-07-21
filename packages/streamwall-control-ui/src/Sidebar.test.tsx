@@ -147,6 +147,28 @@ describe('StreamList', () => {
   })
 })
 
+describe('StreamList accessible names', () => {
+  test('gives the id/drag handle a descriptive accessible name', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ _id: 'xyz' })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    expect(
+      container.querySelector('[aria-label="Add stream xyz to the wall"]'),
+    ).not.toBeNull()
+  })
+})
+
 describe('StreamList favorites', () => {
   test('renders a filled star for a favorited row and an empty star for a non-favorited one', () => {
     container = document.createElement('div')
@@ -281,7 +303,76 @@ describe('CustomStreamInput', () => {
   })
 })
 
+describe('CustomStreamInput accessible names', () => {
+  test('labels the editable label field and the delete button by the stream name', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <CustomStreamInput
+          link="https://example.com/a"
+          kind="video"
+          label="Corner cam"
+          onChange={() => {}}
+          onDelete={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    expect(
+      container.querySelector('input[aria-label="Custom stream label"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector(
+        'button[aria-label="Delete custom stream Corner cam"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  test('falls back to the link when the stream has no label', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <CustomStreamInput
+          link="https://example.com/a"
+          kind="video"
+          label=""
+          onChange={() => {}}
+          onDelete={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Delete custom stream https://example.com/a"]',
+      ),
+    ).not.toBeNull()
+  })
+})
+
 describe('CreateCustomStreamInput', () => {
+  test('gives the url, type and label fields programmatic names', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(<CreateCustomStreamInput onCreate={() => {}} />, container!)
+    })
+
+    expect(
+      container.querySelector('input[aria-label="Stream URL"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('select[aria-label="Stream type"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('input[aria-label="Stream label"]'),
+    ).not.toBeNull()
+  })
+
   test('creates a stream from the form fields and resets them', () => {
     const onCreate = vi.fn()
     container = document.createElement('div')
