@@ -190,11 +190,42 @@ Streamwall is distributed under the [MIT License](LICENSE).
   attribution inline in the source (see
   `packages/streamwall/src/renderer/TailSpin.tsx` for an example).
 - When adding a new production dependency, confirm its license permits
-  redistribution inside the packaged Electron app (MIT, Apache-2.0, BSD, and
-  ISC are all fine; anything copyleft, e.g. GPL/AGPL, needs discussion first).
-  Distributed release binaries do not currently bundle a consolidated
-  `THIRD_PARTY_NOTICES` file; each dependency's own license file remains the
-  source of truth via `node_modules`.
+  redistribution inside the packaged Electron app. `npm run licenses:check`
+  enforces this against the allowlist below; CI and the release workflow run
+  the same check, so an incompatible license fails the merge gate instead of
+  reaching a release.
+
+### Allowed dependency licenses
+
+Every installed production dependency (`npm ls --omit=dev --all`, across all
+workspaces) must resolve to one of these SPDX identifiers:
+
+- `0BSD`
+- `Apache-2.0`
+- `BSD-2-Clause`
+- `BSD-3-Clause`
+- `BlueOak-1.0.0`
+- `CC0-1.0`
+- `ISC`
+- `MIT`
+- `MIT-0`
+- `OFL-1.1`
+- `Python-2.0`
+- `Unlicense`
+
+Dual licenses (`(MIT OR Apache-2.0)`) pass when at least one branch is
+allowed; conjunctions (`MIT AND …`) need every branch allowed. A missing
+license field, a `SEE LICENSE IN …` reference, or a `WITH` exception fails the
+check — all three need a human decision. Anything copyleft (GPL/AGPL/LGPL/MPL)
+needs discussion before it is added to `scripts/check-licenses.mjs`; that list
+and this section are kept in sync by `test/licenses.test.mjs`.
+
+Distributed release binaries deliberately do not bundle a consolidated
+`THIRD_PARTY_NOTICES` file: electron-forge packages each production dependency
+with its own license file, which is what the MIT/BSD/ISC notice clauses
+require, and a generated summary would be a second source of truth to keep
+current. Revisit if a dependency's license ever demands a separate,
+prominently placed notice.
 
 ## Cutting a release
 

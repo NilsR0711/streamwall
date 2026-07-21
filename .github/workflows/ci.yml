@@ -210,6 +210,24 @@ jobs:
           docker logs control-server
           exit 1
 
+  # Production dependencies are redistributed inside the release binaries, so
+  # their licenses have to stay compatible with shipping an MIT-licensed
+  # bundle. A transitive bump can introduce a new license without touching a
+  # first-party dependency, which is why this runs on every code change rather
+  # than only on manifest edits. Policy and allowlist: CONTRIBUTING.md.
+  licenses:
+    name: Dependency licenses
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm run licenses:check
+
   # Reviews the dependency diff of a PR for known vulnerabilities.
   dependency-review:
     name: Dependency review
@@ -273,6 +291,7 @@ jobs:
         e2e,
         docker,
         dependency-review,
+        licenses,
         codeql,
         actionlint,
       ]
