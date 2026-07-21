@@ -1,4 +1,3 @@
-import { Low, Memory } from 'lowdb'
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
@@ -7,17 +6,10 @@ import runServer, {
   resolveListenPort,
   SESSION_COOKIE_NAME,
 } from './index.ts'
-import type { StoredData } from './storage.ts'
+import { inMemoryDb } from './testHelpers.ts'
 import type { UpdateChecker, UpdateStatus } from './updateCheck.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
-
-function inMemoryDb(): Low<StoredData> {
-  return new Low<StoredData>(new Memory<StoredData>(), {
-    auth: { salt: null, tokens: [] },
-    streamwallToken: null,
-  })
-}
 
 /** Stub `UpdateChecker` so specs never reach GitHub. */
 function fakeUpdateChecker(): UpdateChecker {
