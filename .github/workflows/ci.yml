@@ -114,7 +114,8 @@ jobs:
   #
   # `package` only, not `make`: it exercises the Vite builds, asar packing
   # and native rebuild without paying for the maker-specific installer
-  # steps (Squirrel, deb, rpm), which are release concerns. Ubuntu alone is
+  # steps (NSIS, darwin zip, deb, rpm). Those are covered outside of PR CI
+  # by the weekly `.github/workflows/packaging.yml` matrix. Ubuntu alone is
   # enough for a smoke test — the shared failure modes are OS-independent.
   # Runtime: ~45 seconds (measured on ubuntu-latest, cached npm), and it runs
   # in parallel with the other jobs, so wall-clock CI time is unchanged.
