@@ -203,6 +203,14 @@ Each entry (a `[[streams]]` table in TOML, or an object in the JSON array) suppo
 - `background` — a webpage loaded behind the grid instead of in a tile.
 - `overlay` — a webpage loaded as a full-screen `<iframe>` layered over the whole wall (e.g. scoreboards, alerts). See [Security: overlay and background streams](#security-overlay-and-background-streams) below.
 
+For `video` and `audio` streams, Streamwall also looks inside `<iframe>` players
+on the page. That only works for **same-origin** iframes: a cross-origin player
+frame has an opaque origin, so its `<video>` tag is unreachable from the
+embedding page and no browser permission can change that. Such a tile fails with
+`could not find video: it may be inside a cross-origin iframe, which is
+unsupported` — use the player page's own URL (the one the iframe loads) as the
+stream `link` instead.
+
 ## Playlists
 
 A grid cell can optionally cycle through a fixed list of stream URLs on an
