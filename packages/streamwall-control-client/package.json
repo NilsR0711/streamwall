@@ -5,6 +5,7 @@
   "main": "src/index.tsx",
   "type": "module",
   "scripts": {
+    "prebuild": "npm run typecheck",
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
