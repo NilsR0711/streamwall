@@ -516,6 +516,134 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
   })
 })
 
+describe('mediaPreload in-frame document observation (issue #534)', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; every insertion under test
+  // happens well before it, so a scan that only runs when the search gives up
+  // cannot be what finds the player.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+  // Must match SCAN_THROTTLE in mediaPreload.ts.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  async function loadVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(doc: Document): HTMLVideoElement {
+    const video = doc.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  function appendEmptyIframe(): {
+    iframe: HTMLIFrameElement
+    frameDocument: Document
+  } {
+    const iframe = document.createElement('iframe')
+    iframe.srcdoc = '<html><head></head><body></body></html>'
+    document.body.appendChild(iframe)
+    const frameDocument = iframe.contentDocument
+    if (!frameDocument) {
+      throw new Error('test fixture: iframe has no document')
+    }
+    return { iframe, frameDocument }
+  }
+
+  it('acquires a video inserted by the frame itself after it finished loading', async () => {
+    const { iframe, frameDocument } = appendEmptyIframe()
+
+    await loadVideoContent()
+    // The frame is loaded and empty: neither a further embedder mutation nor
+    // another 'load' event will announce what its own scripts do next.
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(send).not.toHaveBeenCalledWith('view-loaded')
+
+    frameDocument.body.appendChild(playableVideo(frameDocument))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('observes the replacement document after the frame navigates', async () => {
+    const { iframe } = appendEmptyIframe()
+    const initialDocument = iframe.contentDocument
+    if (!initialDocument) {
+      throw new Error('test fixture: iframe has no document')
+    }
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    // A navigation inside the frame discards the observed document, so the
+    // observer has to be re-attached to the new one when 'load' announces it.
+    const nextDocument = document.implementation.createHTMLDocument()
+    Object.defineProperty(iframe, 'contentDocument', {
+      configurable: true,
+      get: () => nextDocument,
+    })
+    iframe.dispatchEvent(new Event('load'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(send).not.toHaveBeenCalledWith('view-loaded')
+
+    nextDocument.body.appendChild(playableVideo(nextDocument))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('keeps reporting the cross-origin cause for frames it cannot observe', async () => {
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    Object.defineProperty(iframe, 'contentDocument', { value: null })
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        {
+          error: expect.objectContaining({
+            message:
+              'could not find video: it may be inside a cross-origin iframe, which is unsupported',
+          }),
+        },
+      ],
+    ])
+  })
+})
+
 describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
   // Records every observer the module creates so the tests can assert on how
   // many are still connected at a given point. Deliberately inert: it never
@@ -588,6 +716,19 @@ describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
 
   it('disconnects the element-search observer when the acquisition times out', async () => {
     // No <video> in the document, so findMedia's search runs to its timeout.
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(10 * 1000)
+
+    expect(connectedObservers()).toHaveLength(1)
+  })
+
+  it('disconnects the observers watching frame documents when the acquisition times out', async () => {
+    // A same-origin frame gets an observer of its own (issue #534), which the
+    // search must tear down along with the embedder's.
+    const iframe = document.createElement('iframe')
+    iframe.srcdoc = '<html><head></head><body></body></html>'
+    document.body.appendChild(iframe)
+
     await loadVideoContent()
     await vi.advanceTimersByTimeAsync(10 * 1000)
 
