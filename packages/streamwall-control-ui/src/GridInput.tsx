@@ -10,6 +10,37 @@ const StyledGridInputContainer = styled.div`
   touch-action: none;
 `
 
+/**
+ * The colour a tile actually paints for its stream colour: the same hue, but
+ * lightened so the value stays readable on top of it (and lightened further
+ * while the tile is a drag/resize highlight).
+ */
+export function tileColor(color: ColorInstance, isHighlighted = false) {
+  return Color(color).lightness(isHighlighted ? 90 : 75)
+}
+
+/**
+ * Ring and halo colours for the focused tile.
+ *
+ * The rest of the control UI takes its keyboard ring from the shared
+ * `:focus-visible` rule in globalStyle.tsx, which draws `--accent` on the
+ * neutral surface tokens. A tile's hue comes from the stream id, so a fixed
+ * accent hue can land on a near-identical one and drop below the 3:1 that
+ * WCAG 2.4.11 asks for. The colours are therefore derived from the tile:
+ * whichever of black/white contrasts more becomes the ring, the other one the
+ * halo just inside it, so the pair reads on any tile the grid can paint
+ * (#531).
+ */
+export function focusRingColors(tile: ColorInstance) {
+  const black = Color('black')
+  const white = Color('white')
+  const ringIsBlack = tile.contrast(black) >= tile.contrast(white)
+  return {
+    ring: (ringIsBlack ? black : white).hex(),
+    halo: (ringIsBlack ? white : black).hex(),
+  }
+}
+
 const StyledGridInput = styled(LazyChangeInput)<{
   $color: ColorInstance
   $isHighlighted?: boolean
@@ -20,16 +51,25 @@ const StyledGridInput = styled(LazyChangeInput)<{
   border: none;
   padding: 0;
   background: ${({ $color, $isHighlighted }) =>
-    $isHighlighted
-      ? Color($color).lightness(90).hsl().string()
-      : Color($color).lightness(75).hsl().string()};
+    tileColor($color, $isHighlighted).hsl().string()};
   font-size: 20px;
   text-align: center;
 
-  &:focus {
-    outline: 1px solid black;
-    box-shadow: 0 0 5px black inset;
-    z-index: 100;
+  /* Matches the shared affordance from globalStyle.tsx in shape and trigger -
+     a 2px ring plus a halo, keyboard focus only - but with tile-derived
+     colours (see focusRingColors). The ring is drawn inwards
+     (outline-offset: -2px) because the tiles are laid out edge to edge inside
+     an overflow: hidden layer, where an outset ring would be overlapped by
+     its neighbours and clipped at the grid border. */
+  &:focus-visible {
+    outline: 2px solid
+      ${({ $color, $isHighlighted }) =>
+        focusRingColors(tileColor($color, $isHighlighted)).ring};
+    outline-offset: -2px;
+    box-shadow: 0 0 0 4px
+      ${({ $color, $isHighlighted }) =>
+        focusRingColors(tileColor($color, $isHighlighted)).halo}
+      inset;
   }
 `
 
