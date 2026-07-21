@@ -36,10 +36,8 @@ export const StyledButton = styled.button<{
       color: #fff;
     `};
 
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--accent-soft);
-  }
+  /* No local :focus override - it would suppress the shared :focus-visible
+     outline from GlobalStyle, which is the stronger affordance (see #508). */
 
   svg {
     width: 20px;

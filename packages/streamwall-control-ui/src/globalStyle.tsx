@@ -97,6 +97,19 @@ export const GlobalStyle = createGlobalStyle`
 
   * { box-sizing: border-box; }
 
+  /* Shared keyboard focus affordance. Text inputs get their accent ring from
+     the .stream-list rules below, but the custom-coloured buttons (sidebar
+     stream handle, favorite star, grid preset buttons) used to fall back to
+     the user-agent ring, which is easily lost against their own background
+     (see #508). The outline sits outside the control - so it stays visible
+     whatever the control's colours are - and the soft halo matches the ring
+     the inputs draw. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+
   /* ---- Sidebar (stream list / custom streams / access) ---- */
   .stream-list h2 {
     font-family: var(--font-display);
