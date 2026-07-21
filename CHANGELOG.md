@@ -21,6 +21,8 @@ changelog are kept in step.
 - Control server reports its own version and surfaces new releases (#430); the
   control UI shows the server version and an update notice to admins (#444).
 - Stop HLS segment loading for parked views to save bandwidth (#424).
+- Weekly cross-platform packaging workflow that runs `electron-forge make`, so
+  maker regressions surface before a release instead of during one (#425).
 
 ### Changed
 

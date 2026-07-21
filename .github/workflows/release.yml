@@ -73,7 +73,8 @@ jobs:
   # Vite/Forge misconfiguration or a native-module unpacking failure fails
   # here once (~45 seconds) instead of three times in parallel, each after a
   # full Electron download. `package` only, not `make` — the maker-specific
-  # installer steps are the publish job's concern.
+  # installer steps are the publish job's concern here, and are exercised
+  # ahead of a release by the weekly `packaging.yml` matrix (#425).
   package:
     name: Package smoke (Electron app)
     runs-on: ubuntu-latest

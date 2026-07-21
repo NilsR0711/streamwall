@@ -1,0 +1,83 @@
+name: Packaging
+
+# Exercises the makers configured in `packages/streamwall/forge.config.ts`
+# (NSIS, darwin zip, rpm, deb) outside of a release. Without this, a
+# maker-specific regression — a rejected maker config after a Forge major
+# bump, a missing packaging tool on a runner image, a bad NSIS icon path —
+# surfaces for the first time during `electron-forge publish` on a `v*` tag,
+# i.e. once the version is already public and a failed matrix leg leaves a
+# partially-populated GitHub release behind (#425).
+#
+# Deliberately not part of PR CI: `make` costs several minutes per platform,
+# while the failure modes shared by every platform (Vite/Forge config, asar
+# packing, native module unpacking) are already covered by the much cheaper
+# `package` smoke job in ci.yml. Weekly is enough to catch Dependabot's Forge
+# and maker bumps well before the next release.
+on:
+  schedule:
+    # Mondays, 05:17 UTC — off the hour to avoid GitHub's scheduling peak.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable verbose electron-forge debug logging'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Never cancel a running matrix: a scheduled run and a manual re-run are
+# independent verdicts, and each leg is expensive.
+concurrency:
+  group: packaging-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  make:
+    name: Make (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 30
+    strategy:
+      # One broken platform must not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # MakerRpm shells out to `rpmbuild`, MakerDeb to `dpkg`/`fakeroot`.
+      # Only the latter two ship on the GitHub Ubuntu runner image, so the
+      # rpm tooling is installed explicitly rather than left to chance.
+      - name: Install Linux maker tooling
+        if: matrix.platform.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm fakeroot
+
+      # No signing secrets: this job verifies that the makers run and emit
+      # installers, not that they produce distributable signed artifacts.
+      # The signing paths stay a release concern (see release.yml).
+      - name: Make
+        env:
+          DEBUG: ${{ inputs.debug && 'electron-forge:*' || '' }}
+        run: npm -w streamwall run make
+
+      # A maker that is silently skipped (unsupported platform detection,
+      # a config change that drops it) produces no output but also no
+      # error, so an empty `out/make` is treated as a failure here.
+      - name: List produced installers
+        shell: bash
+        run: |
+          make_dir=packages/streamwall/out/make
+          if [ -z "$(find "$make_dir" -type f -print -quit 2>/dev/null)" ]; then
+            echo "::error::No installer artifacts found in $make_dir"
+            exit 1
+          fi
+          find "$make_dir" -type f -print | sort
