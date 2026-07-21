@@ -13,6 +13,7 @@ const { FakeSocket, instances } = vi.hoisted(() => {
     options: unknown
     binaryType = ''
     closed = false
+    reconnectCount = 0
     listeners = new Map<string, Set<Listener>>()
 
     constructor(url: string, _protocols: unknown, options: unknown) {
@@ -36,6 +37,10 @@ const { FakeSocket, instances } = vi.hoisted(() => {
 
     close() {
       this.closed = true
+    }
+
+    reconnect() {
+      this.reconnectCount++
     }
 
     dispatch(type: string, ev: unknown = {}) {
@@ -75,10 +80,26 @@ const minimalState: StreamwallState = {
   dataSourceHealth: [],
 }
 
-function stateMessage() {
+function stateMessage(state: StreamwallState = minimalState) {
   return {
-    data: JSON.stringify({ type: 'state', state: minimalState }),
+    data: JSON.stringify({ type: 'state', state }),
   }
+}
+
+function deltaMessage(delta: unknown) {
+  return {
+    data: JSON.stringify({ type: 'state-delta', delta }),
+  }
+}
+
+/**
+ * jsondiffpatch encodes a replaced scalar as `[oldValue, newValue]`. The
+ * deltas below are written out rather than derived via `stateDiff.diff` so a
+ * test can express an invalid target state without the differ having to build
+ * a diff for one.
+ */
+function setCols(from: number, to: number) {
+  return { config: { cols: [from, to] } }
 }
 
 const createInviteCommand: ControlCommand = {
@@ -325,6 +346,122 @@ describe('useStreamwallWebsocketConnection', () => {
 
       expect(getConnection().isConnected).toBe(true)
       expect(getConnection().sharedState?.views['0']?.streamId).toBe('fresh')
+    })
+  })
+
+  // Deltas are applied blind onto the last-known state, so a malformed or
+  // out-of-order one used to poison `lastStateData` and compound across every
+  // later delta. The patched result is validated against the same schema the
+  // IPC and uplink boundaries enforce (issue #488).
+  describe('state-delta validation (issue #488)', () => {
+    // Every rejected delta logs; silence it so the expected warnings don't
+    // look like test noise.
+    let warn: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      warn.mockRestore()
+    })
+
+    function connectedSocket() {
+      const mounted = mount()
+      const socket = instances[0]!
+      act(() => {
+        socket.dispatch('message', stateMessage())
+      })
+      return { ...mounted, socket }
+    }
+
+    it('applies a delta that patches into a valid state', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 2)))
+      })
+
+      expect(getConnection().config?.cols).toBe(2)
+      expect(socket.reconnectCount).toBe(0)
+    })
+
+    it('drops a delta that patches into an invalid state and keeps the last-known state', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        // Below GRID_MIN, so the patched snapshot fails the schema.
+        socket.dispatch('message', deltaMessage(setCols(1, 0)))
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+      expect(warn).toHaveBeenCalled()
+    })
+
+    it('forces a resync so the client recovers instead of drifting', () => {
+      const { socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 0)))
+      })
+
+      expect(socket.reconnectCount).toBe(1)
+    })
+
+    it('ignores further deltas while desynced, so the poisoned base cannot compound', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 0)))
+      })
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(0, 3)))
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+    })
+
+    it('resumes applying deltas once a full state message resyncs the client', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 0)))
+      })
+      act(() => {
+        socket.dispatch('message', stateMessage())
+      })
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 4)))
+      })
+
+      expect(getConnection().config?.cols).toBe(4)
+    })
+
+    it('survives a malformed delta payload that the patcher itself rejects', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        // An array-diff op aimed at an object: the patcher throws on it.
+        socket.dispatch(
+          'message',
+          deltaMessage({ config: { _t: 'a', _0: ['', 0, 0] } }),
+        )
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+      expect(socket.reconnectCount).toBe(1)
+    })
+
+    it('drops a delta that arrives before any full state, since there is no base to patch', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      act(() => {
+        socket.dispatch('message', deltaMessage(setCols(1, 2)))
+      })
+
+      expect(getConnection().config).toBeUndefined()
+      expect(socket.reconnectCount).toBe(1)
     })
   })
 
