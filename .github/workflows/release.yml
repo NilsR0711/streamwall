@@ -249,17 +249,33 @@ jobs:
   # Runs alongside the desktop publish matrix rather than after it: the two
   # ship unrelated artifacts, and a registry outage should not hold back the
   # binaries (or the other way round). Both wait for the same quality gate.
+  # Both architectures build natively, one runner each (`ubuntu-24.04-arm` is
+  # free for public repositories). Emulating the arm64 leg with QEMU instead
+  # would run `npm ci` for four workspaces plus the Vite control-client build
+  # under emulation and dominate the release wall-clock time (#524).
+  #
+  # Because the two legs cannot push the same tag without racing, each pushes
+  # an untagged, digest-addressed image (`push-by-digest`) and hands the digest
+  # to `docker-manifest` below, which merges them into one multi-arch manifest
+  # that the `<version>` and `latest` tags then point at.
   docker-image:
-    name: Publish (control-server image)
+    name: Publish (control-server image, ${{ matrix.platform.arch }})
     needs: [checks, test, build, make, e2e, licenses]
     # Only a tag carries the version to publish under; a workflow_dispatch run
     # would otherwise move `latest` to an unreleased commit.
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write # pushing to ghcr.io/<owner>/streamwall-control-server
+    strategy:
+      # One broken architecture must not hide the state of the other.
+      fail-fast: false
+      matrix:
+        platform:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -275,29 +291,128 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Derived from the owner rather than hardcoded so a repository transfer
-      # does not silently keep publishing under the old account. The action
-      # lowercases the image name, which GHCR requires.
-      - name: Derive image tags and labels
+      # does not silently keep publishing under the old account. Lowercased
+      # here because GHCR rejects uppercase image names and `push-by-digest`
+      # takes the name verbatim (unlike `metadata-action`, which lowercases it
+      # for the tags in the manifest job below).
+      - name: Derive the image name
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "name=ghcr.io/${OWNER,,}/streamwall-control-server" >> "$GITHUB_OUTPUT"
+
+      - name: Derive image labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/streamwall-control-server
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
+          images: ${{ steps.image.outputs.name }}
 
-      # linux/amd64 only: an emulated arm64 leg would run `npm ci` plus the
-      # control-client build under QEMU and dominate the release time. Native
-      # arm64 runners are tracked separately.
-      - name: Build and push
+      # No `tags:` — a digest-addressed push must stay untagged, or both legs
+      # would fight over the same tag and the last one to finish would win.
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: packages/streamwall-control-server/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/${{ matrix.platform.arch }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+
+      # The digest travels as an empty file named after it: artifact names have
+      # to differ per leg, but their *contents* merge into one directory for
+      # the manifest job.
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: control-server-image-digest-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Merges the per-architecture digests pushed above into the single multi-arch
+  # manifest that `<version>` and `latest` resolve to, so `docker compose pull`
+  # keeps referencing one tag and Docker picks the right architecture.
+  docker-manifest:
+    name: Publish (control-server image manifest)
+    needs: docker-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # tagging the merged manifest in GHCR
+    steps:
+      # `merge-multiple` flattens both leg artifacts into one directory, one
+      # empty file per digest.
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: control-server-image-digest-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive the image name
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "name=ghcr.io/${OWNER,,}/streamwall-control-server" >> "$GITHUB_OUTPUT"
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Create the multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: |
+          # One `-t <tag>` pair per tag, one image reference per digest file.
+          mapfile -t tags < <(jq -r '.tags[] | "-t", .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          refs=()
+          for digest in *; do
+            refs+=("$IMAGE_NAME@sha256:$digest")
+          done
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+
+      # A manifest that silently lost an architecture (a leg that pushed
+      # nothing, a digest artifact that never arrived) is indistinguishable
+      # from a good one until an arm64 host tries to pull it, so assert both
+      # platforms are actually in the published manifest.
+      - name: Verify both platforms are published
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}:${{ steps.meta.outputs.version }}
+        run: |
+          platforms=$(docker buildx imagetools inspect "$IMAGE_REF" \
+            --format '{{json .Manifest}}' \
+            | jq -r '.manifests[].platform | select(.os != "unknown") | .os + "/" + .architecture')
+          echo "$platforms"
+          for expected in linux/amd64 linux/arm64; do
+            if ! grep -qx "$expected" <<< "$platforms"; then
+              echo "::error::$IMAGE_REF is missing $expected"
+              exit 1
+            fi
+          done
 
   # electron-forge's GitHub publisher creates the release for the tag but leaves
   # its body empty. The changelog section for that version — generated from the

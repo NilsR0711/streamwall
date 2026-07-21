@@ -42,6 +42,10 @@ containers, wired together by
   chosen over nginx/Traefik for this specifically because it needs no manual
   ACME/cert configuration — see [`deploy/Caddyfile`](../deploy/Caddyfile).
 
+The image is published for **`linux/amd64` and `linux/arm64`**, so the same
+tag runs natively on a Raspberry Pi 4/5 or an Ampere/Graviton VPS as it does
+on an x86 host — Docker picks the matching architecture on `pull`.
+
 To pin a specific release instead of following `latest` — recommended for
 anything you depend on, since it makes an update (and a rollback) an explicit
 change — set the tag in `.env`:
