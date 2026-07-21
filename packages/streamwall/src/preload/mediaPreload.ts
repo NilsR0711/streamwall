@@ -213,6 +213,8 @@ async function waitForVideo(
 ): Promise<{
   video?: HTMLMediaElement
   iframe?: HTMLIFrameElement
+  iframeDocument?: Document
+  crossOriginIframe?: boolean
 }> {
   lockdownMediaTags()
 
@@ -225,14 +227,24 @@ async function waitForVideo(
     return { video }
   }
 
-  let iframe
-  for (iframe of document.querySelectorAll('iframe')) {
-    video = iframe.contentDocument?.querySelector?.(kind)
-    if (video instanceof HTMLVideoElement) {
-      return { video, iframe }
+  // Some pages embed their player in an iframe. Its document is only
+  // reachable when it is same-origin: a cross-origin frame has an opaque
+  // origin, so `contentDocument` reads as null and no amount of waiting will
+  // ever make the <video> inside visible from here. Remember that case so
+  // findMedia can name it instead of reporting a generic missing video.
+  let crossOriginIframe = false
+  for (const iframe of document.querySelectorAll('iframe')) {
+    const iframeDocument = iframe.contentDocument
+    if (!iframeDocument) {
+      crossOriginIframe = true
+      continue
+    }
+    video = iframeDocument.querySelector(kind)
+    if (video instanceof HTMLMediaElement) {
+      return { video, iframe, iframeDocument }
     }
   }
-  return {}
+  return { crossOriginIframe }
 }
 
 const igHacks = {
@@ -263,22 +275,33 @@ async function findMedia(
     await igHacks.onLoad()
   }
 
-  const { video, iframe } = await waitForVideo(kind, elementTimeout)
+  const { video, iframe, iframeDocument, crossOriginIframe } =
+    await waitForVideo(kind, elementTimeout)
   if (!video) {
-    throw new Error('could not find video')
+    // A cross-origin iframe is a hard limitation rather than a slow page, and
+    // an operator seeing only "could not find video" cannot tell the two
+    // apart (issue #413).
+    throw new Error(
+      crossOriginIframe
+        ? 'could not find video: it may be inside a cross-origin iframe, which is unsupported'
+        : 'could not find video',
+    )
   }
-  if (iframe && iframe.contentDocument) {
-    // TODO: verify iframe still works
-    const style = iframe.contentDocument.createElement('style')
+  if (iframe && iframeDocument) {
+    // The page's own styles live in the iframe document, so the override has
+    // to be injected there as well; the iframe itself and every ancestor are
+    // marked so VIDEO_OVERRIDE_STYLE's `display: none` blanket doesn't hide
+    // the chain leading to the video.
+    const style = iframeDocument.createElement('style')
     style.innerHTML = VIDEO_OVERRIDE_STYLE
-    iframe.contentDocument.head.appendChild(style)
+    iframeDocument.head.appendChild(style)
     iframe.className = '__video__'
     let parentEl = iframe.parentElement
     while (parentEl) {
       parentEl.className = '__video_parent__'
       parentEl = parentEl.parentElement
     }
-    iframe.contentDocument.body.appendChild(video)
+    iframeDocument.body.appendChild(video)
   } else {
     document.body.appendChild(video)
   }
