@@ -1,9 +1,12 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type {
-  StreamData,
-  StreamDelayStatus,
-  StreamWindowConfig,
+import {
+  asCellIdx,
+  asViewId,
+  type CellIdx,
+  type StreamData,
+  type StreamDelayStatus,
+  type StreamWindowConfig,
 } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -50,7 +53,8 @@ function makeStream(id: string): StreamData {
   }
 }
 
-function makeView(streamIdx: number, spaces: number[]): ViewInfo {
+function makeView(streamIdx: number, cells: number[]): ViewInfo {
+  const spaces = cells.map(asCellIdx)
   return {
     state: {
       state: {
@@ -65,7 +69,7 @@ function makeView(streamIdx: number, spaces: number[]): ViewInfo {
         },
       },
       context: {
-        id: streamIdx,
+        id: asViewId(streamIdx),
         content: { url: `https://example.com/s${streamIdx}`, kind: 'video' },
         info: null,
         pos: { x: spaces[0] * 100, y: 0, width: 100, height: 100, spaces },
@@ -107,8 +111,8 @@ function makeConnection(viewCount: number): StreamwallConnection {
     makeStream(`s${i}`),
   )
   const views = Array.from({ length: viewCount }, (_, i) => makeView(i, [i]))
-  const stateIdxMap = new Map<number, ViewInfo>()
-  views.forEach((v, i) => stateIdxMap.set(i, v))
+  const stateIdxMap = new Map<CellIdx, ViewInfo>()
+  views.forEach((v, i) => stateIdxMap.set(asCellIdx(i), v))
 
   return {
     isConnected: true,
@@ -173,7 +177,7 @@ describe('grid view identity across a shrinking view list', () => {
       // Simulate the first cell's view disappearing (e.g. it's stream
       // stopped): only the second view remains, now at array position 0.
       connection.views = [connection.views[1]]
-      connection.stateIdxMap = new Map([[1, connection.views[0]]])
+      connection.stateIdxMap = new Map([[asCellIdx(1), connection.views[0]]])
       render(<ControlUI connection={connection} />, root)
     })
 

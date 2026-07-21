@@ -5,13 +5,18 @@
  * *whether* and *where* a gesture commits can be unit-tested in isolation. They
  * encode the fix for the "released off the grid commits against a stale cell"
  * bug: a gesture only commits while the pointer is over a grid cell.
+ *
+ * Every index here is a *grid cell index* (`CellIdx`), never a stable view id:
+ * these helpers derive cells from raw pointer coordinates (issue #507).
  */
+
+import { asCellIdx, type CellIdx } from 'streamwall-shared'
 
 /** Minimum pointer travel (px) before a mouse-down is treated as a drag-move. */
 export const DRAG_THRESHOLD_PX = 5
 
 export interface MoveStart {
-  idx: number
+  idx: CellIdx
   x: number
   y: number
 }
@@ -51,22 +56,24 @@ export function computeHoveringIdx(
   height: number,
   x: number,
   y: number,
-): number | undefined {
+): CellIdx | undefined {
   if (x < 0 || y < 0 || x >= width || y >= height) {
     return undefined
   }
   const spaceWidth = width / cols
   const spaceHeight = height / rows
-  return Math.floor(y / spaceHeight) * cols + Math.floor(x / spaceWidth)
+  return asCellIdx(
+    Math.floor(y / spaceHeight) * cols + Math.floor(x / spaceWidth),
+  )
 }
 
 export function resolveMoveTarget(
   moveStart: MoveStart | undefined,
-  hoveringIdx: number | undefined,
+  hoveringIdx: CellIdx | undefined,
   pointerX: number,
   pointerY: number,
   threshold: number = DRAG_THRESHOLD_PX,
-): number | undefined {
+): CellIdx | undefined {
   if (moveStart == null || hoveringIdx == null) {
     return undefined
   }

@@ -1,5 +1,6 @@
 import { isEqual } from 'lodash-es'
 import type { ContentKind } from './types.ts'
+import { asCellIdx, type CellIdx } from './viewAddressing.ts'
 
 /**
  * A rectangle in screen coordinates. Structurally identical to Electron's
@@ -17,7 +18,7 @@ export interface ViewPos extends Rectangle {
   /**
    * Grid space indexes inhabited by the view.
    */
-  spaces: number[]
+  spaces: CellIdx[]
 }
 
 export interface ViewContent {
@@ -48,7 +49,7 @@ export function boxesFromViewContentMap(
 
   function findLargestBox(x: number, y: number) {
     const idx = cols * y + x
-    const spaces = [idx]
+    const spaces: CellIdx[] = [asCellIdx(idx)]
     const content = viewContentMap.get(String(idx))
 
     let maxY
@@ -56,7 +57,7 @@ export function boxesFromViewContentMap(
       if (!isPosContent(x, maxY, content)) {
         break
       }
-      spaces.push(cols * maxY + x)
+      spaces.push(asCellIdx(cols * maxY + x))
     }
 
     let cx: number
@@ -68,7 +69,7 @@ export function boxesFromViewContentMap(
         }
       }
       for (let cy = y; cy < maxY; cy++) {
-        spaces.push(cols * cy + cx)
+        spaces.push(asCellIdx(cols * cy + cx))
       }
     }
     const w = cx - x

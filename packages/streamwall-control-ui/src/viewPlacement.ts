@@ -1,4 +1,5 @@
 import { range } from 'lodash-es'
+import { asCellIdx, type CellIdx } from 'streamwall-shared'
 import { type CollabData } from './collabData.ts'
 
 /** A collaborative view cell as mirrored from the Yjs `views` map. */
@@ -21,12 +22,13 @@ export function resolveTargetViewIdx({
 }: {
   views: Record<string, ViewSlot | undefined>
   cellCount: number
-  focusedInputIdx: number | undefined
-}): number | undefined {
+  focusedInputIdx: CellIdx | undefined
+}): CellIdx | undefined {
   if (focusedInputIdx !== undefined) {
     return focusedInputIdx
   }
-  return range(cellCount).find((idx) => !views[idx]?.streamId)
+  const emptyIdx = range(cellCount).find((idx) => !views[idx]?.streamId)
+  return emptyIdx === undefined ? undefined : asCellIdx(emptyIdx)
 }
 
 /**
@@ -40,9 +42,9 @@ export function resolveTargetViewIdx({
  * value never misattributes another box's stream.
  */
 export function resolveAnchorIdx(
-  spaces: number[],
-  fullscreenViewIdx: number | null,
-): number {
+  spaces: CellIdx[],
+  fullscreenViewIdx: CellIdx | null,
+): CellIdx {
   if (fullscreenViewIdx != null && spaces.includes(fullscreenViewIdx)) {
     return fullscreenViewIdx
   }

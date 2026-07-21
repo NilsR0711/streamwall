@@ -6,7 +6,7 @@ import {
   WebContentsView,
 } from 'electron'
 import { isEqual } from 'lodash-es'
-import { ViewContent, ViewPos } from 'streamwall-shared'
+import { ViewContent, ViewId, ViewPos } from 'streamwall-shared'
 import {
   ContentDisplayOptions,
   ContentViewInfo,
@@ -65,7 +65,7 @@ function formatError(error: unknown): string {
 const viewStateMachine = setup({
   types: {
     input: {} as {
-      id: number
+      id: ViewId
       view: WebContentsView
       win: BrowserWindow
       offscreenWin: BrowserWindow
@@ -84,7 +84,7 @@ const viewStateMachine = setup({
     },
 
     context: {} as {
-      id: number
+      id: ViewId
       win: BrowserWindow
       offscreenWin: BrowserWindow
       view: WebContentsView

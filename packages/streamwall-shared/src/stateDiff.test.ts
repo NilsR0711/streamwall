@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { stateDeltaSchema, stateDiff } from './stateDiff.ts'
 import type { StreamData, StreamwallState, ViewState } from './types.ts'
+import { asViewId } from './viewAddressing.ts'
 
 function makeStream(
   id: string,
@@ -20,7 +21,7 @@ function makeView(id: number, overrides: Partial<ViewState> = {}): ViewState {
   return {
     state: 'empty',
     context: {
-      id,
+      id: asViewId(id),
       content: null,
       info: null,
       pos: null,

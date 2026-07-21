@@ -9,7 +9,13 @@ import {
   FaVideoSlash,
   FaVolumeUp,
 } from 'react-icons/fa'
-import { Color, roleCan, type StreamwallRole } from 'streamwall-shared'
+import {
+  type CellIdx,
+  Color,
+  roleCan,
+  type StreamwallRole,
+  type ViewId,
+} from 'streamwall-shared'
 import { styled } from 'styled-components'
 import {
   StyledButton,
@@ -66,11 +72,11 @@ export function GridControls({
 }: {
   // Grid cell index of this tile's top-left space. Used only for position-based
   // operations (swap/drag) that intentionally target the cell, not the view.
-  idx: number
+  idx: CellIdx
   // Stable identity of the view actor currently in this tile. View-state
   // commands (listen/blur/volume/reload/devtools/fullscreen) address the view
   // by this id so a concurrent grid resize can't misroute them (issue #397).
-  viewId: number
+  viewId: ViewId
   streamId: string
   style: JSX.HTMLAttributes['style']
   isDisplaying: boolean
@@ -81,20 +87,20 @@ export function GridControls({
   isSwapping: boolean
   showDebug: boolean
   role: StreamwallRole | null
-  onSetListening: (viewId: number, isListening: boolean) => void
+  onSetListening: (viewId: ViewId, isListening: boolean) => void
   onSetBackgroundListening: (
-    viewId: number,
+    viewId: ViewId,
     isBackgroundListening: boolean,
   ) => void
-  onSetBlurred: (viewId: number, isBlurred: boolean) => void
-  onSetVolume: (viewId: number, volume: number) => void
-  onReloadView: (viewId: number) => void
-  onSwapView: (idx: number) => void
+  onSetBlurred: (viewId: ViewId, isBlurred: boolean) => void
+  onSetVolume: (viewId: ViewId, volume: number) => void
+  onReloadView: (viewId: ViewId) => void
+  onSwapView: (idx: CellIdx) => void
   onRotateView: (streamId: string) => void
   onBrowse: (streamId: string) => void
-  onDevTools: (viewId: number) => void
+  onDevTools: (viewId: ViewId) => void
   onPointerDown: JSX.PointerEventHandler<HTMLDivElement>
-  onToggleFullscreen: (viewId: number) => void
+  onToggleFullscreen: (viewId: ViewId) => void
 }) {
   const handleListeningClick = useCallback<
     JSX.MouseEventHandler<HTMLButtonElement>

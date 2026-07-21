@@ -1,6 +1,12 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type { ControlCommand, StreamData } from 'streamwall-shared'
+import {
+  asCellIdx,
+  asViewId,
+  type CellIdx,
+  type ControlCommand,
+  type StreamData,
+} from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import { type CollabData } from '../collabData.ts'
@@ -28,8 +34,8 @@ interface Overrides {
   stateDoc?: Y.Doc
   cols?: number | null
   rows?: number | null
-  fullscreenViewIdx?: number | null
-  focusedInputIdx?: number | undefined
+  fullscreenViewIdx?: CellIdx | null
+  focusedInputIdx?: CellIdx | undefined
   favoritesSet?: ReadonlySet<string>
   onInvite?: (invite: Invite) => void
   onError?: (message: string) => void
@@ -90,37 +96,37 @@ function renderCommands(overrides: Overrides = {}) {
 describe('useGridCommands', () => {
   test('dispatches view commands through send', () => {
     const { commands, send } = renderCommands()
-    act(() => commands.handleSetListening(3, true))
+    act(() => commands.handleSetListening(asViewId(3), true))
     expect(send).toHaveBeenLastCalledWith({
       type: 'set-listening-view',
       viewId: 3,
     })
-    act(() => commands.handleSetListening(3, false))
+    act(() => commands.handleSetListening(asViewId(3), false))
     expect(send).toHaveBeenLastCalledWith({
       type: 'set-listening-view',
       viewId: null,
     })
-    act(() => commands.handleSetVolume(1, 0.5))
+    act(() => commands.handleSetVolume(asViewId(1), 0.5))
     expect(send).toHaveBeenLastCalledWith({
       type: 'set-view-volume',
       viewId: 1,
       volume: 0.5,
     })
-    act(() => commands.handleReloadView(2))
+    act(() => commands.handleReloadView(asViewId(2)))
     expect(send).toHaveBeenLastCalledWith({ type: 'reload-view', viewId: 2 })
   })
 
   test('derives the fullscreen flag from the current fullscreen index', () => {
     const notFull = renderCommands({ fullscreenViewIdx: null })
-    act(() => notFull.commands.handleToggleFullscreen(0))
+    act(() => notFull.commands.handleToggleFullscreen(asViewId(0)))
     expect(notFull.send).toHaveBeenLastCalledWith({
       type: 'set-view-fullscreen',
       viewId: 0,
       fullscreen: true,
     })
 
-    const full = renderCommands({ fullscreenViewIdx: 0 })
-    act(() => full.commands.handleToggleFullscreen(0))
+    const full = renderCommands({ fullscreenViewIdx: asCellIdx(0) })
+    act(() => full.commands.handleToggleFullscreen(asViewId(0)))
     expect(full.send).toHaveBeenLastCalledWith({
       type: 'set-view-fullscreen',
       viewId: 0,
@@ -237,7 +243,7 @@ describe('useGridCommands', () => {
       stateDoc,
       streams: [makeStream('a')],
     })
-    act(() => commands.handleSetView(0, 'a'))
+    act(() => commands.handleSetView(asCellIdx(0), 'a'))
     expect(cell.get('streamId')).toBe('a')
   })
 })

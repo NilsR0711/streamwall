@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { GRID_MAX, GRID_MIN } from './geometry.ts'
 import { invitableRoles, validRoles } from './roles.ts'
+import { asCellIdx, asViewId } from './viewAddressing.ts'
 
 /**
  * Runtime schemas for every piece of external, untrusted input that crosses a
@@ -41,7 +42,14 @@ const labelPositionSchema = z.enum([
 const orientationSchema = z.enum(['V', 'H'])
 
 const rotationSchema = z.number().min(0).max(MAX_ROTATION)
-const viewIdxSchema = z.number().int().min(0).max(MAX_VIEW_IDX)
+
+/** A grid cell index, bounded by the largest grid the wall supports. */
+const viewIdxSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(MAX_VIEW_IDX)
+  .transform(asCellIdx)
 
 /**
  * A stable per-view identity, fixed when a view actor is created and preserved
@@ -51,8 +59,11 @@ const viewIdxSchema = z.number().int().min(0).max(MAX_VIEW_IDX)
  * cannot race a concurrent resize into acting on the wrong tile. It is an
  * opaque non-negative integer (the actor's creation-time `webContents.id`); it
  * is deliberately not bounded by `MAX_VIEW_IDX`, which only limits grid cells.
+ *
+ * Both axes are branded (see `./viewAddressing.ts`), so the compiler rejects a
+ * cell index used as a view id and vice versa (issue #507).
  */
-const viewIdSchema = z.number().int().nonnegative()
+const viewIdSchema = z.number().int().nonnegative().transform(asViewId)
 const gridDimensionSchema = z.number().int().min(GRID_MIN).max(GRID_MAX)
 const volumeSchema = z.number().min(0).max(1)
 
@@ -309,7 +320,7 @@ const viewPosSchema = z.object({
   y: z.number(),
   width: z.number(),
   height: z.number(),
-  spaces: z.array(z.number()),
+  spaces: z.array(z.number().transform(asCellIdx)),
 })
 
 /**

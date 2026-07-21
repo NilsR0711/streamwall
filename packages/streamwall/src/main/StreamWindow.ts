@@ -11,7 +11,9 @@ import EventEmitter from 'events'
 import { intersection, isEqual } from 'lodash-es'
 import path from 'path'
 import {
+  asViewId,
   boxesFromViewContentMap,
+  CellIdx,
   computeBoxRect,
   ContentDisplayOptions,
   StreamData,
@@ -20,6 +22,7 @@ import {
   StreamWindowConfig,
   ViewContent,
   ViewContentMap,
+  ViewId,
   ViewState,
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
@@ -59,14 +62,14 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   win: BrowserWindow
   backgroundView: WebContentsView
   overlayView: WebContentsView
-  views: Map<number, ViewActor>
+  views: Map<ViewId, ViewActor>
   // Actors temporarily excluded from `views` (and therefore from
   // `emitState()`) while a fullscreen expansion hides them behind the
   // expanded view, kept alive instead of torn down so a later collapse can
   // reposition them without a reload (issue #369). Populated by `setViews`
   // when called with `{ parkUnused: true }`; cleared and re-considered as
   // reuse candidates on every subsequent `setViews` call.
-  parkedViews: Map<number, ViewActor>
+  parkedViews: Map<ViewId, ViewActor>
   // Routes IPC messages from a specific WebContentsView back to whichever
   // actor owns it. Keyed by live `webContents.id`, unlike `views` (keyed by
   // each actor's stable `context.id`, fixed at creation): once a content swap
@@ -370,7 +373,9 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     assert(win != null, 'Window must be initialized')
 
     const { view, offscreenWin } = this.createRawView()
-    const viewId = view.webContents.id
+    // The actor's stable identity for its whole lifetime (issue #397), which
+    // is why it is a `ViewId` rather than a plain cell-sized number (#507).
+    const viewId = asViewId(view.webContents.id)
 
     // Forward-declared: `createNextView` closes over `actor` but must be
     // built before `createActor()` returns it, since it's part of that same
@@ -587,7 +592,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.emitState()
   }
 
-  setListeningView(viewId: number | null) {
+  setListeningView(viewId: ViewId | null) {
     // Address the listening view by its stable id, not by grid cell, so a
     // concurrent resize can't redirect "listen" to whatever tile now sits at
     // an index (issue #397). `this.views` is keyed by each actor's stable
@@ -602,14 +607,14 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     }
   }
 
-  findViewById(viewId: number) {
+  findViewById(viewId: ViewId) {
     // O(1) lookup by stable id: `this.views` is keyed by each actor's
     // creation-time `context.id`, which survives grid resizes and remaps
     // (issue #397), unlike a grid cell index.
     return this.views.get(viewId)
   }
 
-  sendViewEvent(viewId: number, event: EventFrom<typeof viewStateMachine>) {
+  sendViewEvent(viewId: ViewId, event: EventFrom<typeof viewStateMachine>) {
     const view = this.findViewById(viewId)
     if (view) {
       view.send(event)
@@ -623,31 +628,31 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * (issue #397), resolved against the live layout so a resize racing the
    * command can't select the wrong cell.
    */
-  getViewAnchorIdx(viewId: number): number | null {
+  getViewAnchorIdx(viewId: ViewId): CellIdx | null {
     return (
       this.findViewById(viewId)?.getSnapshot().context.pos?.spaces[0] ?? null
     )
   }
 
-  setViewBackgroundListening(viewId: number, listening: boolean) {
+  setViewBackgroundListening(viewId: ViewId, listening: boolean) {
     this.sendViewEvent(viewId, {
       type: listening ? 'BACKGROUND' : 'UNBACKGROUND',
     })
   }
 
-  setViewBlurred(viewId: number, blurred: boolean) {
+  setViewBlurred(viewId: ViewId, blurred: boolean) {
     this.sendViewEvent(viewId, { type: blurred ? 'BLUR' : 'UNBLUR' })
   }
 
-  setViewVolume(viewId: number, volume: number) {
+  setViewVolume(viewId: ViewId, volume: number) {
     this.sendViewEvent(viewId, { type: 'SET_VOLUME', volume })
   }
 
-  reloadView(viewId: number) {
+  reloadView(viewId: ViewId) {
     this.sendViewEvent(viewId, { type: 'RELOAD' })
   }
 
-  openDevTools(viewId: number, inWebContents: WebContents) {
+  openDevTools(viewId: ViewId, inWebContents: WebContents) {
     this.sendViewEvent(viewId, { type: 'DEVTOOLS', inWebContents })
   }
 

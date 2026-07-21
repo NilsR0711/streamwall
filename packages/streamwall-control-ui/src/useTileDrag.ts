@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { roleCan, type StreamwallRole } from 'streamwall-shared'
+import { type CellIdx, roleCan, type StreamwallRole } from 'streamwall-shared'
 import * as Y from 'yjs'
 import {
   computeHoveringIdx,
@@ -10,7 +10,7 @@ import {
 import { computeSwap, type SwapBox } from './gridInteractions'
 
 interface TileInfo {
-  spaces: number[]
+  spaces: CellIdx[]
 }
 
 /**
@@ -30,12 +30,12 @@ export function useTileDrag({
   cols: number | null | undefined
   rows: number | null | undefined
   stateDoc: Y.Doc
-  stateIdxMap: Map<number, TileInfo>
+  stateIdxMap: Map<CellIdx, TileInfo>
   role: StreamwallRole | null
 }) {
-  const [swapStartIdx, setSwapStartIdx] = useState<number | undefined>()
+  const [swapStartIdx, setSwapStartIdx] = useState<CellIdx | undefined>()
   const handleSwapView = useCallback(
-    (idx: number) => {
+    (idx: CellIdx) => {
       if (!stateIdxMap.has(idx)) {
         return
       }
@@ -63,13 +63,13 @@ export function useTileDrag({
   // swap whose read boxes changed since it started). Low impact in practice
   // since concurrent operators rarely target the same cells simultaneously.
   const swapBoxes = useCallback(
-    (fromIdx: number, toIdx: number) => {
+    (fromIdx: CellIdx, toIdx: CellIdx) => {
       if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
       stateDoc.transact(() => {
         const viewsMap = stateDoc.getMap<Y.Map<string | undefined>>('views')
-        const boxes = new Map<number, SwapBox>()
+        const boxes = new Map<CellIdx, SwapBox>()
         for (const idx of [fromIdx, toIdx]) {
           const viewInfo = stateIdxMap.get(idx)
           if (viewInfo === undefined) {
@@ -94,7 +94,7 @@ export function useTileDrag({
   )
 
   const handleSwap = useCallback(
-    (toIdx: number) => {
+    (toIdx: CellIdx) => {
       if (swapStartIdx === undefined) {
         return
       }
@@ -104,7 +104,7 @@ export function useTileDrag({
     [swapBoxes, swapStartIdx],
   )
 
-  const [hoveringIdx, setHoveringIdx] = useState<number>()
+  const [hoveringIdx, setHoveringIdx] = useState<CellIdx>()
   const updateHoveringIdx = useCallback(
     (ev: PointerEvent) => {
       if (
@@ -136,9 +136,9 @@ export function useTileDrag({
   // dragging, so `updateHoveringIdx`'s own bounds check covers that case.
   const clearHoveringIdx = useCallback(() => setHoveringIdx(undefined), [])
   const [moveStart, setMoveStart] = useState<
-    { idx: number; x: number; y: number } | undefined
+    { idx: CellIdx; x: number; y: number } | undefined
   >()
-  const [moveTargetIdx, setMoveTargetIdx] = useState<number | undefined>()
+  const [moveTargetIdx, setMoveTargetIdx] = useState<CellIdx | undefined>()
 
   const handleGridPointerDown = useCallback(
     (ev: PointerEvent) => {

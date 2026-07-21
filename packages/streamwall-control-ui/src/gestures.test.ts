@@ -1,3 +1,4 @@
+import { asCellIdx } from 'streamwall-shared'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -20,10 +21,10 @@ describe('isPrimaryButton', () => {
 })
 
 describe('resolveMoveTarget', () => {
-  const moveStart = { idx: 3, x: 100, y: 100 }
+  const moveStart = { idx: asCellIdx(3), x: 100, y: 100 }
 
   it('returns undefined when there is no active move', () => {
-    expect(resolveMoveTarget(undefined, 5, 200, 200)).toBeUndefined()
+    expect(resolveMoveTarget(undefined, asCellIdx(5), 200, 200)).toBeUndefined()
   })
 
   it('returns undefined when released off the grid (no hover cell)', () => {
@@ -34,7 +35,12 @@ describe('resolveMoveTarget', () => {
 
   it('returns undefined when the pointer has not moved past the threshold', () => {
     expect(
-      resolveMoveTarget(moveStart, 8, moveStart.x + 2, moveStart.y + 2),
+      resolveMoveTarget(
+        moveStart,
+        asCellIdx(8),
+        moveStart.x + 2,
+        moveStart.y + 2,
+      ),
     ).toBeUndefined()
   })
 
@@ -42,7 +48,7 @@ describe('resolveMoveTarget', () => {
     expect(
       resolveMoveTarget(
         moveStart,
-        8,
+        asCellIdx(8),
         moveStart.x + DRAG_THRESHOLD_PX,
         moveStart.y,
       ),
@@ -56,12 +62,14 @@ describe('resolveMoveTarget', () => {
   })
 
   it('returns the hovered cell for a committed drag over a different cell', () => {
-    expect(resolveMoveTarget(moveStart, 8, 400, 400)).toBe(8)
+    expect(resolveMoveTarget(moveStart, asCellIdx(8), 400, 400)).toBe(8)
   })
 
   it('honours a custom threshold', () => {
-    expect(resolveMoveTarget(moveStart, 8, 120, 100, 50)).toBeUndefined()
-    expect(resolveMoveTarget(moveStart, 8, 160, 100, 50)).toBe(8)
+    expect(
+      resolveMoveTarget(moveStart, asCellIdx(8), 120, 100, 50),
+    ).toBeUndefined()
+    expect(resolveMoveTarget(moveStart, asCellIdx(8), 160, 100, 50)).toBe(8)
   })
 })
 

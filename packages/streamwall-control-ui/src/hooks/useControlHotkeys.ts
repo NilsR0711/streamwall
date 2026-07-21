@@ -1,6 +1,12 @@
 import { useCallback } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { roleCan, type StreamwallRole } from 'streamwall-shared'
+import {
+  asCellIdx,
+  type CellIdx,
+  roleCan,
+  type StreamwallRole,
+  type ViewId,
+} from 'streamwall-shared'
 import type * as Y from 'yjs'
 import {
   blurHotkeyLayerBindings,
@@ -27,13 +33,13 @@ export function useControlHotkeys({
   handleSwapView,
   undoManager,
 }: {
-  stateIdxMap: Map<number, ViewInfo>
-  focusedInputIdx: number | undefined
+  stateIdxMap: Map<CellIdx, ViewInfo>
+  focusedInputIdx: CellIdx | undefined
   role: StreamwallRole | null
-  handleSetListening: (viewId: number, listening: boolean) => void
-  handleSetBlurred: (viewId: number, blurred: boolean) => void
+  handleSetListening: (viewId: ViewId, listening: boolean) => void
+  handleSetBlurred: (viewId: ViewId, blurred: boolean) => void
   setStreamCensored: (isCensored: boolean) => void
-  handleSwapView: (idx: number) => void
+  handleSwapView: (idx: CellIdx) => void
   undoManager: Y.UndoManager | undefined
 }) {
   // The hotkeys are addressed by grid cell, but the commands take a stable
@@ -41,7 +47,7 @@ export function useControlHotkeys({
   // the cell's view instead of passing the index through (issue #470). An
   // empty cell has no view to toggle, so the keypress is a no-op.
   const toggleListening = useCallback(
-    (idx: number) => {
+    (idx: CellIdx) => {
       const view = stateIdxMap.get(idx)
       if (!view) {
         return
@@ -56,7 +62,9 @@ export function useControlHotkeys({
     hotkeyLayerBindings[0],
     (ev, { hotkey }) => {
       ev.preventDefault()
-      toggleListening(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]))
+      toggleListening(
+        asCellIdx(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1])),
+      )
     },
     { enableOnFormTags: true },
     [toggleListening],
@@ -68,8 +76,10 @@ export function useControlHotkeys({
     (ev, { hotkey }) => {
       ev.preventDefault()
       toggleListening(
-        hotkeyTriggers.length +
-          hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+        asCellIdx(
+          hotkeyTriggers.length +
+            hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+        ),
       )
     },
     { enableOnFormTags: true },
@@ -77,7 +87,7 @@ export function useControlHotkeys({
   )
   // Same cell-index -> view-id resolution as `toggleListening` above (#470).
   const toggleBlurred = useCallback(
-    (idx: number) => {
+    (idx: CellIdx) => {
       const view = stateIdxMap.get(idx)
       if (!view) {
         return
@@ -91,7 +101,9 @@ export function useControlHotkeys({
     blurHotkeyLayerBindings[0],
     (ev, { hotkey }) => {
       ev.preventDefault()
-      toggleBlurred(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]))
+      toggleBlurred(
+        asCellIdx(hotkeyTriggers.indexOf(hotkey[hotkey.length - 1])),
+      )
     },
     [toggleBlurred],
   )
@@ -102,8 +114,10 @@ export function useControlHotkeys({
     (ev, { hotkey }) => {
       ev.preventDefault()
       toggleBlurred(
-        hotkeyTriggers.length +
-          hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+        asCellIdx(
+          hotkeyTriggers.length +
+            hotkeyTriggers.indexOf(hotkey[hotkey.length - 1]),
+        ),
       )
     },
     [toggleBlurred],
