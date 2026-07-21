@@ -281,6 +281,13 @@ in two other places:
   tab (optionally with the `debug` input for verbose Forge logging) after a
   Forge/maker dependency bump.
 
+Two packaging runs can share a machine: `packagerConfig.tmpdir` points each
+run at a directory of its own (`forge.tmpdir.ts`). @electron/packager
+otherwise stages every run under the same `<tmpdir>/electron-packager` and
+deletes that directory when a run starts, which used to break a concurrent run
+with a misleading `Ad-hoc codesign failed with status: 1` from the fuses
+plugin (#510).
+
 ### Dependency deprecations
 
 `.github/workflows/deprecated-deps.yml` asks the npm registry every Monday

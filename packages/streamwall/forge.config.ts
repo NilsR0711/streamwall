@@ -13,6 +13,7 @@ import {
   getWindowsSigningConfig,
   isSigningConfigured,
 } from './forge.signing'
+import { createPackagingTmpdir, removePackagingTmpdir } from './forge.tmpdir'
 import { runTypecheck } from './forge.typecheck'
 import { appendUpdateMetadata } from './forge.updateMetadata'
 import packageJson from './package.json'
@@ -21,6 +22,7 @@ const macSigning = getMacSigningConfig(process.env)
 const windowsSigning = getWindowsSigningConfig(process.env)
 const signingConfigured = isSigningConfigured(process.env)
 const publishRepository = parseGithubRepository(packageJson.repository)
+const packagingTmpdir = createPackagingTmpdir()
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -29,6 +31,10 @@ const config: ForgeConfig = {
     // executable to match. The Linux makers still install a lowercase
     // `streamwall` command via their `bin` option below.
     asar: true,
+    // Stage in a directory of this run's own: packager wipes its base temp
+    // directory on start, so runs sharing the default base kill each other
+    // (#510, see forge.tmpdir.ts).
+    tmpdir: packagingTmpdir,
     ...macSigning,
   },
   rebuildConfig: {},
@@ -61,6 +67,9 @@ const config: ForgeConfig = {
     // command that produces a distributable; `start` stays unchecked to keep
     // the dev loop fast (`npm run typecheck` still covers it in CI).
     prePackage: async () => runTypecheck(),
+    // The staged app has been moved to `out/` by now, so the run's private
+    // temp directory is only an empty shell (#510).
+    postPackage: async () => removePackagingTmpdir(packagingTmpdir),
     // latest.yml / latest-mac.yml for electron-updater (#432); uploaded to
     // the release alongside the installers by the GitHub publisher.
     postMake: async (_forgeConfig, makeResults) =>
