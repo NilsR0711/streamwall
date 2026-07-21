@@ -55,6 +55,19 @@ Zero errors and no new warnings. Prettier runs on every PR — including
 documentation-only changes — so run `npm run format` to auto-fix before
 pushing.
 
+### Builds typecheck first
+
+Vite strips types without checking them, so `vite build` alone would happily
+bundle code that does not compile. Every workspace with a `build` script
+therefore declares `"prebuild": "npm run typecheck"`, which npm runs
+automatically before `build`. That covers all entry points — a local
+`npm -w streamwall-control-client run build`, the CI build job, and the E2E
+`globalSetup` — so a type error fails the build instead of slipping through to
+the separate `npm run typecheck` step.
+
+If you add a `build` script to a package, add the matching `prebuild` hook;
+`test/workspace-metadata.test.mjs` enforces this.
+
 ### Test runners differ per package
 
 `npm test` fans out across the workspaces, and the packages do **not** all use
