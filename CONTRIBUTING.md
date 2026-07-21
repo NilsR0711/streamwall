@@ -1,15 +1,120 @@
 # Contributing
 
-## Quality gate
+Thanks for helping improve Streamwall. This guide covers local setup, the
+quality gate, and the conventions PRs are expected to follow.
 
-Before opening a PR, run the same checks CI runs:
+## Getting started
+
+Streamwall is an npm workspaces monorepo. Requirements:
+
+- **Node.js 22 or newer** (`engines.node` is `>=22`; a `.nvmrc` pins the major
+  so `nvm use` picks it up).
+- **npm** (ships with Node) — this repo uses npm workspaces, not pnpm or yarn.
+
+Install everything with a clean, lockfile-exact install from the repo root:
 
 ```sh
-npm run lint
-npm run format:check
-npm run typecheck
-npm test
+npm ci
 ```
+
+Use `npm ci` rather than `npm install` — it installs the exact tree from
+`package-lock.json` and hoists shared dependencies (for example Electron) to
+the root `node_modules`, which the main-process tests rely on. A plain
+`npm install` in a fresh checkout or git worktree can leave the tree in a
+state where those tests fail to resolve their dependencies.
+
+### Workspace map
+
+Six packages live under `packages/` (see the root `package.json`
+`workspaces` array):
+
+| Package                     | Role                                                     |
+| --------------------------- | -------------------------------------------------------- |
+| `streamwall`                | The Electron desktop app (main + renderer processes).    |
+| `streamwall-shared`         | Shared schemas and types used across the other packages. |
+| `streamwall-control-server` | Self-hostable backend for remote control (WS + HTTP).    |
+| `streamwall-control-client` | Web frontend for the control server.                     |
+| `streamwall-control-ui`     | Shared control UI components (Preact).                   |
+| `streamwall-control-e2e`    | Playwright end-to-end smoke tests for the control stack. |
+
+To run the app locally: `npm run start:app`. To run the control server with
+its web client: `npm run start:server`.
+
+## Quality gate
+
+Before opening a PR, run the same checks CI runs, from the repo root:
+
+```sh
+npm run lint          # ESLint
+npm run format:check  # Prettier (also checks Markdown and YAML)
+npm run typecheck     # tsc --noEmit across all workspaces
+npm test              # full test suite (see runner note below)
+```
+
+Zero errors and no new warnings. Prettier runs on every PR — including
+documentation-only changes — so run `npm run format` to auto-fix before
+pushing.
+
+### Test runners differ per package
+
+`npm test` fans out across the workspaces, and the packages do **not** all use
+the same runner:
+
+- Most packages (`streamwall`, `streamwall-shared`, `streamwall-control-ui`,
+  `streamwall-control-client`) use **Vitest** (`vitest run`).
+- `streamwall-control-server` uses the **native Node test runner**
+  (`node --test`) via `tsx`, single-threaded.
+- Root-level workspace-metadata tests run under `node --test` too.
+
+To run a single package's tests, target its workspace, e.g.
+`npm -w streamwall-control-server test`.
+
+### End-to-end tests
+
+The E2E smoke tests need a browser that is not installed by `npm ci`. They are
+**not** part of `npm test` — CI runs them in a dedicated job. To run them
+locally:
+
+```sh
+npx playwright install --with-deps chromium
+npm -w streamwall-control-e2e run test:e2e
+```
+
+## Making changes
+
+- **Test-driven development is expected** for behavior changes: write a failing
+  test first, make it pass, then refactor. Cover happy paths, edge cases, and
+  regressions. Docs-only, CI-config, or pure-formatting changes are exempt —
+  say so in the PR when no tests are added.
+- Prefer existing patterns and abstractions over introducing new ones.
+- Do not leave TODOs, placeholders, commented-out code, or stray debug output.
+
+## Commit and PR conventions
+
+- PRs are **squash-merged**, so the **PR title becomes the commit subject on
+  `main`** and must follow
+  [Conventional Commits](https://www.conventionalcommits.org/). This is
+  enforced by `.github/workflows/pr-title.yml`. Example:
+  `fix(control-ui): handle empty grid`.
+  Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`, `revert`.
+- Keep individual commits focused; each should compile and pass the quality
+  gate on its own.
+- **No AI-tool attribution** anywhere — not in commit messages, PR
+  descriptions, or code comments.
+
+### PR checklist
+
+- [ ] `npm run lint`, `npm run format:check`, `npm run typecheck`, and
+      `npm test` all pass locally.
+- [ ] New behavior is covered by tests (or the PR explains why none apply).
+- [ ] PR title follows Conventional Commits.
+- [ ] No AI-tool attribution in commits, PR body, or comments.
+
+## Reporting security issues
+
+Please do **not** file security problems as public issues. See
+[SECURITY.md](SECURITY.md) for the private disclosure process.
 
 ## License
 
