@@ -176,9 +176,32 @@ Some workflows intentionally sit outside this gate: `.github/workflows/release.y
 (tag-triggered), CodeQL's weekly scheduled scan, which surfaces newly
 disclosed patterns in code that was already merged, and the weekly
 [packaging](#packaging-checks) and [deprecation](#dependency-deprecations)
-checks, which react to upstream changes rather than to anything in a PR. Open
-code-scanning alerts are triaged in the Security tab; the gate blocks on the
-analysis _failing_, not on pre-existing alerts.
+checks, which react to upstream changes rather than to anything in a PR.
+
+### Code scanning alerts
+
+The two status checks only cover the CodeQL analysis _running_ successfully.
+Alerts that a successful analysis reports are gated separately, by the
+`code_scanning` rule of the same `main-protection` ruleset:
+
+- `security_alerts_threshold: high_or_higher` — a PR that introduces a high or
+  critical **security** alert cannot be merged.
+- `alerts_threshold: none` — non-security **quality** alerts stay advisory.
+
+The rule looks at the alerts a PR introduces, so a merge is never blocked by
+the pre-existing backlog. Alerts below the threshold, and quality alerts of any
+severity, are triaged in the Security tab instead.
+
+The rule needs a CodeQL result for the PR head commit or for its current merge
+commit, and GitHub regenerates that merge commit. `codeql.yml` therefore checks
+out the head commit rather than the default merge checkout, so its results stay
+attached to a SHA the rule can match; `test/ci-gate.test.mjs` guards that.
+
+CodeQL does produce false positives here — see the `HTMLMediaElement.src` sink
+overmatch in [#301](https://github.com/NilsR0711/streamwall/issues/301). Resolve
+them per alert rather than by weakening the queries repo-wide: dismiss the alert
+with a `false positive` reason and a short justification, which unblocks the PR
+and keeps the rule intact for everything else.
 
 ### PR checklist
 
