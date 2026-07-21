@@ -147,6 +147,124 @@ describe('StreamList', () => {
   })
 })
 
+describe('StreamList keyboard path', () => {
+  function renderHandle({
+    disabled = false,
+    onClickId = () => {},
+  }: {
+    disabled?: boolean
+    onClickId?: (id: string) => void
+  }): HTMLButtonElement {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ _id: 'xyz' })]}
+          disabled={disabled}
+          onClickId={onClickId}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+    return container.querySelector<HTMLButtonElement>(
+      '[aria-label="Add stream xyz to the wall"]',
+    )!
+  }
+
+  test('renders the id/drag handle as a focusable button', () => {
+    const handle = renderHandle({})
+
+    expect(handle.tagName).toBe('BUTTON')
+    expect(handle.type).toBe('button')
+    expect(handle.disabled).toBe(false)
+    expect(handle.getAttribute('tabindex')).not.toBe('-1')
+  })
+
+  test('marks the handle disabled so it drops out of the tab order', () => {
+    const handle = renderHandle({ disabled: true })
+
+    expect(handle.disabled).toBe(true)
+  })
+
+  for (const key of ['Enter', ' ']) {
+    test(`invokes onClickId when activated with ${key === ' ' ? 'Space' : key}`, () => {
+      const onClickId = vi.fn()
+      const handle = renderHandle({ onClickId })
+
+      const event = new KeyboardEvent('keydown', {
+        key,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => {
+        handle.dispatchEvent(event)
+      })
+
+      expect(onClickId).toHaveBeenCalledWith('xyz')
+      // Suppress the browser's synthetic click so activation happens once.
+      expect(event.defaultPrevented).toBe(true)
+    })
+  }
+
+  test('ignores other keys', () => {
+    const onClickId = vi.fn()
+    const handle = renderHandle({ onClickId })
+
+    act(() => {
+      handle.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', bubbles: true }),
+      )
+    })
+
+    expect(onClickId).not.toHaveBeenCalled()
+  })
+
+  test('does not invoke onClickId on keydown when disabled', () => {
+    const onClickId = vi.fn()
+    const handle = renderHandle({ disabled: true, onClickId })
+
+    act(() => {
+      handle.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      )
+    })
+
+    expect(onClickId).not.toHaveBeenCalled()
+  })
+
+  test('prevents the default mousedown focus shift so a destination grid input stays focused', () => {
+    const onClickId = vi.fn()
+    const handle = renderHandle({ onClickId })
+
+    const event = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      handle.dispatchEvent(event)
+    })
+
+    expect(onClickId).toHaveBeenCalledWith('xyz')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  test('activates only once for a full mouse press-and-release', () => {
+    const onClickId = vi.fn()
+    const handle = renderHandle({ onClickId })
+
+    act(() => {
+      handle.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      )
+      handle.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onClickId).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('StreamList accessible names', () => {
   test('gives the id/drag handle a descriptive accessible name', () => {
     container = document.createElement('div')
@@ -189,10 +307,10 @@ describe('StreamList favorites', () => {
       )
     })
 
-    const buttons = container.querySelectorAll('button')
-    expect(buttons).toHaveLength(2)
-    expect(buttons[0].textContent).toBe('★')
-    expect(buttons[1].textContent).toBe('☆')
+    const stars = container.querySelectorAll('button.favorite-star')
+    expect(stars).toHaveLength(2)
+    expect(stars[0].textContent).toBe('★')
+    expect(stars[1].textContent).toBe('☆')
   })
 
   test('invokes onToggleFavorite with the row link when the star is clicked, without triggering onClickId', () => {
@@ -213,9 +331,11 @@ describe('StreamList favorites', () => {
       )
     })
 
-    const button = container.querySelector('button') as HTMLButtonElement
+    const star = container.querySelector(
+      'button.favorite-star',
+    ) as HTMLButtonElement
     act(() => {
-      button.click()
+      star.click()
     })
 
     expect(onToggleFavorite).toHaveBeenCalledWith('https://example.com/a')
@@ -237,7 +357,7 @@ describe('StreamList favorites', () => {
       )
     })
 
-    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('button.favorite-star')).toBeNull()
   })
 })
 
