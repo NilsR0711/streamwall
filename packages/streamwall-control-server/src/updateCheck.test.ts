@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { recordingLogger } from './testHelpers.ts'
 import {
   createUpdateChecker,
   isUpdateCheckEnabled,
@@ -47,6 +48,7 @@ describe('isUpdateCheckEnabled', () => {
 describe('createUpdateChecker', () => {
   test('reports the running version and no update before the first check', () => {
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       fetchImpl: async () => jsonResponse({}),
     })
@@ -63,6 +65,7 @@ describe('createUpdateChecker', () => {
 
   test('flags an available update after a check', async () => {
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       fetchImpl: async () =>
         jsonResponse({
@@ -82,6 +85,7 @@ describe('createUpdateChecker', () => {
 
   test('reports no update when the latest release is the running version', async () => {
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '1.0.0',
       fetchImpl: async () =>
         jsonResponse({
@@ -97,10 +101,10 @@ describe('createUpdateChecker', () => {
   })
 
   test('logs once per newly discovered version, not on every check', async () => {
-    const logged: string[] = []
+    const logger = recordingLogger()
     const checker = createUpdateChecker({
+      log: logger.log,
       currentVersion: '0.9.1',
-      log: (msg) => logged.push(msg),
       fetchImpl: async () =>
         jsonResponse({
           tag_name: 'v1.0.0',
@@ -111,13 +115,52 @@ describe('createUpdateChecker', () => {
     await checker.checkNow()
     await checker.checkNow()
 
-    assert.equal(logged.length, 1)
-    assert.match(logged[0], /1\.0\.0/)
+    assert.equal(logger.entries.length, 1)
+  })
+
+  test('announces the update as a structured info entry, not a console line', async () => {
+    const logger = recordingLogger()
+    const consoleCalls: unknown[][] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => {
+      consoleCalls.push(args)
+    }
+    try {
+      const checker = createUpdateChecker({
+        log: logger.log,
+        currentVersion: '0.9.1',
+        fetchImpl: async () =>
+          jsonResponse({
+            tag_name: 'v1.0.0',
+            html_url: 'https://example.test/r',
+          }),
+      })
+
+      await checker.checkNow()
+    } finally {
+      console.log = originalLog
+    }
+
+    assert.equal(logger.entries.length, 1)
+    const [entry] = logger.entries
+    assert.equal(entry.level, 'info')
+    assert.deepEqual(entry.fields, {
+      latestVersion: '1.0.0',
+      currentVersion: '0.9.1',
+      releaseUrl: 'https://example.test/r',
+    })
+    assert.match(String(entry.msg), /newer streamwall-control-server release/)
+    assert.equal(
+      consoleCalls.length,
+      0,
+      'the announcement must not bypass the structured logger (issue #493)',
+    )
   })
 
   test('keeps the last known result when a check fails', async () => {
     let failNext = false
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       fetchImpl: async () => {
         if (failNext) {
@@ -142,6 +185,7 @@ describe('createUpdateChecker', () => {
   test('never performs a request when disabled', async () => {
     let calls = 0
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       enabled: false,
       fetchImpl: async () => {
@@ -162,6 +206,7 @@ describe('createUpdateChecker', () => {
     let calls = 0
     const timers: { fn: () => void; ms: number }[] = []
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       intervalMs: 1000,
       fetchImpl: async () => {
@@ -190,6 +235,7 @@ describe('createUpdateChecker', () => {
   test('start() is idempotent (no duplicate intervals)', async () => {
     const timers: unknown[] = []
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       fetchImpl: async () =>
         jsonResponse({ tag_name: 'v0.9.1', html_url: 'https://x.test' }),
@@ -212,6 +258,7 @@ describe('createUpdateChecker', () => {
   test('start() does not schedule anything when disabled', async () => {
     let scheduled = 0
     const checker = createUpdateChecker({
+      log: recordingLogger().log,
       currentVersion: '0.9.1',
       enabled: false,
       fetchImpl: async () => jsonResponse({}),

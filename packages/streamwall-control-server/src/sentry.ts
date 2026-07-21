@@ -1,5 +1,7 @@
 import * as Sentry from '@sentry/node'
 
+import type { Logger } from './logger.ts'
+
 /**
  * Unlike the Electron app (which ships a DSN for the maintainer's own Sentry
  * project), this server is self-hosted by independent operators. There is no
@@ -28,11 +30,20 @@ export interface SentryClient {
 }
 
 /**
+ * The slice of the structured logger this module needs. Taken as the first
+ * (required) parameter rather than defaulting to `console`, so the
+ * misconfiguration warning honours `LOG_LEVEL` like every other server
+ * diagnostic (issue #493).
+ */
+export type SentryLogger = Pick<Logger, 'warn'>
+
+/**
  * Initializes Sentry crash reporting if enabled and configured. Returns
  * whether initialization happened, so callers can decide whether to also wire
  * up framework-specific error capture (e.g. Fastify's error handler).
  */
 export function initSentry(
+  log: SentryLogger,
   config: SentryConfig = getSentryConfig(),
   client: SentryClient = Sentry,
 ): boolean {
@@ -40,8 +51,9 @@ export function initSentry(
     return false
   }
   if (!config.dsn) {
-    console.warn(
-      `${SENTRY_ENABLED_ENV} is set but ${SENTRY_DSN_ENV} is missing; skipping Sentry initialization.`,
+    log.warn(
+      { enabledEnv: SENTRY_ENABLED_ENV, dsnEnv: SENTRY_DSN_ENV },
+      `${SENTRY_ENABLED_ENV} is set but ${SENTRY_DSN_ENV} is missing; skipping Sentry initialization`,
     )
     return false
   }

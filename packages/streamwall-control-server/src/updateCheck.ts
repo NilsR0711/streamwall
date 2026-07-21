@@ -8,6 +8,8 @@ import {
   type LatestRelease,
 } from 'streamwall-shared'
 
+import type { Logger } from './logger.ts'
+
 /**
  * Update *notification* for self-hosted deployments (issue #382).
  *
@@ -80,13 +82,21 @@ export interface UpdateChecker {
   stop(): void
 }
 
+/**
+ * The slice of the structured logger this module needs. Required rather than
+ * defaulted to `console`, so an update announcement can never bypass
+ * `LOG_LEVEL` or land in the JSON stream unstructured (issue #493).
+ */
+export type UpdateCheckLogger = Pick<Logger, 'info'>
+
 export interface UpdateCheckerOptions {
+  /** Structured logger the update announcement is written to, at `info`. */
+  log: UpdateCheckLogger
   currentVersion?: string
   enabled?: boolean
   intervalMs?: number
   fetchImpl?: GithubReleaseFetchImpl
   url?: string
-  log?: (message: string) => void
   setIntervalImpl?: (fn: () => void, ms: number) => unknown
   clearIntervalImpl?: (handle: unknown) => void
 }
@@ -102,15 +112,15 @@ function defaultSetInterval(fn: () => void, ms: number): unknown {
 }
 
 export function createUpdateChecker({
+  log,
   currentVersion = SERVER_VERSION,
   enabled = isUpdateCheckEnabled(process.env.STREAMWALL_UPDATE_CHECK),
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
   fetchImpl = fetch as GithubReleaseFetchImpl,
   url = RELEASES_API_URL,
-  log = console.log,
   setIntervalImpl = defaultSetInterval,
   clearIntervalImpl = (handle) => clearInterval(handle as NodeJS.Timeout),
-}: UpdateCheckerOptions = {}): UpdateChecker {
+}: UpdateCheckerOptions): UpdateChecker {
   let latest: LatestRelease | null = null
   let lastCheckedAt: string | null = null
   let announcedVersion: string | null = null
@@ -150,8 +160,13 @@ export function createUpdateChecker({
       status.latestVersion !== announcedVersion
     ) {
       announcedVersion = status.latestVersion
-      log(
-        `⬆️  streamwall-control-server ${status.latestVersion} is available (running ${currentVersion}): ${status.releaseUrl}`,
+      log.info(
+        {
+          latestVersion: status.latestVersion,
+          currentVersion,
+          releaseUrl: status.releaseUrl,
+        },
+        'A newer streamwall-control-server release is available',
       )
     }
     return status

@@ -2,6 +2,7 @@ import { inviteLink } from 'streamwall-shared'
 import type { Auth } from './auth.ts'
 import { resolveListenPort } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
+import type { LogLevel } from './logger.ts'
 import type { StorageDB } from './storage.ts'
 import { SERVER_VERSION, type UpdateChecker } from './updateCheck.ts'
 
@@ -129,12 +130,18 @@ export default async function runServer({
   baseURL,
   clientStaticPath,
   db: injectedDb,
+  logLevel,
+  logStream,
   updateChecker: injectedUpdateChecker,
 }: AppOptions & {
   hostname?: string
   port?: string
   /** Test-only override so specs can exercise the real listen() path without touching disk. */
   db?: StorageDB
+  /** Overrides the level from `LOG_LEVEL` (used by tests to silence or widen output). */
+  logLevel?: LogLevel
+  /** Test-only sink for log output; defaults to pino's stdout destination. */
+  logStream?: { write(line: string): void }
   /** Test-only override so specs can exercise the real listen() path without reaching GitHub. */
   updateChecker?: UpdateChecker
 }) {
@@ -142,14 +149,23 @@ export default async function runServer({
   const hostname = overrideHostname ?? url.hostname
   const port = resolveListenPort(baseURL, overridePort)
 
-  console.log(`Starting streamwall-control-server ${SERVER_VERSION}`)
-  console.debug('Initializing web server:', { hostname, port })
+  // The startup diagnostics below run *after* `initApp` purely so they can go
+  // through `app.log`: they belong in the structured stream like every other
+  // server diagnostic, and the logger only exists once Fastify does (#493).
   const { app, db, auth, updateChecker } = await initApp({
     baseURL,
     clientStaticPath,
     db: injectedDb,
+    logLevel,
+    logStream,
     updateChecker: injectedUpdateChecker,
   })
+
+  app.log.info(
+    { version: SERVER_VERSION },
+    'Starting streamwall-control-server',
+  )
+  app.log.debug({ hostname, port }, 'Initializing web server')
 
   const bootstrap = await initialInviteCodes({ db, auth, baseURL })
   logBootstrap(bootstrap)
