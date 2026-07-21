@@ -53,6 +53,7 @@ import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
+import { buildRetryConfig, buildStreamWindowConfig } from './windowConfig'
 
 async function main(argv: ReturnType<typeof parseArgs>) {
   const db = await loadStorage(
@@ -83,28 +84,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   const overlayStreamData = new LocalStreamData()
 
-  const streamWindowConfig = {
-    cols: argv.grid.cols,
-    rows: argv.grid.rows,
-    width: argv.window.width,
-    height: argv.window.height,
-    x: argv.window.x,
-    y: argv.window.y,
-    frameless: argv.window.frameless,
-    fullscreen: argv.window.fullscreen,
-    display: argv.window.display,
-    activeColor: argv.window['active-color'],
-    backgroundColor: argv.window['background-color'],
-  }
-  // The state machine works in milliseconds; the config is in seconds for
-  // consistency with the other interval options.
-  const retryConfig = {
-    enabled: argv.retry.enabled,
-    delay: argv.retry.delay * 1000,
-    maxDelay: argv.retry['max-delay'] * 1000,
-    maxRetries: argv.retry['max-retries'],
-    stalledTimeout: argv.retry['stalled-timeout'] * 1000,
-  }
+  const streamWindowConfig = buildStreamWindowConfig(argv)
+  const retryConfig = buildRetryConfig(argv)
   const streamWindow = new StreamWindow(
     streamWindowConfig,
     retryConfig,
