@@ -29,9 +29,36 @@ function renderBanner(
 }
 
 describe('ConnectionStatusBanner', () => {
-  test('renders nothing while connected', () => {
+  test('renders no message while connected', () => {
     const el = renderBanner({ isConnected: true, reason: null })
-    expect(el.querySelector('[role="status"]')).toBeNull()
+    expect(
+      el.querySelector('[data-testid="connection-status-banner"]'),
+    ).toBeNull()
+    expect(el.textContent).toBe('')
+  })
+
+  // `aria-live` only guarantees an announcement for content that changes
+  // inside an already-present region, so the region stays mounted (empty)
+  // while healthy - otherwise the first disconnect can go unannounced
+  // (WCAG 4.1.3, issue #463).
+  test('keeps the live region mounted while connected', () => {
+    const el = renderBanner({ isConnected: true, reason: null })
+    const region = el.querySelector('[role="status"]')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('aria-live')).toBe('polite')
+  })
+
+  test('reuses the same live region element across a disconnect', () => {
+    const el = renderBanner({ isConnected: true, reason: null })
+    const regionWhileConnected = el.querySelector('[role="status"]')
+    act(() => {
+      render(
+        <ConnectionStatusBanner isConnected={false} reason={null} />,
+        container!,
+      )
+    })
+    expect(el.querySelector('[role="status"]')).toBe(regionWhileConnected)
+    expect(regionWhileConnected?.textContent).toContain('reconnecting')
   })
 
   test('shows a generic reconnecting message with no reason', () => {
@@ -48,7 +75,7 @@ describe('ConnectionStatusBanner', () => {
 
   test('distinguishes an unauthorized session from a generic disconnect', () => {
     const el = renderBanner({ isConnected: false, reason: 'unauthorized' })
-    const banner = el.querySelector('[role="status"]')
+    const banner = el.querySelector('[data-testid="connection-status-banner"]')
     expect(banner?.textContent).toContain('Session invalid')
     expect(banner?.className).toContain('unauthorized')
   })
@@ -64,7 +91,7 @@ describe('ConnectionStatusBanner', () => {
 
   test('distinguishes a rate-limited connection from a generic disconnect', () => {
     const el = renderBanner({ isConnected: false, reason: 'rate-limited' })
-    const banner = el.querySelector('[role="status"]')
+    const banner = el.querySelector('[data-testid="connection-status-banner"]')
     expect(banner?.textContent).toContain('Too many messages')
     expect(banner?.className).toContain('rate-limited')
   })

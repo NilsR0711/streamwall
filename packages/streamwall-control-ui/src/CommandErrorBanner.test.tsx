@@ -29,9 +29,35 @@ function renderBanner(
 }
 
 describe('CommandErrorBanner', () => {
-  test('renders nothing when there is no error', () => {
+  test('renders no message when there is no error', () => {
     const el = renderBanner(null)
-    expect(el.querySelector('.command-error-banner')).toBeNull()
+    expect(el.textContent).toBe('')
+    expect(el.querySelector('.command-error-banner button')).toBeNull()
+  })
+
+  // `aria-live` only guarantees an announcement for content that changes
+  // inside an already-present region, so the region stays mounted (empty)
+  // while there is no error - otherwise the first command failure can go
+  // unannounced (WCAG 4.1.3, issue #463).
+  test('keeps the live region mounted while there is no error', () => {
+    const el = renderBanner(null)
+    const region = el.querySelector('.command-error-banner')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('role')).toBe('alert')
+    expect(region?.getAttribute('aria-live')).toBe('assertive')
+  })
+
+  test('reuses the same live region element when an error appears', () => {
+    const el = renderBanner(null)
+    const regionWhileHealthy = el.querySelector('.command-error-banner')
+    act(() => {
+      render(
+        <CommandErrorBanner error="unauthorized" onDismiss={() => {}} />,
+        container!,
+      )
+    })
+    expect(el.querySelector('.command-error-banner')).toBe(regionWhileHealthy)
+    expect(regionWhileHealthy?.textContent).toContain('unauthorized')
   })
 
   test('shows the error message when set', () => {

@@ -182,8 +182,14 @@ describe('rendering across a disconnect', () => {
     )
   })
 
-  test('renders no banner while connected', () => {
+  // The live region stays mounted but empty while connected, so that the
+  // first disconnect is a content change inside an existing region and gets
+  // announced (WCAG 4.1.3, issue #463).
+  test('renders no banner message while connected', () => {
     const root = renderControlUI({ isConnected: true, disconnectReason: null })
-    expect(root.querySelector('[role="status"]')).toBeNull()
+    expect(
+      root.querySelector('[data-testid="connection-status-banner"]'),
+    ).toBeNull()
+    expect(root.querySelector('[role="status"]')?.textContent).toBe('')
   })
 })
