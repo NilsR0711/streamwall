@@ -151,7 +151,7 @@ export function computeBoxRect(
   }
 }
 
-export function idxToCoords(cols: number, idx: number) {
+export function idxToCoords(cols: number, idx: CellIdx) {
   const x = idx % cols
   const y = Math.floor(idx / cols)
   return { x, y }
@@ -206,7 +206,7 @@ export function gridWouldDropAssignments(
   oldCols: number,
   newCols: number,
   newRows: number,
-  assignments: Map<number, string | undefined>,
+  assignments: Map<CellIdx, string | undefined>,
 ): boolean {
   for (const [oldIdx, streamId] of assignments) {
     if (streamId === undefined || streamId === '') {
@@ -230,7 +230,7 @@ export function gridWouldDropAssignments(
  * @param assignments Map of cell index -> streamId (undefined/'' = empty).
  */
 export function hasGridAssignments(
-  assignments: Map<number, string | undefined>,
+  assignments: Map<CellIdx, string | undefined>,
 ): boolean {
   for (const streamId of assignments.values()) {
     if (streamId !== undefined && streamId !== '') {
@@ -262,12 +262,12 @@ export function remapGridAssignments(
   oldCols: number,
   newCols: number,
   newRows: number,
-  oldAssignments: Map<number, string | undefined>,
+  oldAssignments: Map<CellIdx, string | undefined>,
   oldRows?: number,
-): Map<number, string | undefined> {
-  const result = new Map<number, string | undefined>()
+): Map<CellIdx, string | undefined> {
+  const result = new Map<CellIdx, string | undefined>()
   for (let idx = 0; idx < newCols * newRows; idx++) {
-    result.set(idx, undefined)
+    result.set(asCellIdx(idx), undefined)
   }
   const oldCellCount = oldRows === undefined ? undefined : oldCols * oldRows
   for (const [oldIdx, streamId] of oldAssignments) {
@@ -280,7 +280,7 @@ export function remapGridAssignments(
     const x = oldIdx % oldCols
     const y = Math.floor(oldIdx / oldCols)
     if (x < newCols && y < newRows) {
-      result.set(newCols * y + x, streamId)
+      result.set(asCellIdx(newCols * y + x), streamId)
     }
   }
   return result

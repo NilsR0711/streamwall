@@ -1,7 +1,7 @@
 import { render } from 'preact'
 import { useState } from 'preact/hooks'
 import { act } from 'preact/test-utils'
-import { type StreamwallRole } from 'streamwall-shared'
+import { asCellIdx, type CellIdx, type StreamwallRole } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import { useTileResize } from './useTileResize.ts'
@@ -92,7 +92,7 @@ function Harness({
   sharedState: { views: { [idx: string]: { streamId: string | undefined } } }
   role?: StreamwallRole | null
 }) {
-  const [hoveringIdx, setHoveringIdx] = useState<number | undefined>()
+  const [hoveringIdx, setHoveringIdx] = useState<CellIdx | undefined>()
   const { resize, handleResizeStart, handleResizeKeyDown } = useTileResize({
     cols: 2,
     rows: 2,
@@ -107,17 +107,29 @@ function Harness({
       <div data-resizing={resize?.anchorIdx ?? ''} />
       <button
         type="button"
-        onClick={() => handleResizeStart(0, 'e', [0], fakePointerDown())}
+        onClick={() =>
+          handleResizeStart(
+            asCellIdx(0),
+            'e',
+            [asCellIdx(0)],
+            fakePointerDown(),
+          )
+        }
       >
         start-resize-anchor-0-e
       </button>
-      <button type="button" onClick={() => setHoveringIdx(1)}>
+      <button type="button" onClick={() => setHoveringIdx(asCellIdx(1))}>
         hover-1
       </button>
       <button
         type="button"
         onClick={() =>
-          handleResizeKeyDown(0, 'e', [0], fakeKeyDown('ArrowRight'))
+          handleResizeKeyDown(
+            asCellIdx(0),
+            'e',
+            [asCellIdx(0)],
+            fakeKeyDown('ArrowRight'),
+          )
         }
       >
         keyboard-resize-anchor-0-e-right
@@ -125,7 +137,12 @@ function Harness({
       <button
         type="button"
         onClick={() =>
-          handleResizeKeyDown(0, 'e', [0], fakeKeyDown('ArrowDown'))
+          handleResizeKeyDown(
+            asCellIdx(0),
+            'e',
+            [asCellIdx(0)],
+            fakeKeyDown('ArrowDown'),
+          )
         }
       >
         keyboard-resize-anchor-0-e-down
@@ -134,9 +151,9 @@ function Harness({
         type="button"
         onClick={() =>
           handleResizeKeyDown(
-            0,
+            asCellIdx(0),
             'e',
-            [0],
+            [asCellIdx(0)],
             fakeKeyDown('ArrowRight', { shiftKey: true }),
           )
         }

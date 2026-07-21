@@ -6,11 +6,11 @@
  * wiring in the `ControlUI` component, so the assignment math can be
  * unit-tested in isolation.
  */
-import { idxToCoords } from 'streamwall-shared'
+import { asCellIdx, type CellIdx, idxToCoords } from 'streamwall-shared'
 
 export interface SwapBox {
   /** Grid cell indexes occupied by this box. */
-  spaces: number[]
+  spaces: CellIdx[]
   streamId: string | undefined
 }
 
@@ -24,10 +24,10 @@ export interface SwapBox {
 function translateFootprint(
   cols: number,
   rows: number,
-  spaces: number[],
-  fromIdx: number,
-  toIdx: number,
-): number[] {
+  spaces: CellIdx[],
+  fromIdx: CellIdx,
+  toIdx: CellIdx,
+): CellIdx[] {
   const coords = spaces.map((idx) => idxToCoords(cols, idx))
   const { x: fromX, y: fromY } = idxToCoords(cols, fromIdx)
   const { x: toX, y: toY } = idxToCoords(cols, toIdx)
@@ -50,7 +50,7 @@ function translateFootprint(
     dy = rows - 1 - maxY
   }
 
-  return coords.map(({ x, y }) => cols * (y + dy) + (x + dx))
+  return coords.map(({ x, y }) => asCellIdx(cols * (y + dy) + (x + dx)))
 }
 
 /**
@@ -67,18 +67,18 @@ function translateFootprint(
  * so a merged tile keeps its size and shape.
  */
 export function computeSwap(
-  boxes: Map<number, SwapBox>,
-  fromIdx: number,
-  toIdx: number,
+  boxes: Map<CellIdx, SwapBox>,
+  fromIdx: CellIdx,
+  toIdx: CellIdx,
   cols: number,
   rows: number,
-): Map<number, string | undefined> {
+): Map<CellIdx, string | undefined> {
   if (fromIdx === toIdx) {
     return new Map()
   }
   const fromBox = boxes.get(fromIdx)
   const toBox = boxes.get(toIdx)
-  const assignments = new Map<number, string | undefined>()
+  const assignments = new Map<CellIdx, string | undefined>()
 
   if (fromBox !== undefined && toBox === undefined) {
     const targetSpaces = translateFootprint(
@@ -119,10 +119,10 @@ export type ResizeHandle = 'e' | 's' | 'se'
  */
 function computeResizeBox(
   cols: number,
-  anchorIdx: number,
-  hoverIdx: number,
+  anchorIdx: CellIdx,
+  hoverIdx: CellIdx,
   handle: ResizeHandle,
-  originalSpaces: number[],
+  originalSpaces: CellIdx[],
 ) {
   const { x: anchorX, y: anchorY } = idxToCoords(cols, anchorIdx)
   const { x: hoverX, y: hoverY } = idxToCoords(cols, hoverIdx)
@@ -140,11 +140,11 @@ function computeResizeBox(
 /** Whether `idx` falls inside the box an in-progress resize gesture spans — used to preview which cells a commit would overwrite. */
 export function isIdxInResizeBox(
   cols: number,
-  anchorIdx: number,
-  hoverIdx: number,
+  anchorIdx: CellIdx,
+  hoverIdx: CellIdx,
   handle: ResizeHandle,
-  originalSpaces: number[],
-  idx: number,
+  originalSpaces: CellIdx[],
+  idx: CellIdx,
 ): boolean {
   const { minX, maxX, minY, maxY } = computeResizeBox(
     cols,
@@ -180,11 +180,11 @@ export function isIdxInResizeBox(
 export function computeKeyboardResizeHoverIdx(
   cols: number,
   rows: number,
-  anchorIdx: number,
+  anchorIdx: CellIdx,
   handle: ResizeHandle,
-  originalSpaces: number[],
+  originalSpaces: CellIdx[],
   key: string,
-): number | undefined {
+): CellIdx | undefined {
   const dx = key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0
   const dy = key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0
   if (dx === 0 && dy === 0) {
@@ -207,7 +207,7 @@ export function computeKeyboardResizeHoverIdx(
   if (newMaxX === maxX && newMaxY === maxY) {
     return undefined
   }
-  return cols * newMaxY + newMaxX
+  return asCellIdx(cols * newMaxY + newMaxX)
 }
 
 /**
@@ -220,12 +220,12 @@ export function computeKeyboardResizeHoverIdx(
  */
 export function resizeWouldOverwriteOtherStream(
   cols: number,
-  anchorIdx: number,
-  hoverIdx: number,
+  anchorIdx: CellIdx,
+  hoverIdx: CellIdx,
   streamId: string,
   handle: ResizeHandle,
-  originalSpaces: number[],
-  currentAssignments: Map<number, string | undefined>,
+  originalSpaces: CellIdx[],
+  currentAssignments: Map<CellIdx, string | undefined>,
 ): boolean {
   const { minX, maxX, minY, maxY } = computeResizeBox(
     cols,
@@ -236,7 +236,7 @@ export function resizeWouldOverwriteOtherStream(
   )
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      const existing = currentAssignments.get(cols * y + x)
+      const existing = currentAssignments.get(asCellIdx(cols * y + x))
       if (existing !== undefined && existing !== '' && existing !== streamId) {
         return true
       }
@@ -247,12 +247,12 @@ export function resizeWouldOverwriteOtherStream(
 
 export function computeResizeAssignments(
   cols: number,
-  anchorIdx: number,
-  hoverIdx: number,
+  anchorIdx: CellIdx,
+  hoverIdx: CellIdx,
   streamId: string,
   handle: ResizeHandle,
-  originalSpaces: number[],
-): Map<number, string | undefined> {
+  originalSpaces: CellIdx[],
+): Map<CellIdx, string | undefined> {
   const { minX, maxX, minY, maxY } = computeResizeBox(
     cols,
     anchorIdx,
@@ -260,10 +260,10 @@ export function computeResizeAssignments(
     handle,
     originalSpaces,
   )
-  const assignments = new Map<number, string | undefined>()
+  const assignments = new Map<CellIdx, string | undefined>()
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      assignments.set(cols * y + x, streamId)
+      assignments.set(asCellIdx(cols * y + x), streamId)
     }
   }
   for (const idx of originalSpaces) {

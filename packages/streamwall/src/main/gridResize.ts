@@ -1,4 +1,9 @@
-import { clampGridDimension, remapGridAssignments } from 'streamwall-shared'
+import {
+  asCellIdx,
+  type CellIdx,
+  clampGridDimension,
+  remapGridAssignments,
+} from 'streamwall-shared'
 import * as Y from 'yjs'
 
 /**
@@ -51,9 +56,9 @@ export function applyGridResize(
   const oldRows = ctx.getRows()
 
   // Read current assignments keyed by old cell index.
-  const oldAssignments = new Map<number, string | undefined>()
+  const oldAssignments = new Map<CellIdx, string | undefined>()
   for (const [key, viewData] of ctx.viewsState) {
-    oldAssignments.set(Number(key), viewData.get('streamId'))
+    oldAssignments.set(asCellIdx(Number(key)), viewData.get('streamId'))
   }
 
   // Remap by (x, y) into the new grid, then rebuild the views map.

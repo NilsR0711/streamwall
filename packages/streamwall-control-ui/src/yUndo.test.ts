@@ -1,11 +1,15 @@
-import { remapGridAssignments } from 'streamwall-shared'
+import {
+  asCellIdx,
+  type CellIdx,
+  remapGridAssignments,
+} from 'streamwall-shared'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import { createSharedUndoManager } from './yUndo.ts'
 
 function seedViews(
   doc: Y.Doc,
-  assignments: Map<number, string | undefined>,
+  assignments: Map<CellIdx, string | undefined>,
 ): void {
   const views = doc.getMap<Y.Map<string | undefined>>('views')
   doc.transact(() => {
@@ -29,7 +33,7 @@ function readViews(doc: Y.Doc): Map<number, string | undefined> {
 describe('createSharedUndoManager', () => {
   it('undoes and redoes a local edit (e.g. a drag-move)', () => {
     const doc = new Y.Doc()
-    seedViews(doc, new Map([[0, undefined]]))
+    seedViews(doc, new Map([[asCellIdx(0), undefined]]))
     const undoManager = createSharedUndoManager(doc, ['views'])
 
     doc
@@ -47,7 +51,7 @@ describe('createSharedUndoManager', () => {
 
   it('does not track transactions whose origin is not local or the configured remote origin', () => {
     const doc = new Y.Doc()
-    seedViews(doc, new Map([[0, undefined]]))
+    seedViews(doc, new Map([[asCellIdx(0), undefined]]))
     const undoManager = createSharedUndoManager(doc, ['views'], 'server')
 
     doc.transact(() => {
@@ -69,9 +73,9 @@ describe('createSharedUndoManager', () => {
     // which applies it with a remote origin (`applyUpdate(clientDoc, update,
     // 'server')`, see streamwall-control-client's `receiveUpdate`).
     const oldCols = 2
-    const oldAssignments = new Map<number, string | undefined>([
-      [0, 'keep-me'],
-      [1, 'drop-me'], // (x=1, y=0) falls outside a 1x1 grid.
+    const oldAssignments = new Map<CellIdx, string | undefined>([
+      [asCellIdx(0), 'keep-me'],
+      [asCellIdx(1), 'drop-me'], // (x=1, y=0) falls outside a 1x1 grid.
     ])
 
     // The authoritative doc lives in the main process; the client doc mirrors

@@ -1,4 +1,4 @@
-import { roleCan, type StreamwallRole } from 'streamwall-shared'
+import { type CellIdx, roleCan, type StreamwallRole } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { type ResizeHandle } from './gridInteractions'
 
@@ -85,19 +85,19 @@ export function ResizeHandles({
   onResizeStart,
   onResizeKeyDown,
 }: {
-  anchorIdx: number
-  originalSpaces: number[]
+  anchorIdx: CellIdx
+  originalSpaces: CellIdx[]
   role: StreamwallRole | null
   onResizeStart: (
-    anchorIdx: number,
+    anchorIdx: CellIdx,
     handle: ResizeHandle,
-    originalSpaces: number[],
+    originalSpaces: CellIdx[],
     ev: PointerEvent,
   ) => void
   onResizeKeyDown: (
-    anchorIdx: number,
+    anchorIdx: CellIdx,
     handle: ResizeHandle,
-    originalSpaces: number[],
+    originalSpaces: CellIdx[],
     ev: KeyboardEvent,
   ) => void
 }) {
