@@ -59,7 +59,10 @@ function makeView(streamId: string, spaces: number[]): ViewInfo {
         },
       },
       context: {
-        id: spaces[0],
+        // Deliberately distinct from the grid cell index so tests that assert
+        // on dispatched commands prove they carry the stable view id, not the
+        // cell index (issue #397).
+        id: 1000 + spaces[0],
         content: { url: `https://example.com/${streamId}`, kind: 'video' },
         info: null,
         pos: {
@@ -153,7 +156,7 @@ describe('ControlUI double-click fullscreen', () => {
 
     expect(sent).toContainEqual({
       type: 'set-view-fullscreen',
-      viewIdx: 1,
+      viewId: 1001,
       fullscreen: true,
     })
   })
@@ -177,7 +180,7 @@ describe('ControlUI double-click fullscreen', () => {
 
     expect(sent).toContainEqual({
       type: 'set-view-fullscreen',
-      viewIdx: 0,
+      viewId: 1000,
       fullscreen: false,
     })
   })

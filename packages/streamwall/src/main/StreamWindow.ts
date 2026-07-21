@@ -588,57 +588,68 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.emitState()
   }
 
-  setListeningView(viewIdx: number | null) {
-    const { views } = this
-    for (const view of views.values()) {
+  setListeningView(viewId: number | null) {
+    // Address the listening view by its stable id, not by grid cell, so a
+    // concurrent resize can't redirect "listen" to whatever tile now sits at
+    // an index (issue #397). `this.views` is keyed by each actor's stable
+    // `context.id`, so the map key is that id.
+    for (const [id, view] of this.views) {
       const snapshot = view.getSnapshot()
       if (!snapshot.matches('displaying')) {
         continue
       }
-      const { context } = snapshot
-      const isSelectedView =
-        viewIdx != null
-          ? (context.pos?.spaces.includes(viewIdx) ?? false)
-          : false
+      const isSelectedView = viewId != null && id === viewId
       view.send({ type: isSelectedView ? 'UNMUTE' : 'MUTE' })
     }
   }
 
-  findViewByIdx(viewIdx: number) {
-    for (const view of this.views.values()) {
-      if (view.getSnapshot().context.pos?.spaces?.includes?.(viewIdx)) {
-        return view
-      }
-    }
+  findViewById(viewId: number) {
+    // O(1) lookup by stable id: `this.views` is keyed by each actor's
+    // creation-time `context.id`, which survives grid resizes and remaps
+    // (issue #397), unlike a grid cell index.
+    return this.views.get(viewId)
   }
 
-  sendViewEvent(viewIdx: number, event: EventFrom<typeof viewStateMachine>) {
-    const view = this.findViewByIdx(viewIdx)
+  sendViewEvent(viewId: number, event: EventFrom<typeof viewStateMachine>) {
+    const view = this.findViewById(viewId)
     if (view) {
       view.send(event)
     }
   }
 
-  setViewBackgroundListening(viewIdx: number, listening: boolean) {
-    this.sendViewEvent(viewIdx, {
+  /**
+   * The top-left grid cell the view with `viewId` currently occupies, or null
+   * when it has no placement or no such view exists. Translates a stable view
+   * id into the cell-based `fullscreenViewIdx` the layout state still keys on
+   * (issue #397), resolved against the live layout so a resize racing the
+   * command can't select the wrong cell.
+   */
+  getViewAnchorIdx(viewId: number): number | null {
+    return (
+      this.findViewById(viewId)?.getSnapshot().context.pos?.spaces[0] ?? null
+    )
+  }
+
+  setViewBackgroundListening(viewId: number, listening: boolean) {
+    this.sendViewEvent(viewId, {
       type: listening ? 'BACKGROUND' : 'UNBACKGROUND',
     })
   }
 
-  setViewBlurred(viewIdx: number, blurred: boolean) {
-    this.sendViewEvent(viewIdx, { type: blurred ? 'BLUR' : 'UNBLUR' })
+  setViewBlurred(viewId: number, blurred: boolean) {
+    this.sendViewEvent(viewId, { type: blurred ? 'BLUR' : 'UNBLUR' })
   }
 
-  setViewVolume(viewIdx: number, volume: number) {
-    this.sendViewEvent(viewIdx, { type: 'SET_VOLUME', volume })
+  setViewVolume(viewId: number, volume: number) {
+    this.sendViewEvent(viewId, { type: 'SET_VOLUME', volume })
   }
 
-  reloadView(viewIdx: number) {
-    this.sendViewEvent(viewIdx, { type: 'RELOAD' })
+  reloadView(viewId: number) {
+    this.sendViewEvent(viewId, { type: 'RELOAD' })
   }
 
-  openDevTools(viewIdx: number, inWebContents: WebContents) {
-    this.sendViewEvent(viewIdx, { type: 'DEVTOOLS', inWebContents })
+  openDevTools(viewId: number, inWebContents: WebContents) {
+    this.sendViewEvent(viewId, { type: 'DEVTOOLS', inWebContents })
   }
 
   onState(state: StreamwallState) {

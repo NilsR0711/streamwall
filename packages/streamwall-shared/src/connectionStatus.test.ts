@@ -76,7 +76,7 @@ describe('parseUplinkError', () => {
 
   test('returns null for a command message', () => {
     expect(
-      parseUplinkError({ type: 'set-view-blurred', viewIdx: 0, blurred: true }),
+      parseUplinkError({ type: 'set-view-blurred', viewId: 0, blurred: true }),
     ).toBeNull()
   })
 

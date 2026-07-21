@@ -42,6 +42,17 @@ const orientationSchema = z.enum(['V', 'H'])
 
 const rotationSchema = z.number().min(0).max(MAX_ROTATION)
 const viewIdxSchema = z.number().int().min(0).max(MAX_VIEW_IDX)
+
+/**
+ * A stable per-view identity, fixed when a view actor is created and preserved
+ * across grid resizes and remaps (issue #397). Unlike {@link viewIdxSchema} —
+ * a *grid cell index* that shifts whenever the layout changes — this addresses
+ * one specific running view for the lifetime of its actor, so a control command
+ * cannot race a concurrent resize into acting on the wrong tile. It is an
+ * opaque non-negative integer (the actor's creation-time `webContents.id`); it
+ * is deliberately not bounded by `MAX_VIEW_IDX`, which only limits grid cells.
+ */
+const viewIdSchema = z.number().int().nonnegative()
 const gridDimensionSchema = z.number().int().min(GRID_MIN).max(GRID_MAX)
 const volumeSchema = z.number().min(0).max(1)
 
@@ -129,21 +140,21 @@ export function parseStreamList(input: unknown): {
 export const controlCommandSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('set-listening-view'),
-    viewIdx: viewIdxSchema.nullable(),
+    viewId: viewIdSchema.nullable(),
   }),
   z.object({
     type: z.literal('set-view-background-listening'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
     listening: z.boolean(),
   }),
   z.object({
     type: z.literal('set-view-blurred'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
     blurred: z.boolean(),
   }),
   z.object({
     type: z.literal('set-view-volume'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
     volume: volumeSchema,
   }),
   z.object({
@@ -162,11 +173,11 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('reload-view'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
   }),
   z.object({
     type: z.literal('set-view-fullscreen'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
     fullscreen: z.boolean(),
   }),
   z.object({
@@ -175,7 +186,7 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('dev-tools'),
-    viewIdx: viewIdxSchema,
+    viewId: viewIdSchema,
   }),
   z.object({
     type: z.literal('set-stream-censored'),
@@ -324,7 +335,9 @@ const viewStateValueSchema = z.union([
 const viewStateSchema = z.object({
   state: viewStateValueSchema,
   context: z.object({
-    id: viewIdxSchema,
+    // Stable per-view identity (issue #397). Control commands target views by
+    // this `id`, not by grid cell index, so a resize can't misroute them.
+    id: viewIdSchema,
     content: viewContentSchema.nullable(),
     info: contentViewInfoSchema.nullable(),
     pos: viewPosSchema.nullable(),

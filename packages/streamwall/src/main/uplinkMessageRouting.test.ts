@@ -21,11 +21,11 @@ describe('routeUplinkWsMessage', () => {
   it('routes a valid uplink command as a command message', () => {
     expect(
       routeUplinkWsMessage(
-        JSON.stringify({ type: 'set-view-blurred', viewIdx: 0, blurred: true }),
+        JSON.stringify({ type: 'set-view-blurred', viewId: 0, blurred: true }),
       ),
     ).toEqual({
       kind: 'command',
-      message: { type: 'set-view-blurred', viewIdx: 0, blurred: true },
+      message: { type: 'set-view-blurred', viewId: 0, blurred: true },
     })
   })
 

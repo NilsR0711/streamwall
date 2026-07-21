@@ -107,16 +107,16 @@ async function connectStreamwallAndClient({
 test('does not forward an out-of-bounds command to the Streamwall uplink', async () => {
   const { clientWs, streamwall } = await connectStreamwallAndClient()
 
-  // Invalid: viewIdx is negative (outside the bounded range).
-  clientWs.send(JSON.stringify({ id: 10, type: 'reload-view', viewIdx: -5 }))
+  // Invalid: viewId is negative (outside the bounded range).
+  clientWs.send(JSON.stringify({ id: 10, type: 'reload-view', viewId: -5 }))
   // Valid: a well-formed command that must reach the uplink.
-  clientWs.send(JSON.stringify({ id: 11, type: 'reload-view', viewIdx: 2 }))
+  clientWs.send(JSON.stringify({ id: 11, type: 'reload-view', viewId: 2 }))
 
-  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 2)
+  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewId === 2)
 
   const reloads = streamwall.messages.filter(isCommandType('reload-view'))
   assert.equal(reloads.length, 1, 'only the valid command should be forwarded')
-  assert.equal(reloads[0].viewIdx, 2)
+  assert.equal(reloads[0].viewId, 2)
 })
 
 test('does not forward an unknown command type to the Streamwall uplink', async () => {
@@ -125,9 +125,9 @@ test('does not forward an unknown command type to the Streamwall uplink', async 
   // An admin passes every roleCan check, so only schema validation can stop
   // an unrecognized command from reaching the desktop.
   clientWs.send(JSON.stringify({ id: 20, type: 'evil-command', payload: 1 }))
-  clientWs.send(JSON.stringify({ id: 21, type: 'reload-view', viewIdx: 1 }))
+  clientWs.send(JSON.stringify({ id: 21, type: 'reload-view', viewId: 1 }))
 
-  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 1)
+  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewId === 1)
 
   assert.ok(
     // Not a real ControlCommand type: cast, since it can never actually match.
@@ -139,7 +139,7 @@ test('does not forward an unknown command type to the Streamwall uplink', async 
 test('answers an invalid command with an error response', async () => {
   const { clientWs, client } = await connectStreamwallAndClient()
 
-  clientWs.send(JSON.stringify({ id: 42, type: 'reload-view', viewIdx: -5 }))
+  clientWs.send(JSON.stringify({ id: 42, type: 'reload-view', viewId: -5 }))
 
   const response = await client.waitFor(isResponseTo(42))
   assert.equal(response.error, 'invalid message')
@@ -215,7 +215,7 @@ test('accepts an initial state payload with legitimately empty views', async () 
   // rejected by the stricter validation.
   const { clientWs, streamwall } = await connectStreamwallAndClient()
 
-  clientWs.send(JSON.stringify({ id: 1, type: 'reload-view', viewIdx: 0 }))
+  clientWs.send(JSON.stringify({ id: 1, type: 'reload-view', viewId: 0 }))
   await streamwall.waitFor((m) => m.type === 'reload-view')
 
   assert.ok(
@@ -250,13 +250,11 @@ test('drops a malformed state update on an already-connected uplink without cras
   // command from the client is still forwarded to the (still-connected)
   // uplink, proving the malformed update was cleanly dropped rather than
   // tearing down or corrupting the connection.
-  clientWs.send(JSON.stringify({ id: 99, type: 'reload-view', viewIdx: 1 }))
-  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewIdx === 1)
+  clientWs.send(JSON.stringify({ id: 99, type: 'reload-view', viewId: 1 }))
+  await streamwall.waitFor((m) => m.type === 'reload-view' && m.viewId === 1)
 
   assert.ok(
-    streamwall.messages.some(
-      (m) => m.type === 'reload-view' && m.viewIdx === 1,
-    ),
+    streamwall.messages.some((m) => m.type === 'reload-view' && m.viewId === 1),
   )
 })
 

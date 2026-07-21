@@ -717,21 +717,17 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     }
 
     if (msg.type === 'set-listening-view') {
-      log.debug('Setting listening view:', msg.viewIdx)
-      streamWindow.setListeningView(msg.viewIdx)
+      log.debug('Setting listening view:', msg.viewId)
+      streamWindow.setListeningView(msg.viewId)
     } else if (msg.type === 'set-view-background-listening') {
-      log.debug(
-        'Setting view background listening:',
-        msg.viewIdx,
-        msg.listening,
-      )
-      streamWindow.setViewBackgroundListening(msg.viewIdx, msg.listening)
+      log.debug('Setting view background listening:', msg.viewId, msg.listening)
+      streamWindow.setViewBackgroundListening(msg.viewId, msg.listening)
     } else if (msg.type === 'set-view-blurred') {
-      log.debug('Setting view blurred:', msg.viewIdx, msg.blurred)
-      streamWindow.setViewBlurred(msg.viewIdx, msg.blurred)
+      log.debug('Setting view blurred:', msg.viewId, msg.blurred)
+      streamWindow.setViewBlurred(msg.viewId, msg.blurred)
     } else if (msg.type === 'set-view-volume') {
-      log.debug('Setting view volume:', msg.viewIdx, msg.volume)
-      streamWindow.setViewVolume(msg.viewIdx, msg.volume)
+      log.debug('Setting view volume:', msg.viewId, msg.volume)
+      streamWindow.setViewVolume(msg.viewId, msg.volume)
     } else if (msg.type === 'rotate-stream') {
       log.debug('Rotating stream:', msg.url, msg.rotation)
       overlayStreamData.update(msg.url, {
@@ -744,14 +740,25 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       log.debug('Deleting custom stream:', msg.url)
       localStreamData.delete(msg.url)
     } else if (msg.type === 'reload-view') {
-      log.debug('Reloading view:', msg.viewIdx)
-      streamWindow.reloadView(msg.viewIdx)
+      log.debug('Reloading view:', msg.viewId)
+      streamWindow.reloadView(msg.viewId)
     } else if (msg.type === 'set-view-fullscreen') {
       // Runtime-only wall zoom (issue #362): remember which view fills the
       // wall (or null) and re-derive the layout. Broadcast the new value first
       // so clients render the expansion consistently, then re-lay-out the wall.
-      log.debug('Setting view fullscreen:', msg.viewIdx, msg.fullscreen)
-      updateState({ fullscreenViewIdx: msg.fullscreen ? msg.viewIdx : null })
+      //
+      // The command carries a stable view id (issue #397); resolve it to the
+      // cell that view currently occupies so the cell-based `fullscreenViewIdx`
+      // (which the layout state and clients still key on) reflects the view the
+      // operator actually double-clicked, even if a resize just moved it. If
+      // the view has no placement, `getViewAnchorIdx` returns null and no
+      // expansion happens.
+      log.debug('Setting view fullscreen:', msg.viewId, msg.fullscreen)
+      updateState({
+        fullscreenViewIdx: msg.fullscreen
+          ? streamWindow.getViewAnchorIdx(msg.viewId)
+          : null,
+      })
       updateViewsFromStateDoc()
     } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
       if (browseWindow && !browseWindow.isDestroyed()) {
@@ -788,8 +795,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
           return { error: 'invalid url' }
         }
       } else if (msg.type === 'dev-tools') {
-        log.debug('Opening DevTools for view:', msg.viewIdx)
-        streamWindow.openDevTools(msg.viewIdx, browseWindow.webContents)
+        log.debug('Opening DevTools for view:', msg.viewId)
+        streamWindow.openDevTools(msg.viewId, browseWindow.webContents)
       }
     } else if (msg.type === 'set-stream-censored' && streamdelayClient) {
       log.debug('Setting stream censored:', msg.isCensored)

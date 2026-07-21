@@ -115,7 +115,7 @@ test('an operator cannot create-invite: it is dropped, logged, and never forward
         name: 'x',
       }),
     )
-    clientWs.send(JSON.stringify({ id: 2, type: 'reload-view', viewIdx: 0 }))
+    clientWs.send(JSON.stringify({ id: 2, type: 'reload-view', viewId: 0 }))
 
     const response = await client.waitFor(isResponseTo(1))
     assert.equal(response.error, 'unauthorized')
@@ -145,7 +145,7 @@ test('an operator cannot browse: it is dropped, logged, and never forwarded', as
     clientWs.send(
       JSON.stringify({ id: 3, type: 'browse', url: 'https://example.com' }),
     )
-    clientWs.send(JSON.stringify({ id: 4, type: 'reload-view', viewIdx: 0 }))
+    clientWs.send(JSON.stringify({ id: 4, type: 'reload-view', viewId: 0 }))
 
     const response = await client.waitFor(isResponseTo(3))
     assert.equal(response.error, 'unauthorized')
@@ -240,13 +240,13 @@ test('an operator can set-listening-view: it is forwarded to the Streamwall upli
   const { clientWs } = await connectClient('operator')
 
   clientWs.send(
-    JSON.stringify({ id: 9, type: 'set-listening-view', viewIdx: 0 }),
+    JSON.stringify({ id: 9, type: 'set-listening-view', viewId: 0 }),
   )
 
   const forwarded = await streamwall.waitFor(
     isCommandType('set-listening-view'),
   )
-  assert.equal(forwarded.viewIdx, 0)
+  assert.equal(forwarded.viewId, 0)
 })
 
 test("an admin's state broadcast includes auth while an operator's does not", async () => {

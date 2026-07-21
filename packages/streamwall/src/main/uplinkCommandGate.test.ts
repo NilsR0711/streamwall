@@ -14,7 +14,7 @@ describe('checkUplinkCommandGate', () => {
   it('allows an uplink command on the remote allowlist', () => {
     expect(
       checkUplinkCommandGate(
-        { type: 'set-listening-view', viewIdx: 0 },
+        { type: 'set-listening-view', viewId: 0 },
         'uplink',
       ),
     ).toEqual({ allowed: true })

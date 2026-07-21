@@ -41,6 +41,7 @@ const StyledGridControlsContainer = styled.div`
 
 export function GridControls({
   idx,
+  viewId,
   streamId,
   style,
   isDisplaying,
@@ -63,7 +64,13 @@ export function GridControls({
   onPointerDown,
   onToggleFullscreen,
 }: {
+  // Grid cell index of this tile's top-left space. Used only for position-based
+  // operations (swap/drag) that intentionally target the cell, not the view.
   idx: number
+  // Stable identity of the view actor currently in this tile. View-state
+  // commands (listen/blur/volume/reload/devtools/fullscreen) address the view
+  // by this id so a concurrent grid resize can't misroute them (issue #397).
+  viewId: number
   streamId: string
   style: JSX.HTMLAttributes['style']
   isDisplaying: boolean
@@ -74,32 +81,30 @@ export function GridControls({
   isSwapping: boolean
   showDebug: boolean
   role: StreamwallRole | null
-  onSetListening: (idx: number, isListening: boolean) => void
+  onSetListening: (viewId: number, isListening: boolean) => void
   onSetBackgroundListening: (
-    idx: number,
+    viewId: number,
     isBackgroundListening: boolean,
   ) => void
-  onSetBlurred: (idx: number, isBlurred: boolean) => void
-  onSetVolume: (idx: number, volume: number) => void
-  onReloadView: (idx: number) => void
+  onSetBlurred: (viewId: number, isBlurred: boolean) => void
+  onSetVolume: (viewId: number, volume: number) => void
+  onReloadView: (viewId: number) => void
   onSwapView: (idx: number) => void
   onRotateView: (streamId: string) => void
   onBrowse: (streamId: string) => void
-  onDevTools: (idx: number) => void
+  onDevTools: (viewId: number) => void
   onPointerDown: JSX.PointerEventHandler<HTMLDivElement>
-  onToggleFullscreen: (idx: number) => void
+  onToggleFullscreen: (viewId: number) => void
 }) {
-  // TODO: Refactor callbacks to use streamID instead of idx.
-  // We should probably also switch the view-state-changing RPCs to use a view id instead of idx like they do currently.
   const handleListeningClick = useCallback<
     JSX.MouseEventHandler<HTMLButtonElement>
   >(
     (ev) =>
       ev.shiftKey || isBackgroundListening
-        ? onSetBackgroundListening(idx, !isBackgroundListening)
-        : onSetListening(idx, !isListening),
+        ? onSetBackgroundListening(viewId, !isBackgroundListening)
+        : onSetListening(viewId, !isListening),
     [
-      idx,
+      viewId,
       onSetListening,
       onSetBackgroundListening,
       isListening,
@@ -107,18 +112,18 @@ export function GridControls({
     ],
   )
   const handleBlurClick = useCallback(
-    () => onSetBlurred(idx, !isBlurred),
-    [idx, onSetBlurred, isBlurred],
+    () => onSetBlurred(viewId, !isBlurred),
+    [viewId, onSetBlurred, isBlurred],
   )
   const handleVolumeInput = useCallback<
     JSX.InputEventHandler<HTMLInputElement>
   >(
-    (ev) => onSetVolume(idx, Number(ev.currentTarget.value)),
-    [idx, onSetVolume],
+    (ev) => onSetVolume(viewId, Number(ev.currentTarget.value)),
+    [viewId, onSetVolume],
   )
   const handleReloadClick = useCallback(
-    () => onReloadView(idx),
-    [idx, onReloadView],
+    () => onReloadView(viewId),
+    [viewId, onReloadView],
   )
   const handleSwapClick = useCallback(() => onSwapView(idx), [idx, onSwapView])
   const handleRotateClick = useCallback(
@@ -130,8 +135,8 @@ export function GridControls({
     [streamId, onBrowse],
   )
   const handleDevToolsClick = useCallback(
-    () => onDevTools(idx),
-    [idx, onDevTools],
+    () => onDevTools(viewId),
+    [viewId, onDevTools],
   )
   const handleDoubleClick = useCallback<JSX.MouseEventHandler<HTMLDivElement>>(
     (ev) => {
@@ -144,9 +149,9 @@ export function GridControls({
       if (ev.target instanceof Element && ev.target.closest('button, input')) {
         return
       }
-      onToggleFullscreen(idx)
+      onToggleFullscreen(viewId)
     },
-    [role, idx, onToggleFullscreen],
+    [role, viewId, onToggleFullscreen],
   )
   return (
     <StyledGridControlsContainer

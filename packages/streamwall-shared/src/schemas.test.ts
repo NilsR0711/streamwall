@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   type ControlCommand,
+  MAX_VIEW_IDX,
   controlCommandMessageSchema,
   controlStateMessageSchema,
   localStreamDataSchema,
@@ -152,7 +153,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-blurred',
-        viewIdx: 0,
+        viewId: 0,
         blurred: true,
       }).success,
     ).toBe(true)
@@ -163,7 +164,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-fullscreen',
-        viewIdx: 3,
+        viewId: 3,
         fullscreen: true,
       }).success,
     ).toBe(true)
@@ -171,7 +172,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-fullscreen',
-        viewIdx: 0,
+        viewId: 0,
         fullscreen: false,
       }).success,
     ).toBe(true)
@@ -182,7 +183,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-fullscreen',
-        viewIdx: 0,
+        viewId: 0,
         fullscreen: 'yes',
       }).success,
     ).toBe(false)
@@ -193,7 +194,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-fullscreen',
-        viewIdx: 0,
+        viewId: 0,
       }).success,
     ).toBe(false)
   })
@@ -221,7 +222,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-blurred',
-        viewIdx: 0,
+        viewId: 0,
       }).success,
     ).toBe(false)
   })
@@ -231,7 +232,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-blurred',
-        viewIdx: 0,
+        viewId: 0,
         blurred: 'yes',
       }).success,
     ).toBe(false)
@@ -239,7 +240,7 @@ describe('controlCommandMessageSchema', () => {
 
   test('rejects a message without a numeric id', () => {
     expect(
-      controlCommandMessageSchema.safeParse({ type: 'reload-view', viewIdx: 0 })
+      controlCommandMessageSchema.safeParse({ type: 'reload-view', viewId: 0 })
         .success,
     ).toBe(false)
   })
@@ -271,21 +272,33 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
-  test('bounds the view index to a non-negative integer', () => {
+  test('bounds the view id to a non-negative integer', () => {
     expect(
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'reload-view',
-        viewIdx: -1,
+        viewId: -1,
       }).success,
     ).toBe(false)
     expect(
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'reload-view',
-        viewIdx: 1.5,
+        viewId: 1.5,
       }).success,
     ).toBe(false)
+  })
+
+  test('accepts a view id above the max grid cell index (issue #397)', () => {
+    // A view id is the actor's stable identity, not a grid cell, so unlike a
+    // grid index it must not be capped at MAX_VIEW_IDX.
+    expect(
+      controlCommandMessageSchema.safeParse({
+        id: 1,
+        type: 'reload-view',
+        viewId: MAX_VIEW_IDX + 100,
+      }).success,
+    ).toBe(true)
   })
 
   test('rejects an out-of-range rotation on rotate-stream', () => {
@@ -304,7 +317,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-listening-view',
-        viewIdx: null,
+        viewId: null,
       }).success,
     ).toBe(true)
   })
@@ -438,7 +451,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-volume',
-        viewIdx: 0,
+        viewId: 0,
         volume: 0.5,
       }).success,
     ).toBe(true)
@@ -449,7 +462,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-volume',
-        viewIdx: 0,
+        viewId: 0,
         volume: 1.5,
       }).success,
     ).toBe(false)
@@ -457,7 +470,7 @@ describe('controlCommandMessageSchema', () => {
       controlCommandMessageSchema.safeParse({
         id: 1,
         type: 'set-view-volume',
-        viewIdx: 0,
+        viewId: 0,
         volume: -0.1,
       }).success,
     ).toBe(false)
@@ -507,7 +520,7 @@ describe('controlCommandMessageSchema', () => {
     const result = controlCommandMessageSchema.safeParse({
       id: 7,
       type: 'reload-view',
-      viewIdx: 2,
+      viewId: 2,
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -688,6 +701,29 @@ describe('streamwallStateSchema', () => {
   test('rejects an out-of-bounds fullscreenViewIdx', () => {
     const malformed = { ...VALID_STATE, fullscreenViewIdx: -1 }
     expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
+  test('accepts a view whose stable id exceeds MAX_VIEW_IDX (issue #397)', () => {
+    // A view's `context.id` is its stable actor identity (a webContents id),
+    // which grows unbounded over a session and is not a grid cell — so it must
+    // not be rejected for exceeding MAX_VIEW_IDX.
+    const state = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: MAX_VIEW_IDX + 500,
+            content: null,
+            info: null,
+            pos: null,
+            error: null,
+            volume: 0,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(state).success).toBe(true)
   })
 
   test('accepts a null fullscreenViewIdx and a populated streamdelay', () => {

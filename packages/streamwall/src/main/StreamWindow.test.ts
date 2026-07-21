@@ -90,7 +90,7 @@ describe('StreamWindow.setGridSize', () => {
 
 /**
  * A minimal stand-in for a ViewActor: enough of the `getSnapshot()`/`send()`
- * surface for setViewVolume/sendViewEvent/findViewByIdx to operate on,
+ * surface for setViewVolume/sendViewEvent/findViewById to operate on,
  * without a real XState actor or Electron WebContentsView.
  */
 function makeFakeViewActor(pos: { spaces: number[] } | null, send = vi.fn()) {
@@ -101,17 +101,17 @@ function makeFakeViewActor(pos: { spaces: number[] } | null, send = vi.fn()) {
 }
 
 describe('StreamWindow.setViewVolume', () => {
-  it('sends SET_VOLUME to the view occupying the given index', () => {
+  it('sends SET_VOLUME to the view with the given stable id', () => {
     const sw = makeStreamWindow(makeConfig())
     const send = vi.fn()
     sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
 
-    sw.setViewVolume(0, 0.5)
+    sw.setViewVolume(1, 0.5)
 
     expect(send).toHaveBeenCalledWith({ type: 'SET_VOLUME', volume: 0.5 })
   })
 
-  it('does nothing when no view occupies the given index', () => {
+  it('does nothing when no view has the given id', () => {
     const sw = makeStreamWindow(makeConfig())
     const send = vi.fn()
     sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
@@ -119,6 +119,82 @@ describe('StreamWindow.setViewVolume', () => {
     sw.setViewVolume(5, 0.5)
 
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it('reaches the view by id even after a resize moved it to a new cell (issue #397)', () => {
+    // The view keeps stable id 42 but now occupies cell 7 instead of 0. A
+    // command addressed by its id must still reach it, and must not leak onto
+    // whatever view now sits at the view's old cell.
+    const sw = makeStreamWindow(makeConfig())
+    const movedSend = vi.fn()
+    const otherSend = vi.fn()
+    sw.views = new Map([
+      [42, makeFakeViewActor({ spaces: [7] }, movedSend)],
+      [9, makeFakeViewActor({ spaces: [0] }, otherSend)],
+    ])
+
+    sw.setViewVolume(42, 0.25)
+
+    expect(movedSend).toHaveBeenCalledWith({ type: 'SET_VOLUME', volume: 0.25 })
+    expect(otherSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('StreamWindow.setListeningView', () => {
+  function displayingActor(send = vi.fn()) {
+    return {
+      getSnapshot: () => ({
+        matches: (query: unknown) => query === 'displaying',
+      }),
+      send,
+    } as unknown as ReturnType<typeof StreamWindow.prototype.createView>
+  }
+
+  it('unmutes the view with the given id and mutes the rest, by stable id (issue #397)', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const selected = vi.fn()
+    const other = vi.fn()
+    sw.views = new Map([
+      [42, displayingActor(selected)],
+      [9, displayingActor(other)],
+    ])
+
+    sw.setListeningView(42)
+
+    expect(selected).toHaveBeenCalledWith({ type: 'UNMUTE' })
+    expect(other).toHaveBeenCalledWith({ type: 'MUTE' })
+  })
+
+  it('mutes every view when the listening id is null', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const a = vi.fn()
+    const b = vi.fn()
+    sw.views = new Map([
+      [1, displayingActor(a)],
+      [2, displayingActor(b)],
+    ])
+
+    sw.setListeningView(null)
+
+    expect(a).toHaveBeenCalledWith({ type: 'MUTE' })
+    expect(b).toHaveBeenCalledWith({ type: 'MUTE' })
+  })
+})
+
+describe('StreamWindow.getViewAnchorIdx', () => {
+  it('returns the top-left cell of the view with the given id', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.views = new Map([[42, makeFakeViewActor({ spaces: [7, 8] })]])
+
+    expect(sw.getViewAnchorIdx(42)).toBe(7)
+  })
+
+  it('returns null for an unknown id or a view without a placement', () => {
+    const sw = makeStreamWindow(makeConfig())
+    sw.views = new Map([[42, makeFakeViewActor(null)]])
+
+    expect(sw.getViewAnchorIdx(42)).toBeNull()
+    expect(sw.getViewAnchorIdx(999)).toBeNull()
   })
 })
 
