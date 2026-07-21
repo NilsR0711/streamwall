@@ -39,3 +39,27 @@ export function idColor(id: string) {
   const sPart = hashText(id, 40)
   return Color({ h, s: 20 + sPart, l: 50 })
 }
+
+/**
+ * Contrast-safe focus ring colours for a surface painted with an id-derived
+ * colour (see idColor above).
+ *
+ * The shared `:focus-visible` affordance uses the accent token, which works
+ * everywhere it sits on a neutral surface. In the grid the ring is drawn with
+ * `outline-offset` onto the *neighbouring* cells, whose colour is whatever the
+ * stream id hashes to — so a red-ish tile can leave the red accent at roughly
+ * 2:1, below the 3:1 WCAG 2.4.11 (Focus Appearance) asks for (#557).
+ *
+ * Picking the better of black/white clears 3:1 against every colour the id
+ * space can paint, and the pair contrasts against itself, so both edges of the
+ * indicator stay legible.
+ */
+export function focusRingColors(tile: ReturnType<typeof Color>) {
+  const black = Color('black')
+  const white = Color('white')
+  const ringIsBlack = tile.contrast(black) >= tile.contrast(white)
+  return {
+    ring: (ringIsBlack ? black : white).hex(),
+    halo: (ringIsBlack ? white : black).hex(),
+  }
+}

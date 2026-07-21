@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Color, hashText, idColor } from './colors.ts'
+import { Color, focusRingColors, hashText, idColor } from './colors.ts'
 
 describe('hashText', () => {
   it('returns a fixed hash for a fixed input', () => {
@@ -90,5 +90,48 @@ describe('idColor', () => {
   // fast path fails, throwing "Unable to parse color from object".
   it('returns an instance recognized by the re-exported Color constructor', () => {
     expect(idColor('streamwall')).toBeInstanceOf(Color)
+  })
+})
+
+// The grid draws the shared `:focus-visible` ring with `outline-offset`, so
+// the ring lands on the *neighbouring* tiles rather than on a neutral surface.
+// A tile's colour comes from its stream id, so the accent token cannot
+// guarantee the 3:1 WCAG 2.4.11 asks for — a red-ish tile leaves the red
+// accent at roughly 2:1 (#557).
+describe('focusRingColors', () => {
+  it('picks the black/white pair with the better contrast against the tile', () => {
+    expect(focusRingColors(Color('white'))).toEqual({
+      ring: '#000000',
+      halo: '#FFFFFF',
+    })
+    expect(focusRingColors(Color('black'))).toEqual({
+      ring: '#FFFFFF',
+      halo: '#000000',
+    })
+  })
+
+  it('keeps the ring and halo contrasting against each other', () => {
+    const { ring, halo } = focusRingColors(idColor('streamwall'))
+    expect(Color(ring).contrast(Color(halo))).toBe(21)
+  })
+
+  it('clears 3:1 against the tile for every colour the id space can produce', () => {
+    const ids = [
+      '',
+      'a',
+      'stream-1',
+      'streamwall',
+      'dQw4w9WgXcQ',
+      'https://twitch.tv/somechannel',
+      ...Array.from({ length: 64 }, (_, i) => `id-${i}`),
+    ]
+    for (const id of ids) {
+      // The grid paints tiles at lightness 75, or 90 while highlighted.
+      for (const lightness of [75, 90]) {
+        const tile = idColor(id).lightness(lightness)
+        const { ring } = focusRingColors(tile)
+        expect(tile.contrast(Color(ring))).toBeGreaterThanOrEqual(3)
+      }
+    }
   })
 })

@@ -1,10 +1,10 @@
 import { type ComponentChildren, render } from 'preact'
 import { act } from 'preact/test-utils'
-import { asCellIdx } from 'streamwall-shared'
+import { asCellIdx, Color, focusRingColors, idColor } from 'streamwall-shared'
 import { StyleSheetManager } from 'styled-components'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { GridInput } from './GridInput.tsx'
+import { cellColor, GridInput } from './GridInput.tsx'
 import { GlobalStyle } from './globalStyle.tsx'
 
 let container: HTMLDivElement | undefined
@@ -137,6 +137,11 @@ describe('GridInput', () => {
     expect(input.getAttribute('data-idx')).toBe('3')
   })
 
+  test('paints the tile lighter while it is highlighted', () => {
+    expect(cellColor(idColor('stream-1')).lightness()).toBe(75)
+    expect(cellColor(idColor('stream-1'), true).lightness()).toBe(90)
+  })
+
   // The cell used to draw its own hardcoded `outline: 1px solid black` /
   // `box-shadow: ... black inset` on `:focus`, which fired on pointer
   // interaction too and out-specified the shared `:focus-visible` ring added
@@ -150,15 +155,51 @@ describe('GridInput', () => {
       expect(collectCss()).not.toMatch(/:focus(?!-visible)/)
     })
 
-    test('does not hardcode a focus colour, leaving the shared accent ring to apply', () => {
-      renderInput()
+    // The ring is drawn outside the cell, so it lands on the neighbouring
+    // tiles - whose colour is whatever their stream id hashes to. The accent
+    // token is a red, leaving it at roughly 2:1 against a red-ish neighbour
+    // (#557), so the grid derives a contrast-safe pair from the tile while
+    // keeping the shared rule's shape (2px ring plus 4px halo).
+    test('recolours the shared ring from the tile instead of using the accent', () => {
+      renderInput({ spaceValue: 'stream-1' })
 
       const rule = ownFocusVisibleRule(collectCss())
+      const { ring, halo } = focusRingColors(cellColor(idColor('stream-1')))
 
       expect(rule).toBeDefined()
-      expect(rule!.body).not.toMatch(/black/)
+      expect(rule!.body).not.toMatch(/var\(--accent/)
+      // Only the colour is overridden; the width/style stay with the shared
+      // rule, so an unwanted `outline` shorthand would drop its 2px ring.
       expect(rule!.body).not.toMatch(/outline:/)
-      expect(rule!.body).not.toMatch(/box-shadow:/)
+      expect(rule!.body.toLowerCase()).toMatch(
+        new RegExp(`outline-color:\\s*${ring.toLowerCase()}`),
+      )
+      expect(rule!.body.toLowerCase()).toMatch(
+        new RegExp(`box-shadow:\\s*0 0 0 4px\\s*${halo.toLowerCase()}`),
+      )
+    })
+
+    test('keeps the derived ring above 3:1 against every tile the id space can paint', () => {
+      const ids = [
+        '',
+        'stream-1',
+        'streamwall',
+        'https://twitch.tv/somechannel',
+        ...Array.from({ length: 64 }, (_, i) => `id-${i}`),
+      ]
+      const tiles = ids.flatMap((id) => [
+        cellColor(idColor(id)),
+        cellColor(idColor(id), true),
+      ])
+
+      for (const tile of tiles) {
+        const { ring } = focusRingColors(tile)
+        // The ring sits on the neighbours, so it has to clear 3:1 against
+        // every colour the grid can paint - not just against its own cell.
+        for (const neighbour of tiles) {
+          expect(neighbour.contrast(Color(ring))).toBeGreaterThanOrEqual(3)
+        }
+      }
     })
 
     test('confines the idle cell border to :not(:focus-visible) so it cannot beat the shared ring', () => {
@@ -184,7 +225,7 @@ describe('GridInput', () => {
       expect(rule!.body).toMatch(/z-index:\s*100/)
     })
 
-    test('is covered by the shared accent ring from GlobalStyle', () => {
+    test('is covered by the shared ring from GlobalStyle, whose shape it keeps', () => {
       renderWithStyles(
         <>
           <GlobalStyle />
