@@ -68,9 +68,10 @@ function isBefore(version, floor) {
 }
 
 // The release to inspect is the one `main` currently claims, not simply the
-// highest tag: the repository still carries `v2.0.0-pre*` tags from the
-// project it started as, which sort above the current release line but never
-// had a GitHub Release here.
+// highest tag: a tag can sort above the release line without being the
+// release this repository stands on — a prerelease tag, or a tag inherited
+// from another project and never pruned from a clone (#554). The manifest is
+// the only statement of which version `main` is meant to have shipped.
 //
 // A version whose tag was never pushed is `check-release-tag.mjs`'s finding,
 // so it is skipped here rather than reported a second time.

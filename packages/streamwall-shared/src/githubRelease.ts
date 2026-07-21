@@ -14,7 +14,7 @@ interface ParsedVersion {
 
 /**
  * Parses the `MAJOR.MINOR.PATCH[-prerelease]` subset of semver the project
- * actually publishes (`v0.9.1`, `v2.0.0-pre3`). Build metadata is ignored, and
+ * actually publishes (`v0.9.1`, `v1.0.0-pre1`). Build metadata is ignored, and
  * anything that does not match returns null so callers can degrade to "no
  * update".
  */
