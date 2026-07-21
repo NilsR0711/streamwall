@@ -23,6 +23,8 @@ changelog are kept in step.
 - Stop HLS segment loading for parked views to save bandwidth (#424).
 - Weekly cross-platform packaging workflow that runs `electron-forge make`, so
   maker regressions surface before a release instead of during one (#425).
+- Weekly check that fails when a direct dependency is marked deprecated on npm,
+  with an allowlist for deprecations whose migration is already tracked (#494).
 
 ### Changed
 

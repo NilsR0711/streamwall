@@ -160,11 +160,13 @@ Adding a job to `ci.yml` therefore also means adding it to the `ci-ok` gate's
 `needs:` list; `test/ci-gate.test.mjs` fails if that is forgotten, and it also
 keeps this list in sync with the workflows.
 
-Two things intentionally sit outside this gate: `.github/workflows/release.yml`
-(tag-triggered) and CodeQL's weekly scheduled scan, which surfaces newly
-disclosed patterns in code that was already merged. Open code-scanning alerts
-are triaged in the Security tab; the gate blocks on the analysis _failing_, not
-on pre-existing alerts.
+Some workflows intentionally sit outside this gate: `.github/workflows/release.yml`
+(tag-triggered), CodeQL's weekly scheduled scan, which surfaces newly
+disclosed patterns in code that was already merged, and the weekly
+[packaging](#packaging-checks) and [deprecation](#dependency-deprecations)
+checks, which react to upstream changes rather than to anything in a PR. Open
+code-scanning alerts are triaged in the Security tab; the gate blocks on the
+analysis _failing_, not on pre-existing alerts.
 
 ### PR checklist
 
@@ -264,6 +266,28 @@ by `.github/workflows/packaging.yml`, which runs `electron-forge make` across
 all three platforms every Monday and on manual dispatch. Run it from the
 Actions tab (optionally with the `debug` input for verbose Forge logging)
 before cutting a release, or after a Forge/maker dependency bump.
+
+### Dependency deprecations
+
+`.github/workflows/deprecated-deps.yml` asks the npm registry every Monday
+whether any _direct_ dependency — of the root manifest or of a workspace — has
+been marked `deprecated`, and fails the run if one has. `npm ci` prints those
+notices too, but they scroll past in the install log, and Dependabot only opens
+PRs for version bumps and advisories, never for an abandoned package. Run it
+from the Actions tab, or locally:
+
+```sh
+node scripts/check-deprecated-deps.mjs
+```
+
+The script reads the committed manifests and `package-lock.json`, so it needs
+no install. Transitive dependencies are deliberately not inspected: those
+deprecations are frequent and rarely actionable from here.
+
+When a deprecation cannot be migrated away from right now, add the package to
+`.github/deprecated-dependencies-allowlist.json` with a reason and a tracking
+issue, so the job stays actionable instead of permanently red. Allowlist
+entries that no longer apply are reported as warnings and should be dropped.
 
 ### Changelog
 

@@ -1,0 +1,48 @@
+name: Deprecated dependencies
+
+# Asks the npm registry whether any *direct* dependency of the workspace root
+# or of a workspace has been marked deprecated, and fails the run if one has
+# (#494). `npm ci` already prints those notices, but they scroll past in the
+# install log without failing or annotating anything, and Dependabot only
+# opens PRs for version bumps and advisories — never for a package that was
+# simply abandoned. That is how `dank-twitch-irc` stayed in the tree long
+# after its maintainer had announced it would receive no further updates
+# (#406).
+#
+# Deliberately not part of PR CI: an upstream deprecation lands independently
+# of any change here, so gating PRs on it would block unrelated work on
+# someone else's release, and every run costs a registry round-trip per
+# dependency. Weekly is early enough — the point is to learn about an
+# abandoned package while migrating off it is still cheap.
+on:
+  schedule:
+    # Mondays, 06:23 UTC — after the packaging workflow and off the hour, to
+    # avoid GitHub's scheduling peak.
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deprecated-deps-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check direct dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # No `npm ci`: the check reads the committed manifests and lockfile and
+      # queries the registry directly, so the install would only add minutes.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check for deprecated direct dependencies
+        run: node scripts/check-deprecated-deps.mjs
