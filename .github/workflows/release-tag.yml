@@ -1,0 +1,51 @@
+name: Release tag
+
+# Checks that the version `main` claims has a matching `vX.Y.Z` tag, and fails
+# the run when it has not had one for a day (#515).
+#
+# Pushing that tag is the one manual step left in the release: release-please
+# runs with `skip-github-release`, because a tag created with a workflow's
+# GITHUB_TOKEN does not trigger other workflows and would never start
+# `release.yml`. Until now nothing noticed when the step was forgotten — `main`
+# then advertises a version with no GitHub Release and no installers, while the
+# control server's update check keeps telling self-hosters they are current.
+#
+# Daily rather than on `push: [main]`: the tag follows the release PR merge by
+# minutes, so a push-triggered run would report the normal flow as a failure.
+# The script's grace period covers the same window for the scheduled run.
+on:
+  schedule:
+    # 07:23 UTC — off the hour, to avoid GitHub's scheduling peak.
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tag-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check the release version is tagged
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # `git tag --list` and the commit date of the version bump both need
+          # the full history; the default shallow clone has neither.
+          fetch-depth: 0
+
+      # No `npm ci` and no Node setup beyond the runner default: the script
+      # reads the committed manifest and shells out to git.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check the release version is tagged
+        run: node scripts/check-release-tag.mjs
