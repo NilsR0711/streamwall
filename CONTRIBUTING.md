@@ -162,6 +162,19 @@ No other workspace tracks the release line:
 None of the workspaces are published to the npm registry — only the Electron
 app itself is distributed, via GitHub Releases.
 
+### Packaging checks
+
+PR CI only runs `electron-forge package` (Linux), which covers the failure
+modes shared by every platform. The makers themselves — NSIS on Windows, the
+darwin zip, deb and rpm — are exercised by
+[`.github/workflows/packaging.yml`](.github/workflows/packaging.yml), which runs
+weekly on all three platforms and can be dispatched manually from the Actions
+tab. Run it before cutting a release, and after a Forge or maker dependency
+bump: a maker regression that first appears during `publish` leaves a
+partially-populated GitHub release behind. The dispatch form has a `debug`
+toggle that enables verbose Forge logging, and each leg uploads its
+`out/make` directory as an artifact.
+
 ### Changelog
 
 Notable changes are tracked in [`CHANGELOG.md`](CHANGELOG.md), in

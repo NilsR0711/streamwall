@@ -1,0 +1,72 @@
+name: Packaging
+
+# Exercises the makers configured in packages/streamwall/forge.config.ts
+# (NSIS, darwin zip, rpm, deb) on all three publish platforms — the one step
+# CI's `package` smoke test deliberately stops short of (#425). Without this,
+# a maker-specific regression (a Forge major bump changing a config field, a
+# broken NSIS template path, missing rpm tooling on the runner) only surfaces
+# during `electron-forge publish` on a `v*` tag, i.e. once the version is
+# already public and a failing leg leaves a half-populated release.
+#
+# Scheduled rather than run per PR: the makers cost minutes per platform and
+# regressions here arrive with dependency bumps, not with feature commits.
+on:
+  schedule:
+    # Mondays, 05:00 UTC — after Dependabot's weekly bumps have landed.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable verbose electron-forge logging'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  make:
+    name: Make (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 30
+    strategy:
+      # One broken platform must not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # The runner image ships dpkg but neither rpmbuild nor fakeroot, which
+      # @electron-forge/maker-rpm and maker-deb shell out to.
+      - name: Install deb/rpm maker tooling
+        if: matrix.platform.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y rpm fakeroot
+
+      # No publisher runs here: `make` stops at the installers on disk.
+      - name: Make installers
+        env:
+          DEBUG: ${{ inputs.debug && 'electron-forge:*' || '' }}
+        run: npm -w streamwall run make
+
+      # Kept even on failure: a maker that fails late still leaves partial
+      # output, which is usually what identifies the broken step.
+      - name: Upload maker output
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: make-${{ matrix.platform.name }}
+          path: packages/streamwall/out/make
+          retention-days: 7
