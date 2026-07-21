@@ -46,15 +46,37 @@ test('release-please keeps the pre-1.0 bump strategy', () => {
 // Only the release-tracking workspaces may be bumped: the other manifests are
 // deliberately pinned (see CONTRIBUTING "Cutting a release").
 test('release-please bumps exactly the release-tracked manifests', () => {
-  const extraFiles = rootPackage['extra-files']
+  const manifestFiles = rootPackage['extra-files'].filter(
+    (file) => file.path !== 'package-lock.json',
+  )
 
   assert.deepEqual(
-    extraFiles.map((file) => file.path),
+    manifestFiles.map((file) => file.path),
     RELEASE_TRACKED_WORKSPACES.map((workspace) => `${workspace}/package.json`),
   )
-  for (const file of extraFiles) {
+  for (const file of manifestFiles) {
     assert.equal(file.type, 'json')
     assert.equal(file.jsonpath, '$.version')
+  }
+})
+
+// The `node` release type rewrites the root entries of package-lock.json but
+// not the workspace entries `extra-files` bumps, so without these the lock
+// keeps the previous version until an unrelated `npm install` rewrites it.
+// Issue #513.
+test('release-please bumps the workspace entries of package-lock.json', () => {
+  const lockFiles = rootPackage['extra-files'].filter(
+    (file) => file.path === 'package-lock.json',
+  )
+
+  assert.deepEqual(
+    lockFiles.map((file) => file.jsonpath),
+    RELEASE_TRACKED_WORKSPACES.map(
+      (workspace) => `$.packages['${workspace}'].version`,
+    ),
+  )
+  for (const file of lockFiles) {
+    assert.equal(file.type, 'json')
   }
 })
 
@@ -75,6 +97,27 @@ test('the release-please manifest matches every release-tracked version', () => 
       readJson(`${workspace}/package.json`).version,
       version,
       `${workspace}/package.json must stay on the root release version`,
+    )
+  }
+})
+
+// A lock entry left behind by a release surfaces as an unrelated diff in some
+// later PR, so catch the drift here rather than in an unsuspecting review.
+// Issue #513.
+test('package-lock.json records the release version for every tracked workspace', () => {
+  const lockPackages = readJson('package-lock.json').packages
+  const version = readJson('package.json').version
+
+  assert.equal(
+    lockPackages[''].version,
+    version,
+    'the root entry of package-lock.json must stay on the root release version',
+  )
+  for (const workspace of RELEASE_TRACKED_WORKSPACES) {
+    assert.equal(
+      lockPackages[workspace].version,
+      version,
+      `package-lock.json entry "${workspace}" must stay on the root release version`,
     )
   }
 })
