@@ -133,3 +133,41 @@ test('CONTRIBUTING documents exactly the required status checks', () => {
 
   assert.deepEqual(documented, expected)
 })
+
+// A maker regression must fail before the first artifact is published: once
+// the publish matrix has started, a failing leg leaves a partially populated
+// GitHub release behind and the tag has to be redone (#453).
+test('the release quality gate makes installers before publishing', () => {
+  const release = readWorkflow('release.yml')
+  const gateJobs = Object.entries(release.jobs).filter(
+    ([job]) => job !== 'publish',
+  )
+  const runScripts = (job) => job.steps.map((step) => step.run ?? '').join('\n')
+
+  const makeJobs = gateJobs.filter(([, job]) =>
+    /npm -w streamwall run make\b/.test(runScripts(job)),
+  )
+  assert.ok(
+    makeJobs.length > 0,
+    'release.yml must run `npm -w streamwall run make` before the publish ' +
+      'matrix, otherwise a maker or postMake regression first surfaces ' +
+      'mid-release',
+  )
+
+  for (const [name] of makeJobs) {
+    assert.ok(
+      release.jobs.publish.needs.includes(name),
+      `release.yml job "${name}" is not in the publish job's needs, so it ` +
+        'cannot gate the release',
+    )
+  }
+
+  // The NSIS maker and the latest.yml postMake hook only run for win32, and
+  // electron-builder bundles makensis for every host OS, so the gate
+  // cross-builds that target instead of trusting the Windows publish leg.
+  assert.ok(
+    makeJobs.some(([, job]) => /--platform=win32/.test(runScripts(job))),
+    'release.yml must cross-build the win32 target so the NSIS maker and ' +
+      'the update-metadata hook are exercised before publishing',
+  )
+})
