@@ -54,6 +54,36 @@ test('codeql.yml is reusable and does not run standalone on pull requests', () =
   )
 })
 
+// Code scanning keys a configuration by the analysis category, which defaults
+// to the calling workflow. Two callers therefore mean two configurations, and
+// a PR — which only runs the ci.yml one — is reported as missing the other,
+// so the code_scanning merge rule never gets its result (#476).
+test('every CodeQL caller uploads under the same explicit category', () => {
+  const codeql = readWorkflow('codeql.yml')
+  const analyze = codeql.jobs.analyze.steps.find((step) =>
+    step.uses?.includes('github/codeql-action/analyze'),
+  )
+
+  assert.ok(analyze, 'codeql.yml must run the CodeQL analyze action')
+  assert.ok(
+    analyze.with?.category,
+    'the analyze step must set an explicit category, otherwise each calling ' +
+      'workflow registers its own code scanning configuration',
+  )
+  assert.ok(
+    !/github\.workflow|github\.event/.test(analyze.with.category),
+    `the category must not vary per caller (got "${analyze.with.category}")`,
+  )
+
+  const callers = ['ci.yml', 'codeql-schedule.yml']
+  for (const caller of callers) {
+    const calls = Object.values(readWorkflow(caller).jobs).some(
+      (job) => job.uses === './.github/workflows/codeql.yml',
+    )
+    assert.ok(calls, `${caller} must run the analysis through codeql.yml`)
+  }
+})
+
 // The control client is expensive to build, and the E2E job needs exactly the
 // artifact the build job already produced. Handing it over keeps CI down to a
 // single `vite build` per run (issue #489).

@@ -36,3 +36,12 @@ jobs:
           queries: security-and-quality
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        with:
+          # Without an explicit category, the uploaded results are keyed by the
+          # calling workflow, so ci.yml and codeql-schedule.yml register two
+          # separate configurations. A pull request only ever produces the
+          # ci.yml one, and code scanning then reports "1 configuration not
+          # found" and refuses to say which alerts the PR introduced — which
+          # leaves the code_scanning merge rule waiting forever. One fixed
+          # category keeps every caller on the same configuration.
+          category: /language:${{ matrix.language }}
