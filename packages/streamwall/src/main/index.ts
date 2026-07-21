@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/electron/main'
 import { BrowserWindow, Event as ElectronEvent, app, shell } from 'electron'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
-import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import ReconnectingWebSocket from 'reconnecting-websocket'
@@ -27,6 +26,7 @@ import { parseRepositorySlug } from '../updateStatus'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { StreamwallConfig, parseArgs } from './cliArgs'
 import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
+import { createOnCommand } from './commandHandlers'
 import { resolveConfigInitError } from './configInitError'
 import { decideControlEndpointConnection } from './controlEndpointConnection'
 import ControlWindow from './ControlWindow'
@@ -45,13 +45,6 @@ import {
   watchDataFile,
 } from './data'
 import { DataSourceHealthTracker } from './dataSourceHealth'
-import { addFavorite, removeFavorite } from './favorites'
-import { applyGridResize } from './gridResize'
-import {
-  addLayoutPreset,
-  applyLayoutPreset,
-  buildLayoutPreset,
-} from './layoutPresets'
 import log, { initLogger, setLogLevel } from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
@@ -63,7 +56,6 @@ import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
 import { setupAppUpdater } from './updaterSetup'
-import { checkUplinkCommandGate } from './uplinkCommandGate'
 import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
 import { routeUplinkWsMessage } from './uplinkMessageRouting'
 import { initializeViewsState } from './viewsStateInit'
@@ -167,7 +159,6 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     openExternal: (url) => shell.openExternal(url),
   })
 
-  let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
 
   log.debug('Creating initial state...')
@@ -285,197 +276,49 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
   playlistScheduler.start()
 
-  const onCommand = async (
-    msg: ControlCommand,
-    source: 'local' | 'uplink' = 'local',
-  ): Promise<{ error: string } | void> => {
-    log.debug('Received message:', msg)
-
-    // The remote control-server uplink is untrusted: re-validate every command
-    // against the uplink allowlist so a compromised or man-in-the-middled
-    // server cannot drive code execution (browse/dev-tools) on the desktop.
-    const uplinkGate = checkUplinkCommandGate(msg, source)
-    if (!uplinkGate.allowed) {
-      log.warn(
-        'Rejecting disallowed command from control uplink:',
-        uplinkGate.type,
-      )
-      return
-    }
-
-    if (msg.type === 'set-listening-view') {
-      log.debug('Setting listening view:', msg.viewId)
-      streamWindow.setListeningView(msg.viewId)
-    } else if (msg.type === 'set-view-background-listening') {
-      log.debug('Setting view background listening:', msg.viewId, msg.listening)
-      streamWindow.setViewBackgroundListening(msg.viewId, msg.listening)
-    } else if (msg.type === 'set-view-blurred') {
-      log.debug('Setting view blurred:', msg.viewId, msg.blurred)
-      streamWindow.setViewBlurred(msg.viewId, msg.blurred)
-    } else if (msg.type === 'set-view-volume') {
-      log.debug('Setting view volume:', msg.viewId, msg.volume)
-      streamWindow.setViewVolume(msg.viewId, msg.volume)
-    } else if (msg.type === 'rotate-stream') {
-      log.debug('Rotating stream:', msg.url, msg.rotation)
-      overlayStreamData.update(msg.url, {
-        rotation: msg.rotation,
-      })
-    } else if (msg.type === 'update-custom-stream') {
-      log.debug('Updating custom stream:', msg.url)
-      localStreamData.update(msg.url, msg.data)
-    } else if (msg.type === 'delete-custom-stream') {
-      log.debug('Deleting custom stream:', msg.url)
-      localStreamData.delete(msg.url)
-    } else if (msg.type === 'reload-view') {
-      log.debug('Reloading view:', msg.viewId)
-      streamWindow.reloadView(msg.viewId)
-    } else if (msg.type === 'set-view-fullscreen') {
-      // Runtime-only wall zoom (issue #362): remember which view fills the
-      // wall (or null) and re-derive the layout. Broadcast the new value first
-      // so clients render the expansion consistently, then re-lay-out the wall.
-      //
-      // The command carries a stable view id (issue #397); resolve it to the
-      // cell that view currently occupies so the cell-based `fullscreenViewIdx`
-      // (which the layout state and clients still key on) reflects the view the
-      // operator actually double-clicked, even if a resize just moved it. If
-      // the view has no placement, `getViewAnchorIdx` returns null and no
-      // expansion happens.
-      log.debug('Setting view fullscreen:', msg.viewId, msg.fullscreen)
-      updateState({
-        fullscreenViewIdx: msg.fullscreen
-          ? streamWindow.getViewAnchorIdx(msg.viewId)
-          : null,
-      })
-      updateViewsFromStateDoc()
-    } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
-      if (browseWindow && !browseWindow.isDestroyed()) {
-        // DevTools needs a fresh webContents to work. Close any existing window.
-        browseWindow.destroy()
-        browseWindow = null
-      }
-      if (!browseWindow || browseWindow.isDestroyed()) {
-        browseWindow = new BrowserWindow({
-          webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            // Keep the operator's browsing isolated from the stream views and
-            // off disk by using a dedicated ephemeral partition.
-            partition: BROWSE_PARTITION,
-            sandbox: true,
-          },
-        })
-        hardenSession(browseWindow.webContents.session)
-        // Deny popups; the browse window is meant to show a single URL.
-        denyWindowOpen(browseWindow.webContents)
-      }
-      if (msg.type === 'browse') {
-        log.debug('Attempting to browse URL:', msg.url)
-        try {
-          await ensureValidURL(
-            msg.url,
-            createSessionHostResolver(browseWindow.webContents.session),
-          )
-          browseWindow.loadURL(msg.url)
-        } catch (error) {
-          log.error('Invalid URL:', msg.url)
-          log.error('Error:', error)
-          return { error: 'invalid url' }
-        }
-      } else if (msg.type === 'dev-tools') {
-        log.debug('Opening DevTools for view:', msg.viewId)
-        streamWindow.openDevTools(msg.viewId, browseWindow.webContents)
-      }
-    } else if (msg.type === 'set-stream-censored' && streamdelayClient) {
-      log.debug('Setting stream censored:', msg.isCensored)
-      streamdelayClient.setCensored(msg.isCensored)
-    } else if (msg.type === 'set-stream-running' && streamdelayClient) {
-      log.debug('Setting stream running:', msg.isStreamRunning)
-      streamdelayClient.setStreamRunning(msg.isStreamRunning)
-    } else if (msg.type === 'set-grid-size') {
-      applyGridResize(
-        {
-          viewsState,
-          transact: (fn) => stateDoc.transact(fn),
-          getCols: () => streamWindowConfig.cols,
-          getRows: () => streamWindowConfig.rows,
-          setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
-        },
-        msg.cols,
-        msg.rows,
-      )
-
-      // streamWindow.config, streamWindowConfig and clientState.config are the
-      // same shared object, and setGridSize mutates it in place. Broadcast that
-      // shared object via updateState({}) rather than detaching a copy, so a
-      // later window resize keeps the overlay/control grid in sync with the wall
-      // (issue #14). The wall itself was already re-laid-out by the stateDoc
-      // observer during applyGridResize's transact — now that the config holds
-      // the new dimensions (issue #15) — so no explicit updateViewsFromStateDoc()
-      // call is needed here.
-      updateState({})
-    } else if (msg.type === 'save-layout-preset') {
-      log.debug('Saving layout preset:', msg.name)
-      const preset = buildLayoutPreset(
-        {
-          viewsState,
-          cols: streamWindowConfig.cols,
-          rows: streamWindowConfig.rows,
-        },
-        randomUUID(),
-        msg.name,
-      )
-      const layoutPresets = addLayoutPreset(clientState.layoutPresets, preset)
+  const onCommand = createOnCommand({
+    streamWindow,
+    overlayStreamData,
+    localStreamData,
+    viewsState,
+    transact: (fn) => stateDoc.transact(fn),
+    streamWindowConfig,
+    getClientState: () => clientState,
+    getStreamdelayClient: () => streamdelayClient,
+    updateState,
+    updateViewsFromStateDoc,
+    persistLayoutPresets: (layoutPresets) => {
       safeUpdate(db, (data) => {
         data.layoutPresets = layoutPresets
       })
-      updateState({ layoutPresets })
-    } else if (msg.type === 'load-layout-preset') {
-      const preset = clientState.layoutPresets.find(
-        (p) => p.id === msg.presetId,
-      )
-      if (preset) {
-        log.debug('Loading layout preset:', preset.name)
-        applyLayoutPreset(
-          {
-            viewsState,
-            transact: (fn) => stateDoc.transact(fn),
-            setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
-          },
-          preset,
-        )
-        // See the set-grid-size branch above: broadcast the shared config
-        // object via updateState({}) rather than detaching a copy.
-        updateState({})
-      }
-    } else if (msg.type === 'delete-layout-preset') {
-      log.debug('Deleting layout preset:', msg.presetId)
-      const layoutPresets = clientState.layoutPresets.filter(
-        (p) => p.id !== msg.presetId,
-      )
+    },
+    persistFavorites: (favorites) => {
       safeUpdate(db, (data) => {
-        data.layoutPresets = layoutPresets
+        data.favorites = favorites
       })
-      updateState({ layoutPresets })
-    } else if (msg.type === 'add-favorite') {
-      const favorites = addFavorite(clientState.favorites, msg.url)
-      if (favorites !== clientState.favorites) {
-        log.debug('Adding favorite:', msg.url)
-        safeUpdate(db, (data) => {
-          data.favorites = favorites
-        })
-        updateState({ favorites })
-      }
-    } else if (msg.type === 'remove-favorite') {
-      const favorites = removeFavorite(clientState.favorites, msg.url)
-      if (favorites !== clientState.favorites) {
-        log.debug('Removing favorite:', msg.url)
-        safeUpdate(db, (data) => {
-          data.favorites = favorites
-        })
-        updateState({ favorites })
-      }
-    }
-  }
+    },
+    createBrowseWindow: () => {
+      const win = new BrowserWindow({
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          // Keep the operator's browsing isolated from the stream views and
+          // off disk by using a dedicated ephemeral partition.
+          partition: BROWSE_PARTITION,
+          sandbox: true,
+        },
+      })
+      hardenSession(win.webContents.session)
+      // Deny popups; the browse window is meant to show a single URL.
+      denyWindowOpen(win.webContents)
+      return win
+    },
+    validateBrowseURL: (url, browseWindow) =>
+      ensureValidURL(
+        url,
+        createSessionHostResolver(browseWindow.webContents.session),
+      ),
+  })
 
   const stateEmitter = new EventEmitter<{ state: [StreamwallState] }>()
 
