@@ -1,0 +1,4 @@
+{
+  "$comment": "Direct dependencies whose npm deprecation is knowingly tolerated while a migration is planned, so the weekly deprecation check (.github/workflows/deprecated-deps.yml) stays actionable instead of permanently red. Every entry needs a reason and a tracking issue; entries that no longer apply are reported as stale and must be dropped.",
+  "allow": []
+}
