@@ -171,3 +171,61 @@ test('the release quality gate makes installers before publishing', () => {
       'the update-metadata hook are exercised before publishing',
   )
 })
+
+// MakerZIP is darwin-only and cannot be cross-built from Linux, so a
+// Linux-only gate leaves the macOS zip and the latest-mac.yml half of the
+// postMake hook to run for the first time inside the publish matrix — the
+// exact half-published release the gate exists to prevent (#517).
+test('the release quality gate makes the darwin artifacts on a macOS leg', () => {
+  const make = readWorkflow('release.yml').jobs.make
+  const legs = make.strategy?.matrix?.leg
+
+  assert.ok(
+    Array.isArray(legs),
+    'the make gate must fan out over a `leg` matrix so the darwin makers ' +
+      'get a macOS runner of their own',
+  )
+
+  const legsByOs = new Map(legs.map((leg) => [leg.os, leg]))
+  const expectedArtifacts = {
+    'ubuntu-latest': ['*.deb', '*.rpm', '*-setup-*.exe', 'latest.yml'],
+    'macos-latest': ['*.zip', 'latest-mac.yml'],
+  }
+
+  for (const [os, patterns] of Object.entries(expectedArtifacts)) {
+    const leg = legsByOs.get(os)
+    assert.ok(leg, `release.yml is missing a ${os} leg of the make gate`)
+    assert.deepEqual(
+      String(leg.artifacts).split(/\s+/).filter(Boolean),
+      patterns,
+      `the ${os} make leg must assert exactly the artifacts only that ` +
+        'runner can produce',
+    )
+  }
+
+  // Per-leg patterns are useless unless the assertion step reads them.
+  const verify = make.steps.find(
+    (step) => step.name === 'Verify installer artifacts',
+  )
+  assert.ok(verify, 'the make gate must verify the artifacts it produced')
+  assert.equal(verify.env?.EXPECTED_ARTIFACTS, '${{ matrix.leg.artifacts }}')
+  assert.ok(
+    verify.run.includes('EXPECTED_ARTIFACTS'),
+    'the verification step must iterate the leg-specific pattern list',
+  )
+
+  // The rpm/fakeroot install and the NSIS cross-build only make sense on the
+  // Linux leg; unguarded they would fail the macOS one.
+  for (const stepName of [
+    'Install Linux maker tooling',
+    'Make (windows NSIS, cross-built)',
+  ]) {
+    const step = make.steps.find(({ name }) => name === stepName)
+    assert.ok(step, `the make gate is missing the "${stepName}" step`)
+    assert.match(
+      step.if ?? '',
+      /ubuntu-latest/,
+      `"${stepName}" must be restricted to the Linux leg`,
+    )
+  }
+})

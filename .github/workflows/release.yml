@@ -78,13 +78,30 @@ jobs:
   #
   # `make`, not just `package`: the weekly `packaging.yml` matrix (#425)
   # exercises the makers too, but it is up to a week stale and does not gate
-  # the tag. Only the darwin ZIP stays uncovered here — MakerZIP is
-  # darwin-only and cannot be cross-built — so the macOS publish leg remains
-  # the first place it runs.
+  # the tag.
+  #
+  # Two legs, because MakerZIP is darwin-only and cannot be cross-built: the
+  # Linux runner covers deb/rpm natively plus the cross-built Windows NSIS
+  # installer, and a macOS runner covers the ZIP and the `latest-mac.yml`
+  # half of the update-metadata hook, which would otherwise run for the first
+  # time inside the macOS publish leg (#517).
   make:
-    name: Installer smoke (makers)
-    runs-on: ubuntu-latest
+    name: Installer smoke (${{ matrix.leg.name }} makers)
+    runs-on: ${{ matrix.leg.os }}
     timeout-minutes: 30
+    strategy:
+      # One broken platform must not hide the state of the other.
+      fail-fast: false
+      matrix:
+        leg:
+          # `artifacts` is the whitespace-separated list of kinds only this
+          # runner can produce; the verification step below asserts each one.
+          - name: linux + windows
+            os: ubuntu-latest
+            artifacts: '*.deb *.rpm *-setup-*.exe latest.yml'
+          - name: macos
+            os: macos-latest
+            artifacts: '*.zip latest-mac.yml'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -94,18 +111,21 @@ jobs:
       # MakerRpm shells out to `rpmbuild`, MakerDeb to `dpkg`/`fakeroot`.
       # Only the latter two ship on the GitHub Ubuntu runner image.
       - name: Install Linux maker tooling
+        if: matrix.leg.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm fakeroot
 
-      - name: Make (linux installers)
+      # Host-platform makers: deb/rpm on Linux, the darwin ZIP on macOS.
+      - name: Make (host installers)
         run: npm -w streamwall run make
 
       # The NSIS maker and the `latest.yml` half of the update-metadata hook
       # only run for win32. electron-builder bundles makensis for every host
-      # OS, so the expensive Windows-only path is verified from this runner
-      # rather than trusting the Windows publish leg.
+      # OS, so the expensive Windows-only path is verified from the Linux
+      # runner rather than trusting the Windows publish leg.
       - name: Make (windows NSIS, cross-built)
+        if: matrix.leg.os == 'ubuntu-latest'
         run: npm -w streamwall run make -- --platform=win32
 
       # A maker that is silently skipped (unsupported-platform detection, a
@@ -113,10 +133,12 @@ jobs:
       # the expected artifact kinds are asserted explicitly.
       - name: Verify installer artifacts
         shell: bash
+        env:
+          EXPECTED_ARTIFACTS: ${{ matrix.leg.artifacts }}
         run: |
           make_dir=packages/streamwall/out/make
           find "$make_dir" -type f -print | sort
-          for pattern in '*.deb' '*.rpm' '*-setup-*.exe' 'latest.yml'; do
+          for pattern in $EXPECTED_ARTIFACTS; do
             if [ -z "$(find "$make_dir" -type f -name "$pattern" -print -quit)" ]; then
               echo "::error::No $pattern artifact found in $make_dir"
               exit 1
