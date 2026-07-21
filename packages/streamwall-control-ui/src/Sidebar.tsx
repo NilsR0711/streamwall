@@ -102,6 +102,7 @@ function StreamLine({
         $disabled={disabled}
         onMouseDown={disabled ? undefined : handleMouseDownId}
         $color={idColor(id)}
+        aria-label={`Add stream ${id} to the wall`}
       >
         {id}
       </StyledId>
@@ -184,12 +185,18 @@ export function CustomStreamInput({
   return (
     <div>
       <LazyChangeInput
+        aria-label="Custom stream label"
         value={props.label ?? ''}
         onChange={handleChangeLabel}
         placeholder="Label (optional)"
       />{' '}
       <a href={props.link}>{props.link}</a> <span>({props.kind})</span>{' '}
-      <button onClick={handleDeleteClick}>x</button>
+      <button
+        aria-label={`Delete custom stream ${props.label || props.link}`}
+        onClick={handleDeleteClick}
+      >
+        x
+      </button>
     </div>
   )
 }
@@ -215,11 +222,13 @@ export function CreateCustomStreamInput({
   return (
     <form onSubmit={handleSubmit}>
       <input
+        aria-label="Stream URL"
         value={link}
         onChange={(ev) => setLink(ev.currentTarget.value)}
         placeholder="https://..."
       />
       <select
+        aria-label="Stream type"
         onChange={(ev) => setKind(ev.currentTarget.value as ContentKind)}
         value={kind}
       >
@@ -230,6 +239,7 @@ export function CreateCustomStreamInput({
         <option value="background">background</option>
       </select>
       <input
+        aria-label="Stream label"
         value={label}
         onChange={(ev) => setLabel(ev.currentTarget.value)}
         placeholder="Label (optional)"
