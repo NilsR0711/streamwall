@@ -1,5 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { asCellIdx, asViewId } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { GridControls } from './GridControls.tsx'
 
@@ -35,8 +36,8 @@ function renderControls(
   act(() => {
     render(
       <GridControls
-        idx={0}
-        viewId={0}
+        idx={asCellIdx(0)}
+        viewId={asViewId(0)}
         streamId="abc"
         style={{}}
         isDisplaying={true}
@@ -85,7 +86,12 @@ describe('GridControls volume slider', () => {
     const onSetVolume = vi.fn()
     // viewId deliberately differs from idx to prove the command carries the
     // stable view id, not the grid cell index (issue #397).
-    const box = renderControls({ idx: 0, viewId: 3, volume: 1, onSetVolume })
+    const box = renderControls({
+      idx: asCellIdx(0),
+      viewId: asViewId(3),
+      volume: 1,
+      onSetVolume,
+    })
     const slider = box.querySelector('input[type="range"]') as HTMLInputElement
 
     act(() => {
@@ -100,7 +106,11 @@ describe('GridControls volume slider', () => {
 describe('GridControls double-click to toggle fullscreen', () => {
   test('toggles fullscreen for this tile when its open area is double-clicked', () => {
     const onToggleFullscreen = vi.fn()
-    const box = renderControls({ idx: 0, viewId: 4, onToggleFullscreen })
+    const box = renderControls({
+      idx: asCellIdx(0),
+      viewId: asViewId(4),
+      onToggleFullscreen,
+    })
     const controls = box.firstElementChild as HTMLElement
 
     act(() => {

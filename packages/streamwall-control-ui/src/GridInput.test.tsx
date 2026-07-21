@@ -1,5 +1,6 @@
 import { type ComponentChildren, render } from 'preact'
 import { act } from 'preact/test-utils'
+import { asCellIdx } from 'streamwall-shared'
 import { StyleSheetManager } from 'styled-components'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -49,7 +50,7 @@ function gridInput(
   return (
     <GridInput
       style={{}}
-      idx={0}
+      idx={asCellIdx(0)}
       onChangeSpace={() => {}}
       spaceValue=""
       isHighlighted={false}
@@ -129,7 +130,7 @@ describe('GridInput', () => {
   // hooks instead of styled-components class names, so a markup/styling
   // refactor can't silently break it (issue #344).
   test('exposes a stable data-testid and data-idx for E2E cell targeting', () => {
-    const box = renderInput({ idx: 3 })
+    const box = renderInput({ idx: asCellIdx(3) })
     const input = box.querySelector('input')!
 
     expect(input.getAttribute('data-testid')).toBe('grid-cell')

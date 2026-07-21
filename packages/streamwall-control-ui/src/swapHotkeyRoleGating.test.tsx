@@ -1,10 +1,12 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type {
-  StreamData,
-  StreamDelayStatus,
-  StreamWindowConfig,
-  StreamwallRole,
+import {
+  asCellIdx,
+  type CellIdx,
+  type StreamData,
+  type StreamDelayStatus,
+  type StreamWindowConfig,
+  type StreamwallRole,
 } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -95,9 +97,9 @@ function renderControlUI(role: StreamwallRole | null): HTMLDivElement {
     state: 'idle',
   }
 
-  const stateIdxMap = new Map<number, ViewInfo>([
-    [0, { spaces: [0] } as ViewInfo],
-    [1, { spaces: [1] } as ViewInfo],
+  const stateIdxMap = new Map<CellIdx, ViewInfo>([
+    [asCellIdx(0), { spaces: [asCellIdx(0)] } as ViewInfo],
+    [asCellIdx(1), { spaces: [asCellIdx(1)] } as ViewInfo],
   ])
 
   const connection: StreamwallConnection = {

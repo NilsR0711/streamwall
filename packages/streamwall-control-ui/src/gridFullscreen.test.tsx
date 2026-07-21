@@ -1,9 +1,11 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type {
-  ControlCommand,
-  StreamData,
-  StreamWindowConfig,
+import {
+  asCellIdx,
+  asViewId,
+  type ControlCommand,
+  type StreamData,
+  type StreamWindowConfig,
 } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -50,7 +52,8 @@ function makeStream(id: string): StreamData {
   }
 }
 
-function makeView(streamId: string, spaces: number[]): ViewInfo {
+function makeView(streamId: string, cells: number[]): ViewInfo {
+  const spaces = cells.map(asCellIdx)
   return {
     state: {
       state: {
@@ -68,7 +71,7 @@ function makeView(streamId: string, spaces: number[]): ViewInfo {
         // Deliberately distinct from the grid cell index so tests that assert
         // on dispatched commands prove they carry the stable view id, not the
         // cell index (issue #397).
-        id: 1000 + spaces[0],
+        id: asViewId(1000 + spaces[0]),
         content: { url: `https://example.com/${streamId}`, kind: 'video' },
         info: null,
         pos: {
@@ -175,7 +178,7 @@ describe('ControlUI double-click fullscreen', () => {
       baseConnection({
         send: (msg) => sent.push(msg),
         views: [makeView('s1', [0, 1])],
-        fullscreenViewIdx: 1,
+        fullscreenViewIdx: asCellIdx(1),
       }),
     )
 
@@ -199,7 +202,7 @@ describe('ControlUI double-click fullscreen', () => {
     const root = renderControlUI(
       baseConnection({
         views: [makeView('s1', [0, 1])],
-        fullscreenViewIdx: 1,
+        fullscreenViewIdx: asCellIdx(1),
       }),
     )
 

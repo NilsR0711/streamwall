@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import type { ViewContent, ViewPos } from './geometry.ts'
 import type { StreamwallRole } from './roles.ts'
 import type { ControlCommand, viewStateValueSchema } from './schemas.ts'
+import type { CellIdx, ViewId } from './viewAddressing.ts'
 
 export interface StreamWindowConfig {
   cols: number
@@ -65,7 +66,7 @@ export type ViewStateValue = z.infer<typeof viewStateValueSchema>
 export interface ViewState {
   state: ViewStateValue
   context: {
-    id: number
+    id: ViewId
     content: ViewContent | null
     info: ContentViewInfo | null
     pos: ViewPos | null
@@ -146,7 +147,7 @@ export interface StreamwallState {
    * the expansion consistently, but is never written to the persisted grid
    * assignments.
    */
-  fullscreenViewIdx: number | null
+  fullscreenViewIdx: CellIdx | null
   streamdelay: StreamDelayStatus | null
   layoutPresets: LayoutPreset[]
   /** Stream URLs (`StreamDataContent.link`) a user has starred for quick access. */

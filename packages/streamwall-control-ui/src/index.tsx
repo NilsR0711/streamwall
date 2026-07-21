@@ -8,7 +8,7 @@ import '@fontsource/jetbrains-mono/700.css'
 import '@fontsource/oswald/600.css'
 import '@fontsource/saira-stencil-one'
 import { useCallback, useMemo, useState } from 'preact/hooks'
-import { roleCan } from 'streamwall-shared'
+import { type CellIdx, roleCan } from 'streamwall-shared'
 import { createErrorSurfacingSend } from './commandError.ts'
 import { ControlBanners } from './components/ControlBanners.tsx'
 import { ControlGrid } from './components/ControlGrid.tsx'
@@ -106,7 +106,7 @@ export function ControlUI({
     role,
   })
 
-  const [focusedInputIdx, setFocusedInputIdx] = useState<number | undefined>()
+  const [focusedInputIdx, setFocusedInputIdx] = useState<CellIdx | undefined>()
   const handleBlurInput = useCallback(() => setFocusedInputIdx(undefined), [])
 
   const {

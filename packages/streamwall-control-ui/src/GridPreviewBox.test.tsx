@@ -1,6 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import { Color } from 'streamwall-shared'
+import { asCellIdx, Color } from 'streamwall-shared'
 import { afterEach, describe, expect, test } from 'vitest'
 import { GridPreviewBox } from './GridPreviewBox.tsx'
 
@@ -24,7 +24,7 @@ function renderBox(
       <GridPreviewBox
         streamId="abc"
         color={Color('red')}
-        pos={{ x: 0, y: 0, width: 100, height: 100, spaces: [0] }}
+        pos={{ x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(0)] }}
         windowWidth={100}
         windowHeight={100}
         isListening={false}
@@ -118,7 +118,7 @@ describe('GridPreviewBox', () => {
 
   test('shows the assigned audio hotkey as a tooltip for a cell within the hotkey range (#84)', () => {
     const box = renderBox({
-      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [0] },
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(0)] },
     })
 
     expect(box.firstElementChild?.getAttribute('title')).toBe(
@@ -128,7 +128,7 @@ describe('GridPreviewBox', () => {
 
   test('surfaces the correct key for a later cell within the hotkey range (#84)', () => {
     const box = renderBox({
-      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [10] },
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(10)] },
     })
 
     expect(box.firstElementChild?.getAttribute('title')).toBe(
@@ -138,7 +138,7 @@ describe('GridPreviewBox', () => {
 
   test('surfaces the chorded hotkey for a cell in the second (alt+ctrl) layer (#240)', () => {
     const box = renderBox({
-      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [20] },
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(20)] },
     })
 
     expect(box.firstElementChild?.getAttribute('title')).toBe(
@@ -148,7 +148,7 @@ describe('GridPreviewBox', () => {
 
   test('omits the hotkey tooltip for a cell beyond both hotkey layers (#240)', () => {
     const box = renderBox({
-      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [40] },
+      pos: { x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(40)] },
     })
 
     expect(box.firstElementChild?.hasAttribute('title')).toBe(false)
