@@ -149,6 +149,98 @@ test('the release-please workflow maintains the release PR on main', () => {
   assert.equal(step.with['skip-github-release'], true)
 })
 
+// A pull request opened with a workflow's GITHUB_TOKEN raises no
+// `pull_request` events, so the release PR arrives without the two checks
+// branch protection requires. `workflow_dispatch` is the one event GitHub
+// still delivers for that token, so release-please starts both checks itself
+// instead of a maintainer closing and reopening the PR by hand (#521).
+test('release-please starts the required checks on the release PR', () => {
+  const workflow = readWorkflow('release-please.yml')
+  const job = workflow.jobs['release-please']
+
+  assert.equal(
+    job.permissions.actions,
+    'write',
+    'dispatching a workflow run needs the actions: write scope',
+  )
+
+  const action = job.steps.find((candidate) =>
+    candidate.uses?.startsWith('googleapis/release-please-action@'),
+  )
+  assert.ok(action.id, 'the release-please step must expose its outputs via id')
+
+  const dispatch = job.steps.find((candidate) =>
+    candidate.run?.includes('gh workflow run'),
+  )
+  assert.ok(
+    dispatch,
+    'release-please.yml must dispatch the required checks for the release PR',
+  )
+  assert.match(
+    dispatch.if ?? '',
+    new RegExp(`steps\\.${action.id}\\.outputs\\.pr`),
+    'the dispatch must be skipped on pushes that leave no release PR',
+  )
+  for (const required of ['ci.yml', 'pr-title.yml']) {
+    assert.match(
+      dispatch.run,
+      new RegExp(`gh workflow run ${required.replace('.', '\\.')}`),
+      `${required} produces a required check and must be dispatched`,
+    )
+  }
+  assert.match(
+    dispatch.run,
+    /--ref/,
+    'the checks must run against the release branch, not the default branch',
+  )
+})
+
+// Both workflows are dispatched by name from release-please.yml; without the
+// trigger the dispatch fails and the release PR stays unmergeable.
+test('the required checks can be dispatched for the release branch', () => {
+  for (const fileName of ['ci.yml', 'pr-title.yml']) {
+    assert.ok(
+      'workflow_dispatch' in readWorkflow(fileName).on,
+      `${fileName} must be dispatchable so the release PR can run it`,
+    )
+  }
+})
+
+// A dispatched run carries no pull request payload, so the check has to look
+// the title up from the number it was dispatched with.
+test('the PR title check resolves the title of a dispatched release PR', () => {
+  const workflow = readWorkflow('pr-title.yml')
+  const input = workflow.on.workflow_dispatch?.inputs?.['pr-number']
+
+  assert.ok(input, 'pr-title.yml must accept the PR number as a dispatch input')
+  assert.equal(input.required, true)
+
+  const job = workflow.jobs['conventional-title']
+  assert.equal(
+    job.permissions['pull-requests'],
+    'read',
+    'reading the title of a dispatched PR needs the pull-requests: read scope',
+  )
+
+  const step = job.steps.find((candidate) => candidate.run?.includes('regex='))
+  assert.match(
+    step.run,
+    /gh pr view/,
+    'the dispatched run must fetch the title it cannot read from the event',
+  )
+  assert.equal(step.env.PR_NUMBER, '${{ inputs.pr-number }}')
+})
+
+test('the release documentation drops the close/reopen workaround', () => {
+  const contributing = readFileSync(join(rootDir, 'CONTRIBUTING.md'), 'utf8')
+
+  assert.doesNotMatch(
+    contributing,
+    /reopen the release PR/i,
+    'release-please.yml starts the checks itself now (#521)',
+  )
+})
+
 test('release.yml turns the changelog section into the release notes', () => {
   const release = readWorkflow('release.yml')
   const job = release.jobs['release-notes']

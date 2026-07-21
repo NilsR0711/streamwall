@@ -375,12 +375,14 @@ breaking change bumps the minor version.
    manifests, their `package-lock.json` entries and the `CHANGELOG.md` section
    for the pending release. Its description previews the release notes;
    anything merged afterwards updates the PR.
-2. Merge the release PR when you want to cut the release. It arrives without
-   status checks: a pull request opened by a workflow's `GITHUB_TOKEN` does not
-   trigger other workflows, so neither `CI OK` nor `Conventional Commits title`
-   starts on its own. **Close and immediately reopen the release PR** — the
-   reopen comes from your account and starts both required checks. Wait for them
-   to pass before merging; release-please reuses the same branch afterwards.
+2. Merge the release PR when you want to cut the release. A pull request opened
+   by a workflow's `GITHUB_TOKEN` raises no `pull_request` events, so neither
+   `CI OK` nor `Conventional Commits title` would start on its own. Instead,
+   `release-please.yml` dispatches both workflows against the release branch
+   after every update — `workflow_dispatch` is the one event GitHub still
+   delivers for that token. Wait for the two checks to pass before merging.
+   Because a dispatched run has nothing to diff against, it always runs the
+   full gate rather than the change-scaled subset.
 3. Tag the merge commit and push the tag:
 
    ```sh
