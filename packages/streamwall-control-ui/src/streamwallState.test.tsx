@@ -143,6 +143,18 @@ describe('useStreamwallState', () => {
     expect(stateIdxMap.get(asCellIdx(1))).toBe(views[0])
   })
 
+  test('lets the later view win a cell two views claim', () => {
+    // The builder walks `views` in order and overwrites, so the last claimant
+    // owns the cell. Pinned because it used to be an implicit consequence of
+    // `Object.assign`-ing every view onto a shared placeholder.
+    const first = makeViewState(1, [0, 1])
+    const second = makeViewState(2, [1])
+    const { stateIdxMap } = runHook(makeState([first, second]))
+
+    expect(stateIdxMap.get(asCellIdx(0))!.state).toBe(first)
+    expect(stateIdxMap.get(asCellIdx(1))!.state).toBe(second)
+  })
+
   test('leaves unoccupied cells absent', () => {
     const { stateIdxMap } = runHook(makeState([makeViewState(7, [1])]))
 
