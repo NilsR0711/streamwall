@@ -161,6 +161,10 @@ cp .env.example .env   # set your domain, then see docs/self-hosting.md
 docker compose up -d --build
 ```
 
+CI builds and boots this image (and validates the compose stack) on every
+pull request that touches it, so a deploy-breaking change cannot reach `main`
+unnoticed.
+
 **Known limitation:** grid edits (swap, drag-move, resize) sync as
 independent per-cell updates in the shared Yjs document. If two operators
 swap or move overlapping tiles at nearly the same instant, the last-writer-wins

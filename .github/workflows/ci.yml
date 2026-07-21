@@ -28,6 +28,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       dependencies: ${{ steps.filter.outputs.dependencies }}
+      docker: ${{ steps.filter.outputs.docker }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -51,6 +52,19 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'packages/*/package.json'
+            # Everything the control-server image is built from: the four
+            # workspaces the Dockerfile copies, the root manifests `npm ci`
+            # reads, and the deploy stack itself.
+            docker:
+              - 'packages/streamwall-shared/**'
+              - 'packages/streamwall-control-server/**'
+              - 'packages/streamwall-control-client/**'
+              - 'packages/streamwall-control-ui/**'
+              - 'deploy/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
             workflows:
               - '.github/workflows/**'
               - '.github/actions/**'
@@ -151,6 +165,50 @@ jobs:
       - name: Run E2E smoke tests
         run: npm -w streamwall-control-e2e run test:e2e
 
+  # Self-hosting smoke test: builds the control-server image the way
+  # docs/self-hosting.md and deploy/docker-compose.yml build it (repository
+  # root as context). Without this, workspace-boundary mistakes in the
+  # Dockerfile (COPY paths, missing `npm ci` workspace filters, a broken
+  # control-client build) only surface when an operator deploys.
+  #
+  # The image is also started once: a container that builds but exits at
+  # boot is just as broken for self-hosters, and the check costs seconds.
+  docker:
+    name: Docker build (control server)
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # Renders the compose stack with the documented .env.example values, so
+      # a compose file that references a removed service, volume or variable
+      # fails here instead of on an operator's host.
+      - name: Validate compose stack
+        working-directory: deploy
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+      - name: Build control-server image
+        run: docker build -f packages/streamwall-control-server/Dockerfile -t streamwall-control-server:ci .
+      - name: Smoke test the image
+        run: |
+          docker run -d --name control-server -p 3000:3000 \
+            -e STREAMWALL_CONTROL_URL=http://localhost:3000 \
+            streamwall-control-server:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://localhost:3000/; then
+              echo "Control server served the web control client."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Control server did not respond within 30s."
+          docker logs control-server
+          exit 1
+
   # Reviews the dependency diff of a PR for known vulnerabilities.
   dependency-review:
     name: Dependency review
@@ -199,6 +257,7 @@ jobs:
         build,
         package,
         e2e,
+        docker,
         dependency-review,
         actionlint,
       ]

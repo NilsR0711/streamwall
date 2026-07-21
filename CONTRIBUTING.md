@@ -80,6 +80,18 @@ npx playwright install --with-deps chromium
 npm -w streamwall-control-e2e run test:e2e
 ```
 
+### Self-hosting image
+
+Changes to the control server, the web control client, the shared packages or
+`deploy/` are also exercised as a Docker build in CI: the image is built,
+started once, and the compose stack is validated. To reproduce that locally
+(needs Docker), from the repo root:
+
+```sh
+docker build -f packages/streamwall-control-server/Dockerfile .
+cd deploy && cp .env.example .env && docker compose config --quiet
+```
+
 ## Making changes
 
 - **Test-driven development is expected** for behavior changes: write a failing
