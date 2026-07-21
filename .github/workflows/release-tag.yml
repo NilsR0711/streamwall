@@ -50,6 +50,16 @@ jobs:
       - name: Check the release version is tagged
         run: node scripts/check-release-tag.mjs
 
+      # A tag alone proves nothing: the publish matrix may have failed
+      # half-way through, or never run for the tag at all (#533). Runs even
+      # when the step above failed — the two report different halves of the
+      # same pipeline, and one missing tag must not hide a broken release.
+      - name: Check the newest tag produced a complete release
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-release-assets.mjs
+
   # A failing scheduled run is invisible without this: nobody is emailed about
   # one, so the report goes into the issue tracker instead (#514) — which is
   # also where a forgotten tag belongs.

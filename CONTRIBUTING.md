@@ -409,6 +409,19 @@ up to date. Run it from the Actions tab, or locally:
 node scripts/check-release-tag.mjs
 ```
 
+The same job then checks what that tag actually produced: a tag can exist while
+its release is still broken — a publish leg of `release.yml` failed and left a
+partially populated release behind (#453), the workflow never ran for the tag,
+or the release was never taken out of draft. The check asks the GitHub API for
+the release of the version on `main` and asserts the artifact kinds the `make`
+job builds (`*.deb`, `*.rpm`, `*-setup-*.exe`, `latest.yml`, `*.zip`,
+`latest-mac.yml`). Releases before v0.9.2 carry Squirrel's artifact names and
+are skipped.
+
+```sh
+node scripts/check-release-assets.mjs
+```
+
 `test/changelog.test.mjs` and `test/release-please.test.mjs` run as part of
 `npm test` and fail if `CHANGELOG.md` is missing a heading for the version
 currently in `packages/streamwall/package.json`, if a hand-maintained
