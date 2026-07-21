@@ -48,18 +48,28 @@ export function uniqueRand62(len: number, map: Map<string, unknown>) {
 // is what lets `validateToken` compare digests in constant time.
 const SCRYPT_KEYLEN = 24
 
+export interface ScryptParams {
+  N: number
+  r: number
+  p: number
+}
+
 // scrypt cost parameters, pinned explicitly rather than relying on Node's
 // implicit defaults. These MUST match the values used to hash every
 // already-persisted token (Node's defaults: N=16384, r=8, p=1) — raising them
 // would invalidate existing session, invite and streamwall-uplink tokens on
 // upgrade. The token secrets themselves are 24 random bytes (~143 bits), so a
 // higher work factor would add cost without meaningfully improving security.
-const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 } as const
+export const DEFAULT_SCRYPT_PARAMS: ScryptParams = { N: 16384, r: 8, p: 1 }
 
 // Raw, fixed-length scrypt digest of a secret under a given salt.
-function hashTokenRaw(secret: string, salt: string): Promise<Buffer> {
+function hashTokenRaw(
+  secret: string,
+  salt: string,
+  params: ScryptParams,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    scryptCb(secret, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS, (err, derivedKey) => {
+    scryptCb(secret, salt, SCRYPT_KEYLEN, params, (err, derivedKey) => {
       if (err) {
         reject(err)
       } else {
@@ -70,8 +80,12 @@ function hashTokenRaw(secret: string, salt: string): Promise<Buffer> {
 }
 
 // Persisted form of a token hash: the raw digest, base62-encoded.
-async function hashToken62(secret: string, salt: string): Promise<string> {
-  return base62.encode(await hashTokenRaw(secret, salt))
+async function hashToken62(
+  secret: string,
+  salt: string,
+  params: ScryptParams,
+): Promise<string> {
+  return base62.encode(await hashTokenRaw(secret, salt, params))
 }
 
 // Wrapper for state data to facilitate role-scoped data access.
@@ -141,13 +155,26 @@ export class Auth extends EventEmitter<AuthEvents> {
    * token lifecycle events simply go unlogged rather than to raw stdout.
    */
   private log?: Logger
+  /**
+   * The work factor every token of this instance is hashed and verified under.
+   * Injectable so test suites that boot a live server per test do not pay the
+   * production cost for derivations they never assert on; a lowered factor is
+   * deliberately not reachable from the environment, so no deployment can end
+   * up with one by accident. It is part of the stored hash: changing it for an
+   * existing store invalidates every persisted token.
+   */
+  readonly scryptParams: ScryptParams
 
   constructor(
     { salt, tokens = [] }: Partial<StoredData['auth']> = {},
     log?: Logger,
+    {
+      scryptParams = DEFAULT_SCRYPT_PARAMS,
+    }: { scryptParams?: ScryptParams } = {},
   ) {
     super()
     this.log = log
+    this.scryptParams = scryptParams
     this.salt = salt ?? rand62(24)
     this.tokensById = new Map()
     for (const token of tokens) {
@@ -197,7 +224,11 @@ export class Auth extends EventEmitter<AuthEvents> {
     // not reveal whether the id exists (a user-enumeration oracle). Tokens
     // persisted before per-token salts fall back to the shared salt.
     const salt = tokenData?.salt ?? this.salt
-    const providedTokenHash = await hashTokenRaw(secret, salt)
+    const providedTokenHash = await hashTokenRaw(
+      secret,
+      salt,
+      this.scryptParams,
+    )
 
     // Re-read the record after the (async) hash: `deleteToken` may have revoked
     // it while scrypt was running. Authenticating against the stale snapshot
@@ -243,7 +274,7 @@ export class Auth extends EventEmitter<AuthEvents> {
     const tokenId = uniqueRand62(8, this.tokensById)
     const secret = rand62(24)
     const salt = rand62(24)
-    const tokenHash = await hashToken62(secret, salt)
+    const tokenHash = await hashToken62(secret, salt, this.scryptParams)
     const tokenData: AuthToken = {
       tokenId,
       tokenHash,

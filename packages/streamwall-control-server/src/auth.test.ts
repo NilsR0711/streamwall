@@ -6,7 +6,9 @@ import { promisify } from 'node:util'
 import type { StreamwallRole, StreamwallState } from 'streamwall-shared'
 import {
   type AuthToken,
+  type ScryptParams,
   Auth,
+  DEFAULT_SCRYPT_PARAMS,
   rand62,
   StateWrapper,
   uniqueRand62,
@@ -23,6 +25,27 @@ const base62 = baseX(
 )
 async function legacyStoredHash(secret: string, salt: string): Promise<string> {
   return base62.encode((await scrypt(secret, salt, 24)) as Buffer)
+}
+
+/**
+ * Independent re-implementation of the *current* stored-hash format under an
+ * explicit work factor, so a spec can assert which parameters a hash was
+ * actually derived with.
+ */
+function storedHash(
+  secret: string,
+  salt: string,
+  params: ScryptParams,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    scryptCb(secret, salt, 24, params, (err, derivedKey) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(base62.encode(derivedKey))
+      }
+    })
+  })
 }
 
 test('rand62 emits only base62 characters within the expected length bound', () => {
@@ -210,6 +233,69 @@ test('validateToken accepts a legacy token hashed with the shared salt and no pe
     role: 'admin',
     name: 'legacy',
   })
+})
+
+test('hashes tokens with the production scrypt work factor by default', async () => {
+  // Guard against the work factor being lowered silently: the stored hash must
+  // still be reproducible with the exact parameters every persisted token was
+  // hashed under. Lowering these would both weaken the hash and invalidate
+  // every already-persisted session, invite and uplink token on upgrade.
+  assert.deepEqual(DEFAULT_SCRYPT_PARAMS, { N: 16384, r: 8, p: 1 })
+
+  const auth = new Auth()
+  const { tokenId, secret } = await auth.createToken({
+    kind: 'session',
+    role: 'admin',
+    name: 'default-params',
+  })
+  const stored = auth.getStoredData().tokens.find((t) => t.tokenId === tokenId)
+
+  assert.ok(stored?.salt)
+  assert.equal(
+    stored.tokenHash,
+    await storedHash(secret, stored.salt, { N: 16384, r: 8, p: 1 }),
+  )
+})
+
+test('derives token hashes with injected scrypt parameters', async () => {
+  // Tests inject a cheap work factor so a suite that boots a live server per
+  // test does not pay four production-cost derivations it never asserts on.
+  const scryptParams = { N: 16, r: 8, p: 1 }
+  const auth = new Auth(undefined, undefined, { scryptParams })
+
+  const { tokenId, secret } = await auth.createToken({
+    kind: 'session',
+    role: 'admin',
+    name: 'cheap-params',
+  })
+  const stored = auth.getStoredData().tokens.find((t) => t.tokenId === tokenId)
+
+  assert.ok(stored?.salt)
+  assert.equal(
+    stored.tokenHash,
+    await storedHash(secret, stored.salt, scryptParams),
+  )
+  // The same instance validates what it hashed: minting and verifying agree on
+  // the injected parameters.
+  assert.ok(await auth.validateToken(tokenId, secret))
+})
+
+test('validateToken rejects a token hashed under a different work factor', async () => {
+  const auth = new Auth(undefined, undefined, {
+    scryptParams: { N: 16, r: 8, p: 1 },
+  })
+  const { tokenId, secret } = await auth.createToken({
+    kind: 'session',
+    role: 'admin',
+    name: 'mismatch',
+  })
+
+  // Reloading the persisted tokens under the production work factor derives a
+  // different digest, so the secret no longer matches: the work factor is part
+  // of the stored hash and cannot be changed for existing tokens.
+  const reloaded = new Auth(auth.getStoredData())
+
+  assert.equal(await reloaded.validateToken(tokenId, secret), null)
 })
 
 test('validateToken rejects a token revoked while its hash is being computed', async () => {

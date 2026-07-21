@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
-import { Auth } from './auth.ts'
+import { Auth, type ScryptParams } from './auth.ts'
 import runServer from './bootstrap.ts'
 import {
   getDocUpdateLimits,
@@ -56,10 +56,16 @@ export async function initApp({
   logStream,
   sentryEnabled: injectedSentryEnabled,
   sentryClient,
+  scryptParams,
   trustProxy: injectedTrustProxy,
   updateChecker: injectedUpdateChecker,
 }: AppOptions & {
   db?: StorageDB
+  /**
+   * Test-only override for the token-hashing work factor. Omitted everywhere
+   * but in tests, so a deployment always gets `DEFAULT_SCRYPT_PARAMS`.
+   */
+  scryptParams?: ScryptParams
   /** Overrides the level from `LOG_LEVEL` (used by tests to silence or widen output). */
   logLevel?: LogLevel
   /** Test-only sink for log output; defaults to pino's stdout destination. */
@@ -87,7 +93,7 @@ export async function initApp({
   })
 
   const db = injectedDb ?? (await loadStorage())
-  const auth = new Auth(db.data.auth, app.log)
+  const auth = new Auth(db.data.auth, app.log, { scryptParams })
   const updateChecker =
     injectedUpdateChecker ?? createUpdateChecker({ log: app.log })
 
