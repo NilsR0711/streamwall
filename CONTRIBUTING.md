@@ -324,7 +324,12 @@ breaking change bumps the minor version.
    manifests and the `CHANGELOG.md` section for the pending release. Its
    description previews the release notes; anything merged afterwards updates
    the PR.
-2. Merge the release PR when you want to cut the release.
+2. Merge the release PR when you want to cut the release. It arrives without
+   status checks: a pull request opened by a workflow's `GITHUB_TOKEN` does not
+   trigger other workflows, so neither `CI OK` nor `Conventional Commits title`
+   starts on its own. **Close and immediately reopen the release PR** — the
+   reopen comes from your account and starts both required checks. Wait for them
+   to pass before merging; release-please reuses the same branch afterwards.
 3. Tag the merge commit and push the tag:
 
    ```sh
