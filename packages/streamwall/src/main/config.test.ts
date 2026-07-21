@@ -32,7 +32,7 @@ function baseConfig() {
     park: { pause: false },
     twitch: {
       channel: null,
-      username: null,
+      'client-id': null,
       token: null,
       color: '#ff0000',
       announce: { template: 't', interval: 60, delay: 30 },

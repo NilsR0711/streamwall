@@ -91,7 +91,7 @@ const streamwallConfigSchema = z.object({
   }),
   twitch: z.object({
     channel: z.string().nullable(),
-    username: z.string().nullable(),
+    'client-id': z.string().nullable(),
     token: z.string().nullable(),
     color: z.string(),
     announce: z.object({

@@ -36,13 +36,14 @@ function loggedErrorMessage(entry: Record<string, unknown>) {
 }
 
 /**
- * `@fastify/websocket` bundles its own nested `ws` install
- * (`@fastify/websocket/node_modules/ws`), separate from the copy this
- * package imports directly. Every server-side socket in `initApp` is an
- * instance of *that* nested copy's `WebSocket` class, so mocking the
- * `WebSocket` this file imports would never intercept a server-side send.
- * Resolve the exact copy `@fastify/websocket` requires so the mock below
- * lands on the right prototype.
+ * Every server-side socket in `initApp` is an instance of the `WebSocket`
+ * class from the `ws` copy `@fastify/websocket` requires, which npm may or
+ * may not dedupe with the copy this package imports directly. Resolve that
+ * exact copy so the mocks below always land on the right prototype.
+ *
+ * When the two installs *are* deduped, the mocked prototype is shared with
+ * the test's own client sockets, so a mock must never key off the socket
+ * class alone — see the send filters in the tests below.
  */
 const localRequire = createRequire(import.meta.url)
 const requireFromFastifyWebsocket = createRequire(
@@ -88,9 +89,9 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
   // Force the next `ws.send()` carrying a state-delta payload to throw
   // synchronously, simulating the kind of internal `ws` send failure the
   // `failed to send client state delta` catch block guards against. Every
-  // other `send()` call (initial handshake frames, Yjs doc updates, the
-  // test's own client sockets, which use a different `ws` copy entirely)
-  // passes through to the real implementation.
+  // other `send()` call (initial handshake frames, Yjs doc updates, and
+  // anything the test's own client sockets send) passes through to the real
+  // implementation: only the server emits `state-delta` frames.
   const originalSend: typeof WebSocket.prototype.send =
     ServerWebSocket.prototype.send
   const sendError = new Error('boom - forced send failure')
@@ -148,13 +149,23 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
   await delay(150)
 
-  await redeemInviteAndConnectClient(app, auth, port, BASE_URL, 'admin')
+  const { ws: clientWs } = await redeemInviteAndConnectClient(
+    app,
+    auth,
+    port,
+    BASE_URL,
+    'admin',
+  )
   await delay(50)
 
-  // Force every subsequent binary (Yjs doc-update) send to throw, simulating
-  // the kind of internal `ws` send failure the `Failed to send Streamwall doc
-  // update` and `Failed to send client doc update:` catch blocks guard
-  // against. JSON (text) frames pass through untouched.
+  // Force every subsequent server-side binary (Yjs doc-update) send to throw,
+  // simulating the kind of internal `ws` send failure the `Failed to send
+  // Streamwall doc update` and `Failed to send client doc update:` catch
+  // blocks guard against. JSON (text) frames pass through untouched, as do
+  // the test's own client sockets — which share this prototype whenever npm
+  // dedupes the two `ws` installs, and whose doc-update send is what drives
+  // the scenario in the first place.
+  const testSockets: unknown[] = [streamwallWs, clientWs]
   const originalSend: typeof WebSocket.prototype.send =
     ServerWebSocket.prototype.send
   const sendError = new Error('boom - forced doc update send failure')
@@ -166,7 +177,7 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
       ...args: Parameters<typeof WebSocket.prototype.send>
     ) {
       const [data] = args
-      if (typeof data !== 'string') {
+      if (typeof data !== 'string' && !testSockets.includes(this)) {
         throw sendError
       }
       return originalSend.apply(this, args)
