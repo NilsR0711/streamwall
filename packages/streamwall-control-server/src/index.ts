@@ -29,6 +29,7 @@ import {
   initSentry,
   type SentryCaptureClient,
 } from './sentry.ts'
+import type { DocUpdateLimits } from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 import { createUpdateChecker, type UpdateChecker } from './updateCheck.ts'
 import { registerClientRoutes } from './ws/client.ts'
@@ -53,6 +54,7 @@ export async function initApp({
   baseURL,
   clientStaticPath,
   db: injectedDb,
+  docUpdateLimits: injectedDocUpdateLimits,
   logLevel,
   logStream,
   rateLimit: injectedRateLimit,
@@ -79,6 +81,13 @@ export async function initApp({
    * `getRateLimitConfig()` reads from the environment.
    */
   rateLimit?: Partial<RateLimitConfig>
+  /**
+   * Overrides individual inbound Yjs update size limits, for the same reason
+   * `rateLimit` exists: a spec that needs a tiny cap injects it instead of
+   * writing `STREAMWALL_WS_UPDATE_MAX_BYTES` process-wide. Unset fields keep
+   * the value `getDocUpdateLimits()` reads from the environment.
+   */
+  docUpdateLimits?: Partial<DocUpdateLimits>
   /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
   sentryEnabled?: boolean
   /** Test-only override for the client `captureException(...)` reports to. */
@@ -139,7 +148,7 @@ export async function initApp({
     expectedOrigin,
     isSecure,
     wsMessageLimitConfig: getWsMessageLimitConfig(),
-    docUpdateLimits: getDocUpdateLimits(),
+    docUpdateLimits: { ...getDocUpdateLimits(), ...injectedDocUpdateLimits },
     clients,
     currentStreamwallWs: null,
     currentStreamwallConn: null,

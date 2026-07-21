@@ -18,6 +18,7 @@ import type { RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
+import type { DocUpdateLimits } from './stateDocGuard.ts'
 import type { StorageDB, StoredData } from './storage.ts'
 import type { UpdateChecker } from './updateCheck.ts'
 
@@ -218,6 +219,7 @@ export const TEST_SCRYPT_PARAMS: ScryptParams = { N: 16, r: 8, p: 1 }
 export function buildTestApp(
   overrides: Partial<AppOptions> & {
     db?: StorageDB
+    docUpdateLimits?: Partial<DocUpdateLimits>
     logs?: LogCapture
     logLevel?: LogLevel
     rateLimit?: Partial<RateLimitConfig>
