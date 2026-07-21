@@ -1,0 +1,37 @@
+name: Release PR
+
+# Derives the changelog and the version bump from the Conventional Commit
+# subjects on `main` (PR titles are enforced by pr-title.yml and PRs are
+# squash-merged, so every commit subject is machine-readable). The result is a
+# release PR that maintainers merge when they want to cut a release.
+#
+# `skip-github-release` keeps the `vX.Y.Z` tag a manual step: a tag pushed with
+# GITHUB_TOKEN does not trigger other workflows, so a release-please-created tag
+# would silently skip `release.yml` and never build the installers.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+# Two runs racing on the same release branch would clobber each other's
+# changelog; never cancel one mid-write either.
+concurrency:
+  group: release-please-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Maintain release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # commits the version bump and changelog to the release branch
+      pull-requests: write # opens, updates and labels the release PR
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true

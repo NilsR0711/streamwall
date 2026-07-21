@@ -3,6 +3,8 @@ import { test } from 'node:test'
 
 import {
   buildNpmVersionArgs,
+  buildReleasePleaseManifest,
+  buildRootVersionArgs,
   parseVersionArg,
   RELEASE_TRACKED_WORKSPACES,
 } from '../scripts/release-version.mjs'
@@ -46,6 +48,22 @@ test('RELEASE_TRACKED_WORKSPACES lists exactly the manifests pinned by the versi
     'packages/streamwall',
     'packages/streamwall-control-server',
   ])
+})
+
+// The root manifest is the version release-please derives the release from
+// (release-please-config.json releases the "." package), so the manual path has
+// to move it in lockstep with the workspaces.
+test('buildRootVersionArgs bumps only the root manifest', () => {
+  assert.deepEqual(buildRootVersionArgs('0.9.2'), [
+    'version',
+    '0.9.2',
+    '--no-git-tag-version',
+    '--no-workspaces',
+  ])
+})
+
+test('buildReleasePleaseManifest keeps release-please in step with a manual bump', () => {
+  assert.equal(buildReleasePleaseManifest('0.9.2'), '{\n  ".": "0.9.2"\n}\n')
 })
 
 test('buildNpmVersionArgs bumps every release-tracked workspace without tagging', () => {
