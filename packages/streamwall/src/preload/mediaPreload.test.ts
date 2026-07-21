@@ -244,6 +244,120 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
   })
 })
 
+describe('mediaPreload iframe video extraction (issue #413)', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; the iframe scan only runs
+  // after the top-level <video> wait loses its race against this timeout.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  // A same-origin iframe embed: the <video> lives in the iframe's own
+  // document, so the top-level waitForQuery never finds it and the iframe
+  // scan is the only path that can.
+  function appendSameOriginIframeWithVideo(): HTMLIFrameElement {
+    const iframe = document.createElement('iframe')
+    iframe.srcdoc = '<html><head></head><body><video></video></body></html>'
+    document.body.appendChild(iframe)
+    return iframe
+  }
+
+  // A cross-origin iframe has an opaque origin: the embedder can never reach
+  // its DOM, so `contentDocument` reads as null.
+  function appendCrossOriginIframe(): HTMLIFrameElement {
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    Object.defineProperty(iframe, 'contentDocument', { value: null })
+    return iframe
+  }
+
+  async function loadVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it('acquires a video embedded in a same-origin iframe and hoists it into the iframe document', async () => {
+    const iframe = appendSameOriginIframeWithVideo()
+    const frameDocument = iframe.contentDocument
+    const video = frameDocument?.querySelector('video')
+    if (!video) {
+      throw new Error('test fixture: iframe document has no <video>')
+    }
+    // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+    // truthy value to skip findMedia's "wait for playing" branch.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    // The video is moved to the iframe document's body and the iframe (plus
+    // its ancestors) marked so VIDEO_OVERRIDE_STYLE can size it to the tile.
+    expect(video.parentElement).toBe(frameDocument?.body)
+    expect(iframe.className).toBe('__video__')
+    expect(document.body.className).toBe('__video_parent__')
+    expect(frameDocument?.head.querySelector('style')).not.toBeNull()
+  })
+
+  it('reports the cross-origin iframe as the specific cause instead of a generic missing video', async () => {
+    appendCrossOriginIframe()
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        {
+          error: expect.objectContaining({
+            message:
+              'could not find video: it may be inside a cross-origin iframe, which is unsupported',
+          }),
+        },
+      ],
+    ])
+  })
+
+  it('keeps the generic message when a reachable iframe simply contains no video', async () => {
+    const iframe = document.createElement('iframe')
+    iframe.srcdoc = '<html><head></head><body></body></html>'
+    document.body.appendChild(iframe)
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        { error: expect.objectContaining({ message: 'could not find video' }) },
+      ],
+    ])
+  })
+})
+
 describe('mediaPreload pause/resume handling (issue #374)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
