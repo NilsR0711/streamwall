@@ -115,10 +115,12 @@ identifiable session metadata never reaches them:
 - The `role` is logged, since authorization decisions are unreadable without
   it and a role is not identifying on its own.
 
-The startup banner (server version, uplink endpoint, admin invite link) is
-written directly to stdout rather than through the logger, so it stays visible
-regardless of `LOG_LEVEL`. It is the one place credentials are printed on
-purpose — see [Running](#running).
+The credential banner (uplink endpoint, admin invite link) is written directly
+to stdout rather than through the logger, so it stays visible regardless of
+`LOG_LEVEL`. It is the only output that bypasses the logger, and the one place
+credentials are printed on purpose — see [Running](#running). Everything else,
+including the startup diagnostics and the update-available announcement, is a
+structured entry on the JSON stream.
 
 ### Telemetry
 

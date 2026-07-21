@@ -73,6 +73,35 @@ export function captureLogs(): LogCapture {
   }
 }
 
+/** One entry a unit under test wrote through an injected structured logger. */
+export interface RecordedLogEntry {
+  level: 'info' | 'warn'
+  fields: Record<string, unknown>
+  msg: string | undefined
+}
+
+/**
+ * A stand-in for the structured logger, recording what a unit under test would
+ * have written. For units that take a logger by injection rather than reaching
+ * for `console` (see `captureLogs` for asserting on a live server's output).
+ */
+export function recordingLogger() {
+  const entries: RecordedLogEntry[] = []
+  const record =
+    (level: RecordedLogEntry['level']) =>
+    (fields: unknown, msg?: string): void => {
+      entries.push({
+        level,
+        fields: (fields ?? {}) as Record<string, unknown>,
+        msg,
+      })
+    }
+  return {
+    entries,
+    log: { info: record('info'), warn: record('warn') },
+  }
+}
+
 /**
  * Builds a fully-wired app instance backed by in-memory storage and throwaway
  * static assets, ready for `app.inject()` or `app.listen()` in tests.

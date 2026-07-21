@@ -8,6 +8,7 @@ import {
   getSentryConfig,
   initSentry,
 } from './sentry.ts'
+import { recordingLogger } from './testHelpers.ts'
 
 describe('getSentryConfig', () => {
   const originalEnabled = process.env[SENTRY_ENABLED_ENV]
@@ -78,11 +79,17 @@ describe('initSentry', () => {
 
   test('does nothing when disabled', () => {
     const client = fakeClient()
+    const logger = recordingLogger()
 
-    const result = initSentry({ enabled: false, dsn: undefined }, client)
+    const result = initSentry(
+      logger.log,
+      { enabled: false, dsn: undefined },
+      client,
+    )
 
     assert.equal(result, false)
     assert.equal(client.calls.length, 0)
+    assert.equal(logger.entries.length, 0)
     assert.equal(warnCalls.length, 0)
   })
 
@@ -90,6 +97,7 @@ describe('initSentry', () => {
     const client = fakeClient()
 
     const result = initSentry(
+      recordingLogger().log,
       { enabled: true, dsn: 'https://example@o0.ingest.sentry.io/1' },
       client,
     )
@@ -100,15 +108,31 @@ describe('initSentry', () => {
     ])
   })
 
-  test('warns and skips initialization when enabled without a DSN', () => {
+  test('warns through the structured logger and skips initialization when enabled without a DSN', () => {
     const client = fakeClient()
+    const logger = recordingLogger()
 
-    const result = initSentry({ enabled: true, dsn: undefined }, client)
+    const result = initSentry(
+      logger.log,
+      { enabled: true, dsn: undefined },
+      client,
+    )
 
     assert.equal(result, false)
     assert.equal(client.calls.length, 0)
-    assert.equal(warnCalls.length, 1)
-    assert.match(String(warnCalls[0][0]), new RegExp(SENTRY_DSN_ENV))
+    assert.equal(logger.entries.length, 1)
+    const [entry] = logger.entries
+    assert.equal(entry.level, 'warn')
+    assert.deepEqual(entry.fields, {
+      enabledEnv: SENTRY_ENABLED_ENV,
+      dsnEnv: SENTRY_DSN_ENV,
+    })
+    assert.match(String(entry.msg), new RegExp(SENTRY_DSN_ENV))
+    assert.equal(
+      warnCalls.length,
+      0,
+      'the warning must not bypass the structured logger (issue #493)',
+    )
   })
 })
 

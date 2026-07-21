@@ -88,11 +88,12 @@ export async function initApp({
 
   const db = injectedDb ?? (await loadStorage())
   const auth = new Auth(db.data.auth, app.log)
-  const updateChecker = injectedUpdateChecker ?? createUpdateChecker()
+  const updateChecker =
+    injectedUpdateChecker ?? createUpdateChecker({ log: app.log })
 
   // Opt-in crash reporting (see sentry.ts for why there is no default DSN).
   // Must be wired up before routes are registered so their errors are covered.
-  const sentryEnabled = injectedSentryEnabled ?? initSentry()
+  const sentryEnabled = injectedSentryEnabled ?? initSentry(app.log)
   if (sentryEnabled) {
     Sentry.setupFastifyErrorHandler(app)
   }

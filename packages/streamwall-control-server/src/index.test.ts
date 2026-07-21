@@ -6,7 +6,7 @@ import runServer, {
   resolveListenPort,
   SESSION_COOKIE_NAME,
 } from './index.ts'
-import { inMemoryDb } from './testHelpers.ts'
+import { captureLogs, inMemoryDb } from './testHelpers.ts'
 import type { UpdateChecker, UpdateStatus } from './updateCheck.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
@@ -138,6 +138,54 @@ describe('runServer', () => {
       server.listening,
       'server should be listening after runServer resolves',
     )
+  })
+
+  test('writes its startup diagnostics to the structured logger (issue #493)', async () => {
+    const logs = captureLogs()
+    const consoleCalls: unknown[][] = []
+    const originalLog = console.log
+    const originalDebug = console.debug
+    console.log = (...args: unknown[]) => {
+      consoleCalls.push(args)
+    }
+    console.debug = (...args: unknown[]) => {
+      consoleCalls.push(args)
+    }
+    let server: { close(): void }
+    try {
+      ;({ server } = await runServer({
+        baseURL: 'http://127.0.0.1:0',
+        clientStaticPath: import.meta.dirname,
+        db: inMemoryDb(),
+        logLevel: 'trace',
+        logStream: logs.stream,
+        updateChecker: fakeUpdateChecker(),
+      }))
+    } finally {
+      console.log = originalLog
+      console.debug = originalDebug
+    }
+    after(() => server.close())
+
+    const starting = logs.entries.find(
+      (e) => e.msg === 'Starting streamwall-control-server',
+    )
+    assert.ok(starting, 'the startup banner must be a structured entry')
+    assert.equal(typeof starting.version, 'string')
+
+    const initializing = logs.entries.find(
+      (e) => e.msg === 'Initializing web server',
+    )
+    assert.ok(initializing, 'the listen diagnostics must be a structured entry')
+    assert.equal(initializing.hostname, '127.0.0.1')
+    assert.equal(typeof initializing.port, 'number')
+
+    // The credential banner (`logBootstrap`) stays on `console` by design, so
+    // only the two startup diagnostics must have moved off it.
+    const startupOnConsole = consoleCalls.filter((args) =>
+      String(args[0]).match(/Starting streamwall-control-server|web server/),
+    )
+    assert.deepEqual(startupOnConsole, [])
   })
 })
 
