@@ -1,5 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { asCellIdx } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ResizeHandles } from './ResizeHandles.tsx'
 
@@ -21,8 +22,8 @@ function renderHandles(
   act(() => {
     render(
       <ResizeHandles
-        anchorIdx={0}
-        originalSpaces={[0]}
+        anchorIdx={asCellIdx(0)}
+        originalSpaces={[asCellIdx(0)]}
         role="operator"
         onResizeStart={() => {}}
         onResizeKeyDown={() => {}}

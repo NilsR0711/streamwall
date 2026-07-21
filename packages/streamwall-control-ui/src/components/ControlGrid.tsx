@@ -159,7 +159,7 @@ export function ControlGrid({
           if (pos == null) {
             return null
           }
-          const anchorIdx = Math.min(...pos.spaces)
+          const anchorIdx = asCellIdx(Math.min(...pos.spaces))
           return (
             <div
               key={`rh-${anchorIdx}`}

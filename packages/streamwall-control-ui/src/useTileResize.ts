@@ -1,6 +1,11 @@
 import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { roleCan, type StreamwallRole } from 'streamwall-shared'
+import {
+  asCellIdx,
+  roleCan,
+  type CellIdx,
+  type StreamwallRole,
+} from 'streamwall-shared'
 import * as Y from 'yjs'
 import { type CollabData } from './collabData.ts'
 import { isPrimaryButton } from './gestures'
@@ -14,10 +19,10 @@ import {
 /** Snapshots a `CollabData.views` map into the `Map<idx, streamId>` shape `resizeWouldOverwriteOtherStream` expects. */
 function collectCurrentAssignments(
   views: CollabData['views'] | undefined,
-): Map<number, string | undefined> {
-  const currentAssignments = new Map<number, string | undefined>()
+): Map<CellIdx, string | undefined> {
+  const currentAssignments = new Map<CellIdx, string | undefined>()
   for (const [idx, view] of Object.entries(views ?? {})) {
-    currentAssignments.set(Number(idx), view.streamId)
+    currentAssignments.set(asCellIdx(Number(idx)), view.streamId)
   }
   return currentAssignments
 }
@@ -39,26 +44,26 @@ export function useTileResize({
 }: {
   cols: number | null | undefined
   rows: number | null | undefined
-  hoveringIdx: number | undefined
+  hoveringIdx: CellIdx | undefined
   stateDoc: Y.Doc
   sharedState: CollabData | undefined
   role: StreamwallRole | null
 }) {
   const [resize, setResize] = useState<
     | {
-        anchorIdx: number
+        anchorIdx: CellIdx
         streamId: string
         handle: ResizeHandle
-        originalSpaces: number[]
+        originalSpaces: CellIdx[]
       }
     | undefined
   >()
 
   const handleResizeStart = useCallback(
     (
-      anchorIdx: number,
+      anchorIdx: CellIdx,
       handle: ResizeHandle,
-      originalSpaces: number[],
+      originalSpaces: CellIdx[],
       ev: PointerEvent,
     ) => {
       if (!isPrimaryButton(ev.button) || !roleCan(role, 'mutate-state-doc')) {
@@ -84,9 +89,9 @@ export function useTileResize({
   // Shift explicitly overrides the block and commits the step anyway.
   const handleResizeKeyDown = useCallback(
     (
-      anchorIdx: number,
+      anchorIdx: CellIdx,
       handle: ResizeHandle,
-      originalSpaces: number[],
+      originalSpaces: CellIdx[],
       ev: KeyboardEvent,
     ) => {
       if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {

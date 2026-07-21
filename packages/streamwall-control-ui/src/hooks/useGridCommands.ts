@@ -1,5 +1,6 @@
 import { useCallback } from 'preact/hooks'
 import {
+  asCellIdx,
   type CellIdx,
   clampGridDimension,
   type ControlCommand,
@@ -101,9 +102,9 @@ export function useGridCommands({
       // Shrinking the grid permanently drops any placement whose (x, y) no
       // longer fits. Warn before that happens so it is never silent.
       if (cols != null && sharedState) {
-        const assignments = new Map<number, string | undefined>()
+        const assignments = new Map<CellIdx, string | undefined>()
         for (const [idx, view] of Object.entries(sharedState.views)) {
-          assignments.set(Number(idx), view.streamId)
+          assignments.set(asCellIdx(Number(idx)), view.streamId)
         }
         if (
           gridWouldDropAssignments(cols, targetCols, targetRows, assignments) &&
@@ -313,9 +314,9 @@ export function useGridCommands({
       // fall outside the new bounds. So warn whenever the current layout has
       // any live assignment, mirroring handleSetGridSize's confirm above.
       if (sharedState) {
-        const assignments = new Map<number, string | undefined>()
+        const assignments = new Map<CellIdx, string | undefined>()
         for (const [idx, view] of Object.entries(sharedState.views)) {
-          assignments.set(Number(idx), view.streamId)
+          assignments.set(asCellIdx(Number(idx)), view.streamId)
         }
         if (
           hasGridAssignments(assignments) &&

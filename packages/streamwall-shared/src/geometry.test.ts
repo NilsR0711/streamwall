@@ -13,10 +13,18 @@ import {
   parseGridDimensionInput,
   remapGridAssignments,
 } from './geometry.ts'
+import { asCellIdx, asViewId, type CellIdx } from './viewAddressing.ts'
+
+/** Builds the cell-index-keyed assignment map the grid helpers take. */
+function cellAssignments(
+  entries: [number, string | undefined][],
+): Map<CellIdx, string | undefined> {
+  return new Map(entries.map(([idx, streamId]) => [asCellIdx(idx), streamId]))
+}
 
 describe('idxToCoords', () => {
   it('maps an index to grid coordinates', () => {
-    expect(idxToCoords(3, 4)).toEqual({ x: 1, y: 1 })
+    expect(idxToCoords(3, asCellIdx(4))).toEqual({ x: 1, y: 1 })
   })
 })
 
@@ -201,7 +209,7 @@ describe('clampGridDimension', () => {
 describe('remapGridAssignments', () => {
   it('keeps assignments at the same (x,y) when adding columns', () => {
     // 2x2: idx0='a' at (0,0), idx3='b' at (1,1)
-    const old = new Map<number, string | undefined>([
+    const old = cellAssignments([
       [0, 'a'],
       [1, undefined],
       [2, undefined],
@@ -209,38 +217,38 @@ describe('remapGridAssignments', () => {
     ])
     const result = remapGridAssignments(2, 3, 2, old)
     // 3 cols: (0,0)->0, (1,1)->4
-    expect(result.get(0)).toBe('a')
-    expect(result.get(4)).toBe('b')
+    expect(result.get(asCellIdx(0))).toBe('a')
+    expect(result.get(asCellIdx(4))).toBe('b')
   })
 
   it('drops assignments outside a shrunk grid', () => {
     // 3x3: 'a' at (2,2)=idx8, 'b' at (0,0)=idx0
-    const old = new Map<number, string | undefined>([
+    const old = cellAssignments([
       [8, 'a'],
       [0, 'b'],
     ])
     const result = remapGridAssignments(3, 2, 2, old)
     expect([...result.values()].filter((v) => v === 'a')).toHaveLength(0)
-    expect(result.get(0)).toBe('b')
+    expect(result.get(asCellIdx(0))).toBe('b')
   })
 
   it('returns a full new grid with empty new cells', () => {
-    const old = new Map<number, string | undefined>([[0, 'a']])
+    const old = cellAssignments([[0, 'a']])
     const result = remapGridAssignments(1, 2, 2, old)
     expect(result.size).toBe(4)
-    expect(result.get(0)).toBe('a')
-    expect(result.get(1)).toBeUndefined()
-    expect(result.get(3)).toBeUndefined()
+    expect(result.get(asCellIdx(0))).toBe('a')
+    expect(result.get(asCellIdx(1))).toBeUndefined()
+    expect(result.get(asCellIdx(3))).toBeUndefined()
   })
 
   it('treats empty-string assignments as empty', () => {
-    const old = new Map<number, string | undefined>([
+    const old = cellAssignments([
       [0, ''],
       [1, 'a'],
     ])
     const result = remapGridAssignments(2, 2, 1, old)
-    expect(result.get(0)).toBeUndefined()
-    expect(result.get(1)).toBe('a')
+    expect(result.get(asCellIdx(0))).toBeUndefined()
+    expect(result.get(asCellIdx(1))).toBe('a')
   })
 
   it('ignores a stale entry beyond the true old grid when oldRows is given (issue #17)', () => {
@@ -248,26 +256,26 @@ describe('remapGridAssignments', () => {
     // some previous, larger grid config that was never pruned. Naively reading
     // it via oldCols=3 alone gives (x=17%3=2, y=floor(17/3)=5), which lands
     // inside a large-enough new grid and would revive as a ghost stream.
-    const old = new Map<number, string | undefined>([
+    const old = cellAssignments([
       [0, 'a'],
       [17, 'ghost'],
     ])
     const result = remapGridAssignments(3, 6, 6, old, 1)
     expect([...result.values()]).not.toContain('ghost')
-    expect(result.get(0)).toBe('a')
+    expect(result.get(asCellIdx(0))).toBe('a')
   })
 
   it('keeps an entry within the true old grid when oldRows is given', () => {
     // 3x2 grid: idx3 = (x=0, y=1).
-    const old = new Map<number, string | undefined>([[3, 'b']])
+    const old = cellAssignments([[3, 'b']])
     const result = remapGridAssignments(3, 4, 4, old, 2)
-    expect(result.get(4)).toBe('b') // (0,1) -> 4*1 + 0 = 4
+    expect(result.get(asCellIdx(4))).toBe('b') // (0,1) -> 4*1 + 0 = 4
   })
 
   it('applies no extra filtering when oldRows is omitted (back-compat)', () => {
-    const old = new Map<number, string | undefined>([[17, 'ghost']])
+    const old = cellAssignments([[17, 'ghost']])
     const result = remapGridAssignments(3, 6, 6, old)
-    expect(result.get(32)).toBe('ghost') // (x=2, y=5) -> 6*5 + 2 = 32
+    expect(result.get(asCellIdx(32))).toBe('ghost') // (x=2, y=5) -> 6*5 + 2 = 32
   })
 })
 
@@ -301,23 +309,23 @@ describe('parseGridDimensionInput', () => {
 describe('gridWouldDropAssignments', () => {
   it('returns true when a non-empty cell falls outside the shrunk grid', () => {
     // 4x4: 'a' at (3,3)=idx15 is dropped when shrinking to 2x2
-    const assignments = new Map<number, string | undefined>([[15, 'a']])
+    const assignments = cellAssignments([[15, 'a']])
     expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(true)
   })
   it('returns false when every non-empty cell survives', () => {
     // 4x4: 'a' at (0,0)=idx0 survives a shrink to 2x2
-    const assignments = new Map<number, string | undefined>([[0, 'a']])
+    const assignments = cellAssignments([[0, 'a']])
     expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(false)
   })
   it('ignores empty and empty-string cells that would be dropped', () => {
-    const assignments = new Map<number, string | undefined>([
+    const assignments = cellAssignments([
       [15, ''],
       [14, undefined],
     ])
     expect(gridWouldDropAssignments(4, 2, 2, assignments)).toBe(false)
   })
   it('returns false when the grid grows', () => {
-    const assignments = new Map<number, string | undefined>([[3, 'a']])
+    const assignments = cellAssignments([[3, 'a']])
     expect(gridWouldDropAssignments(2, 4, 4, assignments)).toBe(false)
   })
 })
@@ -327,14 +335,14 @@ describe('hasGridAssignments', () => {
     expect(hasGridAssignments(new Map())).toBe(false)
   })
   it('returns false when every cell is empty or empty-string', () => {
-    const assignments = new Map<number, string | undefined>([
+    const assignments = cellAssignments([
       [0, undefined],
       [1, ''],
     ])
     expect(hasGridAssignments(assignments)).toBe(false)
   })
   it('returns true when at least one cell holds a streamId', () => {
-    const assignments = new Map<number, string | undefined>([
+    const assignments = cellAssignments([
       [0, undefined],
       [1, 'a'],
     ])
@@ -369,5 +377,26 @@ describe('fullscreenViewContentMap', () => {
     )
     expect(boxes).toHaveLength(1)
     expect(boxes[0].spaces).toEqual([0])
+  })
+})
+
+// Compile-time guards. The assignment maps are keyed by *grid cell index*,
+// never by a stable view id (issue #567).
+describe('cell-index typing', () => {
+  it('rejects assignment maps keyed by a bare number or a view id', () => {
+    const assignments = new Map<CellIdx, string | undefined>([
+      [asCellIdx(0), 'stream-a'],
+    ])
+
+    // @ts-expect-error - the map is keyed by cell index, not by a bare number
+    hasGridAssignments(new Map<number, string | undefined>())
+    // @ts-expect-error - the map is keyed by cell index, not by a view id
+    gridWouldDropAssignments(2, 1, 1, new Map([[asViewId(0), 'stream-a']]))
+    // @ts-expect-error - a bare number is not a cell index
+    idxToCoords(3, 4)
+
+    expect(remapGridAssignments(2, 1, 1, assignments).get(asCellIdx(0))).toBe(
+      'stream-a',
+    )
   })
 })
