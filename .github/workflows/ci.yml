@@ -30,6 +30,10 @@ jobs:
       dependencies: ${{ steps.filter.outputs.dependencies }}
       docker: ${{ steps.filter.outputs.docker }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      # Runner matrix for the package smoke job. macOS is the expensive leg
+      # and the only one that ad-hoc re-signs the app, so it joins only when
+      # the PR actually touches a packaging input (#538).
+      package_os: ${{ steps.filter.outputs.packaging == 'true' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -64,6 +68,14 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - '.dockerignore'
+              - '.github/workflows/ci.yml'
+            # Inputs to `electron-forge package`: the desktop workspace with
+            # its Forge/Vite config, the manifests that pin Electron and the
+            # native modules, and this workflow.
+            packaging:
+              - 'packages/streamwall/**'
+              - 'package.json'
+              - 'package-lock.json'
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/workflows/**'
@@ -140,16 +152,27 @@ jobs:
   # `package` only, not `make`: it exercises the Vite builds, asar packing
   # and native rebuild without paying for the maker-specific installer
   # steps (NSIS, darwin zip, deb, rpm). Those are covered outside of PR CI
-  # by the weekly `.github/workflows/packaging.yml` matrix. Ubuntu alone is
-  # enough for a smoke test — the shared failure modes are OS-independent.
-  # Runtime: ~45 seconds (measured on ubuntu-latest, cached npm), and it runs
-  # in parallel with the other jobs, so wall-clock CI time is unchanged.
+  # by the weekly `.github/workflows/packaging.yml` matrix.
+  #
+  # Ubuntu covers the OS-independent failure modes on every code change and
+  # runs in parallel with the other jobs (~45 seconds, cached npm), so
+  # wall-clock CI time is unchanged. macOS joins only for changes that touch
+  # a packaging input, because it is the one platform whose `package` step
+  # ad-hoc re-signs the app (fuses plugin) and produces the `.app` bundle the
+  # darwin zip maker consumes — a regression there used to stay hidden until
+  # the weekly matrix or a release (#538). Gating it on the `packaging` filter
+  # keeps the extra macOS minutes off PRs that cannot break packaging.
   package:
-    name: Package smoke (Electron app)
+    name: Package smoke (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      # One broken platform must not hide the state of the other.
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.package_os) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

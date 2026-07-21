@@ -276,9 +276,18 @@ app itself is distributed, via GitHub Releases.
 
 ### Packaging checks
 
-PR CI runs `electron-forge package` (Ubuntu only) as a smoke test. The
-installer makers themselves — NSIS, the macOS zip, deb and rpm — are exercised
-in two other places:
+PR CI runs `electron-forge package` as a smoke test. Ubuntu covers every code
+change; macOS is added whenever the PR touches a packaging input — the
+`packages/streamwall` workspace (including `forge.config.ts`), the root
+manifests or `.github/workflows/ci.yml`. macOS is the only platform whose
+`package` step ad-hoc re-signs the app and produces the `.app` bundle the
+darwin zip maker consumes, so a macOS-specific regression is caught on the PR
+that introduces it instead of a week later. The `packaging` filter in the
+`Detect changes` job keeps those extra runner minutes off PRs that cannot
+break packaging.
+
+The installer makers themselves — NSIS, the macOS zip, deb and rpm — are
+exercised in two other places:
 
 - `.github/workflows/release.yml` gates every tag on an `electron-forge make`
   run that builds the deb and rpm installers natively and cross-builds the
