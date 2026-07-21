@@ -358,6 +358,164 @@ describe('mediaPreload iframe video extraction (issue #413)', () => {
   })
 })
 
+describe('mediaPreload late iframe rescanning (issue #485)', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; the search gives up once it
+  // elapses, so every late insertion under test happens before it.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+  // Must match SCAN_THROTTLE in mediaPreload.ts: long enough for the throttled
+  // rescan to run, short enough that these assertions land well before the
+  // timeout would have triggered a one-shot scan on its own.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  async function loadVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(doc: Document): HTMLVideoElement {
+    const video = doc.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  // An empty same-origin frame whose player arrives later.
+  function appendEmptyIframe(): {
+    iframe: HTMLIFrameElement
+    frameDocument: Document
+  } {
+    const iframe = document.createElement('iframe')
+    iframe.srcdoc = '<html><head></head><body></body></html>'
+    document.body.appendChild(iframe)
+    const frameDocument = iframe.contentDocument
+    if (!frameDocument) {
+      throw new Error('test fixture: iframe has no document')
+    }
+    return { iframe, frameDocument }
+  }
+
+  it('acquires an iframe-embedded video without waiting out the initial timeout', async () => {
+    const { iframe, frameDocument } = appendEmptyIframe()
+    frameDocument.body.appendChild(playableVideo(frameDocument))
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('acquires a video from an iframe inserted after the page settled', async () => {
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS / 2)
+
+    // A slow SPA bootstrap finally inserts its player iframe. The embedder's
+    // MutationObserver sees the insertion, so the scan must run again rather
+    // than only once at the very end of the initial wait.
+    const { iframe, frameDocument } = appendEmptyIframe()
+    frameDocument.body.appendChild(playableVideo(frameDocument))
+
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('rescans an already-present iframe once it fires load with its player', async () => {
+    // The frame exists from the start but is still empty (a consent gate, a
+    // lazily navigated player). Its own document is outside the embedder's
+    // observed tree, so only the frame's load event can announce the change.
+    const { iframe, frameDocument } = appendEmptyIframe()
+
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS / 2)
+
+    frameDocument.body.appendChild(playableVideo(frameDocument))
+    iframe.dispatchEvent(new Event('load'))
+
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('scans iframes during an unbounded re-acquisition, which never reaches a timeout', async () => {
+    const video = playableVideo(document)
+    document.body.appendChild(video)
+
+    await loadVideoContent()
+    expect(send).toHaveBeenCalledWith('view-loaded')
+
+    // The stream is replaced by an iframe-embedded player. The 'emptied'
+    // handler re-acquires with an unbounded timeout, so a scan that only runs
+    // when the search times out would never run at all here.
+    video.remove()
+    const { iframe, frameDocument } = appendEmptyIframe()
+    frameDocument.body.appendChild(playableVideo(frameDocument))
+    video.dispatchEvent(new Event('emptied'))
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS * 3)
+
+    expect(viewErrorCalls()).toEqual([])
+    expect(
+      send.mock.calls.filter(([channel]) => channel === 'view-loaded'),
+    ).toHaveLength(2)
+    expect(iframe.className).toBe('__video__')
+  })
+
+  it('still reports the cross-origin cause when the frame stays unreachable for the whole search', async () => {
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS / 2)
+
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    Object.defineProperty(iframe, 'contentDocument', { value: null })
+
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+
+    expect(viewErrorCalls()).toEqual([
+      [
+        'view-error',
+        {
+          error: expect.objectContaining({
+            message:
+              'could not find video: it may be inside a cross-origin iframe, which is unsupported',
+          }),
+        },
+      ],
+    ])
+  })
+})
+
 describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
   // Records every observer the module creates so the tests can assert on how
   // many are still connected at a given point. Deliberately inert: it never
