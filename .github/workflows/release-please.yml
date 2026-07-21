@@ -29,9 +29,34 @@ jobs:
     permissions:
       contents: write # commits the version bump and changelog to the release branch
       pull-requests: write # opens, updates and labels the release PR
+      actions: write # dispatches the required checks for the release PR
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - id: release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           skip-github-release: true
+
+      # The PR above was opened with this workflow's GITHUB_TOKEN, and GitHub
+      # raises no `pull_request` events for it — so neither `CI OK` nor
+      # `Conventional Commits title` starts, and branch protection blocks the
+      # merge. `workflow_dispatch` is the documented exception: GitHub always
+      # creates a run for it, GITHUB_TOKEN included. Dispatching both workflows
+      # against the release branch attaches their checks to its head commit,
+      # which is what branch protection looks at (#521).
+      #
+      # This replaces closing and reopening the PR by hand, and re-runs on
+      # every push to `main`, because release-please rewrites the branch head
+      # each time it folds a new commit into the pending release.
+      - name: Run the required checks on the release PR
+        if: steps.release-please.outputs.pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.release-please.outputs.pr }}
+        run: |
+          branch="$(jq -er '.headBranchName' <<< "$PR")"
+          number="$(jq -er '.number' <<< "$PR")"
+          echo "Dispatching the required checks for #$number ($branch)."
+          gh workflow run ci.yml --ref "$branch"
+          gh workflow run pr-title.yml --ref "$branch" -f pr-number="$number"

@@ -5,6 +5,15 @@ name: PR title
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
+  # release-please.yml dispatches this workflow for the release PR, whose
+  # `pull_request` events GitHub never delivers (#521). A dispatched run gets
+  # no pull request payload, hence the number.
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: 'Number of the pull request whose title to check'
+        required: true
+        type: string
 
 permissions: {}
 
@@ -13,11 +22,20 @@ jobs:
     name: Conventional Commits title
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: read # reads the title a dispatched run has no payload for
     steps:
       - name: Check PR title
         env:
           TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          if [[ -z "$TITLE" ]]; then
+            TITLE="$(gh pr view "$PR_NUMBER" --json title --jq .title)"
+            echo "Checking the title of #$PR_NUMBER."
+          fi
           regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9./-]+\))?!?: .+'
           if [[ "$TITLE" =~ $regex ]]; then
             echo "PR title OK: $TITLE"
