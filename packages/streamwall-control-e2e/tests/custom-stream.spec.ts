@@ -60,7 +60,11 @@ test('deleting an existing custom stream forwards a delete-custom-stream command
   ).toBeVisible()
 
   const deleteCommandPromise = harness.waitForCommand('delete-custom-stream')
-  await page.getByRole('button', { name: 'x', exact: true }).click()
+  await page
+    .getByRole('button', {
+      name: `Delete custom stream ${SEEDED_CUSTOM_STREAM.label}`,
+    })
+    .click()
 
   const deleteCommand = await deleteCommandPromise
   expect(deleteCommand).toMatchObject({
