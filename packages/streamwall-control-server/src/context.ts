@@ -4,6 +4,7 @@ import type * as Y from 'yjs'
 import { type AuthTokenInfo, stateDiff } from 'streamwall-shared'
 import type { Auth, StateWrapper } from './auth.ts'
 import type { WsMessageLimitConfig } from './config.ts'
+import { identityFields, type Logger } from './logger.ts'
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import type { UpdateChecker } from './updateCheck.ts'
 
@@ -34,6 +35,8 @@ export interface StreamwallConnection {
  * destructured up front.
  */
 export interface AppContext {
+  /** Server-wide logger; per-connection handlers prefer `request.log`. */
+  log: Logger
   auth: Auth
   updateChecker: UpdateChecker
   expectedOrigin: string
@@ -59,6 +62,7 @@ export interface AppContext {
 export function createBroadcastStateDeltas(
   clients: Map<string, Client>,
   reportCaughtError: (err: unknown) => void,
+  log: Logger,
 ): (clientState: StateWrapper) => void {
   return (clientState: StateWrapper) => {
     for (const client of clients.values()) {
@@ -74,7 +78,14 @@ export function createBroadcastStateDeltas(
         client.ws.send(JSON.stringify({ type: 'state-delta', delta }))
         client.lastStateSent = stateView
       } catch (err) {
-        console.error('failed to send client state delta', client, err)
+        log.error(
+          {
+            err,
+            clientId: client.clientId,
+            ...identityFields(client.identity),
+          },
+          'Failed to send client state delta',
+        )
         reportCaughtError(err)
       }
     }

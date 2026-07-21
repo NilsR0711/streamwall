@@ -7,6 +7,7 @@ import {
   type StreamwallState,
   validRolesSet,
 } from 'streamwall-shared'
+import { type Logger, tokenIdPrefix } from './logger.ts'
 import type { StoredData } from './storage.ts'
 
 export interface AuthToken extends AuthTokenInfo {
@@ -135,9 +136,18 @@ export class StateWrapper extends EventEmitter {
 export class Auth extends EventEmitter<AuthEvents> {
   salt: string
   tokensById: Map<string, AuthToken>
+  /**
+   * Optional so `Auth` stays usable standalone (specs, tooling); when absent,
+   * token lifecycle events simply go unlogged rather than to raw stdout.
+   */
+  private log?: Logger
 
-  constructor({ salt, tokens = [] }: Partial<StoredData['auth']> = {}) {
+  constructor(
+    { salt, tokens = [] }: Partial<StoredData['auth']> = {},
+    log?: Logger,
+  ) {
     super()
+    this.log = log
     this.salt = salt ?? rand62(24)
     this.tokensById = new Map()
     for (const token of tokens) {
@@ -245,7 +255,12 @@ export class Auth extends EventEmitter<AuthEvents> {
     this.tokensById.set(tokenId, tokenData)
     this.emitState()
 
-    console.log(`Created ${kind} token:`, { tokenId, role, name })
+    // The operator-supplied `name` identifies a person, so it never reaches
+    // the log; the token id is truncated to a correlation-only prefix.
+    this.log?.debug(
+      { kind, role, tokenIdPrefix: tokenIdPrefix(tokenId) },
+      'Created token',
+    )
 
     return { tokenId, secret }
   }

@@ -17,6 +17,7 @@ import {
 } from 'streamwall-shared'
 import {
   buildTestApp,
+  captureLogs,
   connectStreamwallUplink,
   listenTestApp,
   messageCollector,
@@ -51,21 +52,6 @@ function applyDelta(state: StreamwallState, delta: Delta): StreamwallState {
   return stateDiff.patch(structuredClone(state), delta) as StreamwallState
 }
 
-/** Temporarily replaces `console.warn`, capturing every call made while active. */
-function spyOnConsoleWarn() {
-  const calls: unknown[][] = []
-  const original = console.warn
-  console.warn = (...args: unknown[]) => {
-    calls.push(args)
-  }
-  return {
-    calls,
-    restore: () => {
-      console.warn = original
-    },
-  }
-}
-
 /**
  * Boots a live server, connects a Streamwall uplink and seeds it with
  * `VALID_STATE`, and returns a `connectClient` helper that redeems a
@@ -76,7 +62,8 @@ async function bootServerWithUplink() {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
   process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
 
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
+  const logs = captureLogs()
+  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
   after(() => app.close())
   const port = await listenTestApp(app)
 
@@ -98,141 +85,109 @@ async function bootServerWithUplink() {
     return { clientWs, client }
   }
 
-  return { app, auth, port, streamwallWs, streamwall, connectClient }
+  return { app, auth, port, streamwallWs, streamwall, connectClient, logs }
 }
 
 test('an operator cannot create-invite: it is dropped, logged, and never forwarded', async () => {
-  const { streamwall, connectClient } = await bootServerWithUplink()
+  const { streamwall, connectClient, logs } = await bootServerWithUplink()
   const { clientWs, client } = await connectClient('operator')
-  const warn = spyOnConsoleWarn()
+  clientWs.send(
+    JSON.stringify({
+      id: 1,
+      type: 'create-invite',
+      role: 'admin',
+      name: 'x',
+    }),
+  )
+  clientWs.send(JSON.stringify({ id: 2, type: 'reload-view', viewId: 0 }))
 
-  try {
-    clientWs.send(
-      JSON.stringify({
-        id: 1,
-        type: 'create-invite',
-        role: 'admin',
-        name: 'x',
-      }),
-    )
-    clientWs.send(JSON.stringify({ id: 2, type: 'reload-view', viewId: 0 }))
+  const response = await client.waitFor(isResponseTo(1))
+  assert.equal(response.error, 'unauthorized')
 
-    const response = await client.waitFor(isResponseTo(1))
-    assert.equal(response.error, 'unauthorized')
-
-    await streamwall.waitFor((m) => m.type === 'reload-view')
-    assert.ok(
-      !streamwall.messages.some((m) => m.type === 'create-invite'),
-      'create-invite must never reach the Streamwall uplink',
-    )
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Unauthorized attempt to "create-invite"'),
-      ),
-      'the rejection must be logged',
-    )
-  } finally {
-    warn.restore()
-  }
+  await streamwall.waitFor((m) => m.type === 'reload-view')
+  assert.ok(
+    !streamwall.messages.some((m) => m.type === 'create-invite'),
+    'create-invite must never reach the Streamwall uplink',
+  )
+  assert.ok(
+    logs.hasMessage('Unauthorized attempt to "create-invite"'),
+    'the rejection must be logged',
+  )
 })
 
 test('an operator cannot browse: it is dropped, logged, and never forwarded', async () => {
-  const { streamwall, connectClient } = await bootServerWithUplink()
+  const { streamwall, connectClient, logs } = await bootServerWithUplink()
   const { clientWs, client } = await connectClient('operator')
-  const warn = spyOnConsoleWarn()
+  clientWs.send(
+    JSON.stringify({ id: 3, type: 'browse', url: 'https://example.com' }),
+  )
+  clientWs.send(JSON.stringify({ id: 4, type: 'reload-view', viewId: 0 }))
 
-  try {
-    clientWs.send(
-      JSON.stringify({ id: 3, type: 'browse', url: 'https://example.com' }),
-    )
-    clientWs.send(JSON.stringify({ id: 4, type: 'reload-view', viewId: 0 }))
+  const response = await client.waitFor(isResponseTo(3))
+  assert.equal(response.error, 'unauthorized')
 
-    const response = await client.waitFor(isResponseTo(3))
-    assert.equal(response.error, 'unauthorized')
-
-    await streamwall.waitFor((m) => m.type === 'reload-view')
-    assert.ok(
-      !streamwall.messages.some((m) => m.type === 'browse'),
-      'browse must never reach the Streamwall uplink',
-    )
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Unauthorized attempt to "browse"'),
-      ),
-      'the rejection must be logged',
-    )
-  } finally {
-    warn.restore()
-  }
+  await streamwall.waitFor((m) => m.type === 'reload-view')
+  assert.ok(
+    !streamwall.messages.some((m) => m.type === 'browse'),
+    'browse must never reach the Streamwall uplink',
+  )
+  assert.ok(
+    logs.hasMessage('Unauthorized attempt to "browse"'),
+    'the rejection must be logged',
+  )
 })
 
 test('a monitor cannot create-invite: it is dropped, logged, and never forwarded', async () => {
-  const { streamwall, connectClient } = await bootServerWithUplink()
+  const { streamwall, connectClient, logs } = await bootServerWithUplink()
   const { clientWs, client } = await connectClient('monitor')
-  const warn = spyOnConsoleWarn()
+  clientWs.send(
+    JSON.stringify({
+      id: 5,
+      type: 'create-invite',
+      role: 'admin',
+      name: 'x',
+    }),
+  )
+  clientWs.send(
+    JSON.stringify({ id: 6, type: 'set-stream-censored', isCensored: true }),
+  )
 
-  try {
-    clientWs.send(
-      JSON.stringify({
-        id: 5,
-        type: 'create-invite',
-        role: 'admin',
-        name: 'x',
-      }),
-    )
-    clientWs.send(
-      JSON.stringify({ id: 6, type: 'set-stream-censored', isCensored: true }),
-    )
+  const response = await client.waitFor(isResponseTo(5))
+  assert.equal(response.error, 'unauthorized')
 
-    const response = await client.waitFor(isResponseTo(5))
-    assert.equal(response.error, 'unauthorized')
-
-    await streamwall.waitFor((m) => m.type === 'set-stream-censored')
-    assert.ok(
-      !streamwall.messages.some((m) => m.type === 'create-invite'),
-      'create-invite must never reach the Streamwall uplink',
-    )
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Unauthorized attempt to "create-invite"'),
-      ),
-      'the rejection must be logged',
-    )
-  } finally {
-    warn.restore()
-  }
+  await streamwall.waitFor((m) => m.type === 'set-stream-censored')
+  assert.ok(
+    !streamwall.messages.some((m) => m.type === 'create-invite'),
+    'create-invite must never reach the Streamwall uplink',
+  )
+  assert.ok(
+    logs.hasMessage('Unauthorized attempt to "create-invite"'),
+    'the rejection must be logged',
+  )
 })
 
 test('a monitor cannot browse: it is dropped, logged, and never forwarded', async () => {
-  const { streamwall, connectClient } = await bootServerWithUplink()
+  const { streamwall, connectClient, logs } = await bootServerWithUplink()
   const { clientWs, client } = await connectClient('monitor')
-  const warn = spyOnConsoleWarn()
+  clientWs.send(
+    JSON.stringify({ id: 7, type: 'browse', url: 'https://example.com' }),
+  )
+  clientWs.send(
+    JSON.stringify({ id: 8, type: 'set-stream-censored', isCensored: true }),
+  )
 
-  try {
-    clientWs.send(
-      JSON.stringify({ id: 7, type: 'browse', url: 'https://example.com' }),
-    )
-    clientWs.send(
-      JSON.stringify({ id: 8, type: 'set-stream-censored', isCensored: true }),
-    )
+  const response = await client.waitFor(isResponseTo(7))
+  assert.equal(response.error, 'unauthorized')
 
-    const response = await client.waitFor(isResponseTo(7))
-    assert.equal(response.error, 'unauthorized')
-
-    await streamwall.waitFor((m) => m.type === 'set-stream-censored')
-    assert.ok(
-      !streamwall.messages.some((m) => m.type === 'browse'),
-      'browse must never reach the Streamwall uplink',
-    )
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Unauthorized attempt to "browse"'),
-      ),
-      'the rejection must be logged',
-    )
-  } finally {
-    warn.restore()
-  }
+  await streamwall.waitFor((m) => m.type === 'set-stream-censored')
+  assert.ok(
+    !streamwall.messages.some((m) => m.type === 'browse'),
+    'browse must never reach the Streamwall uplink',
+  )
+  assert.ok(
+    logs.hasMessage('Unauthorized attempt to "browse"'),
+    'the rejection must be logged',
+  )
 })
 
 test('an operator can set-listening-view: it is forwarded to the Streamwall uplink', async () => {
@@ -271,11 +226,12 @@ test("an admin's state broadcast includes auth while an operator's does not", as
 /** Boots a live server and mints a Streamwall uplink token, without connecting yet. */
 async function startUplinkServer() {
   process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
+  const logs = captureLogs()
+  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
   after(() => app.close())
   const port = await listenTestApp(app)
   const { base, secret } = await mintUplinkToken(auth, port)
-  return { app, auth, port, base, secret }
+  return { app, auth, port, base, secret, logs }
 }
 
 test('rejects a second Streamwall connection while the first stays connected', async () => {
@@ -284,55 +240,48 @@ test('rejects a second Streamwall connection while the first stays connected', a
     port,
     streamwallWs: first,
     connectClient,
+    logs,
   } = await bootServerWithUplink()
-  const warn = spyOnConsoleWarn()
+  // Registering the first uplink connection requires the server to await a
+  // real `validateToken` scrypt derivation, so the client's 'open' event
+  // (and even the fixed delay in `bootServerWithUplink`) is not proof that
+  // registration has actually completed — most visible on a loaded/slower
+  // CI runner. Round-trip a client through the state broadcast the uplink
+  // just sent: that broadcast can only happen after registration finished,
+  // so it deterministically proves the race window has closed rather than
+  // assuming a fixed ordering.
+  const { client } = await connectClient('admin')
+  await client.waitFor(isStateMessage)
 
-  try {
-    // Registering the first uplink connection requires the server to await a
-    // real `validateToken` scrypt derivation, so the client's 'open' event
-    // (and even the fixed delay in `bootServerWithUplink`) is not proof that
-    // registration has actually completed — most visible on a loaded/slower
-    // CI runner. Round-trip a client through the state broadcast the uplink
-    // just sent: that broadcast can only happen after registration finished,
-    // so it deterministically proves the race window has closed rather than
-    // assuming a fixed ordering.
-    const { client } = await connectClient('admin')
-    await client.waitFor(isStateMessage)
+  const secondToken = await auth.createToken({
+    kind: 'streamwall',
+    role: 'admin',
+    name: 'second uplink',
+  })
+  const second = new WebSocket(
+    `ws://127.0.0.1:${port}/streamwall/${secondToken.tokenId}/ws`,
+    { headers: { authorization: `Bearer ${secondToken.secret}` } },
+  )
+  after(() => second.terminate())
+  const nextMessage = messageCollector(second)
 
-    const secondToken = await auth.createToken({
-      kind: 'streamwall',
-      role: 'admin',
-      name: 'second uplink',
-    })
-    const second = new WebSocket(
-      `ws://127.0.0.1:${port}/streamwall/${secondToken.tokenId}/ws`,
-      { headers: { authorization: `Bearer ${secondToken.secret}` } },
-    )
-    after(() => second.terminate())
-    const nextMessage = messageCollector(second)
+  assert.deepEqual(
+    await nextMessage(2000),
+    { error: 'streamwall already connected' },
+    'the second connection must be rejected',
+  )
 
-    assert.deepEqual(
-      await nextMessage(2000),
-      { error: 'streamwall already connected' },
-      'the second connection must be rejected',
-    )
+  await once(second, 'close', { signal: AbortSignal.timeout(2000) })
 
-    await once(second, 'close', { signal: AbortSignal.timeout(2000) })
-
-    assert.equal(
-      first.readyState,
-      WebSocket.OPEN,
-      'the first Streamwall connection must remain unaffected',
-    )
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Rejecting Streamwall connection'),
-      ),
-      'the rejection must be logged',
-    )
-  } finally {
-    warn.restore()
-  }
+  assert.equal(
+    first.readyState,
+    WebSocket.OPEN,
+    'the first Streamwall connection must remain unaffected',
+  )
+  assert.ok(
+    logs.hasMessage('Rejecting Streamwall connection'),
+    'the rejection must be logged',
+  )
 })
 
 test('a state message sent immediately on connect is not dropped while auth validation is pending', async () => {

@@ -13,6 +13,7 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import { type AppOptions, initApp } from './index.ts'
+import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
 import type { StorageDB, StoredData } from './storage.ts'
 import type { UpdateChecker } from './updateCheck.ts'
@@ -39,22 +40,64 @@ export function inMemoryDb(): Low<StoredData> {
 }
 
 /**
+ * Collects the server's structured log output as parsed JSON entries, so specs
+ * can assert on what was logged (and on what was deliberately *not* logged)
+ * instead of spying on `console`.
+ */
+export interface LogCapture {
+  entries: Record<string, unknown>[]
+  stream: { write(line: string): void }
+  /** True when any captured entry's message contains `substring`. */
+  hasMessage(substring: string): boolean
+}
+
+export function captureLogs(): LogCapture {
+  const entries: Record<string, unknown>[] = []
+  return {
+    entries,
+    stream: {
+      write(line: string) {
+        try {
+          entries.push(JSON.parse(line))
+        } catch {
+          // Non-JSON output cannot be asserted on; ignore it.
+        }
+      },
+    },
+    hasMessage(substring: string) {
+      return entries.some(
+        (entry) =>
+          typeof entry.msg === 'string' && entry.msg.includes(substring),
+      )
+    },
+  }
+}
+
+/**
  * Builds a fully-wired app instance backed by in-memory storage and throwaway
  * static assets, ready for `app.inject()` or `app.listen()` in tests.
+ *
+ * Logging is silent unless a `logs` capture is passed, in which case every
+ * entry down to `trace` is recorded (override with `logLevel`).
  */
 export function buildTestApp(
   overrides: Partial<AppOptions> & {
     db?: StorageDB
+    logs?: LogCapture
+    logLevel?: LogLevel
     sentryEnabled?: boolean
     sentryClient?: SentryCaptureClient
     updateChecker?: UpdateChecker
   } = {},
 ) {
+  const { logs, logLevel, ...rest } = overrides
   return initApp({
     baseURL: 'http://localhost:3000',
     clientStaticPath: makeStaticDir(),
     db: inMemoryDb(),
-    ...overrides,
+    logLevel: logLevel ?? (logs ? 'trace' : 'silent'),
+    ...(logs && { logStream: logs.stream }),
+    ...rest,
   })
 }
 
