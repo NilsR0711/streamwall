@@ -1,3 +1,4 @@
+import type { Delta } from 'jsondiffpatch'
 import { useMemo, useRef } from 'preact/hooks'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import {
@@ -10,7 +11,51 @@ import {
   parseDisconnectReason,
   stateDiff,
   type StreamwallState,
+  streamwallStateSchema,
 } from 'streamwall-shared'
+
+/**
+ * Applies a server `state-delta` to the last-known snapshot and gates the
+ * result on the same schema the IPC and uplink boundaries enforce (issues #409
+ * / #387). Unlike a full snapshot, a bad delta is not a one-off: the patched
+ * object becomes the base for every later delta, so an unchecked one keeps
+ * compounding. Returns `undefined` when the delta cannot be trusted.
+ *
+ * The base is cloned before patching because `stateDiff.patch` mutates its
+ * target in place - patching `lastStateData` directly would corrupt it even
+ * when the caller then discards the result (issue #488).
+ */
+function patchState(
+  lastStateData: StreamwallState | undefined,
+  delta: unknown,
+): StreamwallState | undefined {
+  if (lastStateData === undefined) {
+    console.warn('Ignored Streamwall state delta received before a snapshot')
+    return undefined
+  }
+  let patched: unknown
+  try {
+    // Cloning also gives the updated object a fresh identity, which is what
+    // triggers React renders downstream. The cast is deliberate: the payload
+    // came off the wire unvalidated, and `patch` has no total signature for
+    // untrusted input - hence the catch below.
+    patched = stateDiff.patch(stateDiff.clone(lastStateData), delta as Delta)
+  } catch (err) {
+    console.warn('Ignored unpatchable Streamwall state delta:', err)
+    return undefined
+  }
+  const result = streamwallStateSchema.safeParse(patched)
+  if (!result.success) {
+    console.warn(
+      'Ignored Streamwall state delta patching into an invalid state:',
+      result.error.issues[0]?.message,
+    )
+    return undefined
+  }
+  // Return the patched object rather than the parsed copy: validation is a
+  // gate here, not a transform, so fields the schema does not model survive.
+  return patched as StreamwallState
+}
 
 interface WsRef {
   ws: ReconnectingWebSocket
@@ -73,6 +118,11 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
 
       connect(events) {
         let lastStateData: StreamwallState | undefined
+        // Set once a delta is rejected: the server has already advanced past
+        // what we last accepted, so every following delta is a diff against a
+        // state we do not have. Further deltas are dropped until a full
+        // snapshot resyncs us.
+        let desynced = false
         const ws = new ReconnectingWebSocket(wsEndpoint, [], {
           maxReconnectionDelay: 5000,
           minReconnectionDelay: 1000 + Math.random() * 500,
@@ -122,16 +172,23 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
               responseMap.delete(msg.id)
               responseCb(msg)
             }
-          } else if (msg.type === 'state' || msg.type === 'state-delta') {
-            let state: StreamwallState
-            if (msg.type === 'state') {
-              state = msg.state
-              events.onConnected()
-            } else {
-              // Clone so the updated object triggers React renders
-              state = stateDiff.clone(
-                stateDiff.patch(lastStateData, msg.delta),
-              ) as StreamwallState
+          } else if (msg.type === 'state') {
+            desynced = false
+            lastStateData = msg.state
+            events.onConnected()
+            events.onState(msg.state)
+          } else if (msg.type === 'state-delta') {
+            if (desynced) {
+              return
+            }
+            const state = patchState(lastStateData, msg.delta)
+            if (!state) {
+              // Keep `lastStateData` on the last snapshot we trust and ask the
+              // server for a fresh one: it only pushes a full `state` on
+              // (re)connect, so reconnecting is how a client resyncs.
+              desynced = true
+              ws.reconnect()
+              return
             }
             lastStateData = state
             events.onState(state)
