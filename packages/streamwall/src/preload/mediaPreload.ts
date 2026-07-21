@@ -177,9 +177,9 @@ type ScanCallback = (() => void) & { cancel(): void }
 // firing its throttled callback for the rest of the page's life -- see #412.
 const observerTeardowns = new Set<() => void>()
 
-function observeBody(scan: ScanCallback): () => void {
+function observeSubtree(root: Node, scan: ScanCallback): () => void {
   const observer = new MutationObserver(scan)
-  observer.observe(document.body, { subtree: true, childList: true })
+  observer.observe(root, { subtree: true, childList: true })
   const stop = () => {
     observer.disconnect()
     scan.cancel()
@@ -187,6 +187,10 @@ function observeBody(scan: ScanCallback): () => void {
   }
   observerTeardowns.add(stop)
   return stop
+}
+
+function observeBody(scan: ScanCallback): () => void {
+  return observeSubtree(document.body, scan)
 }
 
 // Nothing in the page world outlives its document, so once it goes away even
@@ -339,14 +343,41 @@ async function waitForMedia(
     const watchedIframes = new Set<HTMLIFrameElement>()
     const rescan = () => scan()
 
+    // Observers watching the documents of reachable frames, keyed by frame.
+    // A same-origin frame may insert its player from its own scripts long
+    // after it finished loading (a player bootstrapped in-frame, a consent
+    // gate resolved, an ad pre-roll swapped out): that mutation happens in a
+    // tree the embedder's observer does not cover, and no further 'load'
+    // event announces it either -- so watch each frame's document as well
+    // (#534). The observed body is kept so a navigation, which replaces the
+    // frame's document, re-attaches rather than leaving a stale observer.
+    const frameObservers = new Map<
+      HTMLIFrameElement,
+      { body: HTMLElement; stop: () => void }
+    >()
+    const observeFrameDocument = (iframe: HTMLIFrameElement) => {
+      const body = iframe.contentDocument?.body
+      const observed = frameObservers.get(iframe)
+      if (observed?.body === body) {
+        return
+      }
+      observed?.stop()
+      if (!body) {
+        // Cross-origin, or a document that has no body (yet).
+        frameObservers.delete(iframe)
+        return
+      }
+      frameObservers.set(iframe, { body, stop: observeSubtree(body, scan) })
+    }
+
     const scan = throttle(() => {
       const result = scanForMedia(kind)
       for (const iframe of document.querySelectorAll('iframe')) {
-        if (watchedIframes.has(iframe)) {
-          continue
+        if (!watchedIframes.has(iframe)) {
+          watchedIframes.add(iframe)
+          iframe.addEventListener('load', rescan)
         }
-        watchedIframes.add(iframe)
-        iframe.addEventListener('load', rescan)
+        observeFrameDocument(iframe)
       }
       if (result.video) {
         console.log(`found '${kind}'`)
@@ -361,6 +392,10 @@ async function waitForMedia(
         iframe.removeEventListener('load', rescan)
       }
       watchedIframes.clear()
+      for (const { stop: stopFrameObserver } of frameObservers.values()) {
+        stopFrameObserver()
+      }
+      frameObservers.clear()
       stopObserving()
     }
 
