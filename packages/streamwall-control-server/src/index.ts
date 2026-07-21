@@ -1031,7 +1031,16 @@ export default async function runServer({
   hostname: overrideHostname,
   baseURL,
   clientStaticPath,
-}: AppOptions & { hostname?: string; port?: string }) {
+  db: injectedDb,
+  updateChecker: injectedUpdateChecker,
+}: AppOptions & {
+  hostname?: string
+  port?: string
+  /** Test-only override so specs can exercise the real listen() path without touching disk. */
+  db?: StorageDB
+  /** Test-only override so specs can exercise the real listen() path without reaching GitHub. */
+  updateChecker?: UpdateChecker
+}) {
   const url = new URL(baseURL)
   const hostname = overrideHostname ?? url.hostname
   const port = resolveListenPort(baseURL, overridePort)
@@ -1041,18 +1050,23 @@ export default async function runServer({
   const { app, db, auth, updateChecker } = await initApp({
     baseURL,
     clientStaticPath,
+    db: injectedDb,
+    updateChecker: injectedUpdateChecker,
   })
 
   const bootstrap = await initialInviteCodes({ db, auth, baseURL })
   logBootstrap(bootstrap)
 
+  // Hooks must be registered before the instance starts listening -- Fastify 5
+  // throws FST_ERR_INSTANCE_ALREADY_LISTENING otherwise (issue #442).
+  app.addHook('onClose', async () => {
+    updateChecker.stop()
+  })
+
   await app.listen({ port, host: hostname })
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
   void updateChecker.start()
-  app.addHook('onClose', async () => {
-    updateChecker.stop()
-  })
 
   return { server: app.server }
 }
