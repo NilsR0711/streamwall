@@ -7,37 +7,29 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
 import '@fontsource/oswald/600.css'
 import '@fontsource/saira-stencil-one'
-import { orderBy, range } from 'lodash-es'
+import { range } from 'lodash-es'
 import { DateTime } from 'luxon'
 import { type JSX } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
   clampGridDimension,
-  type ControlCommand,
-  type DataSourceHealth,
-  type DisconnectReason,
   gridWouldDropAssignments,
   hasGridAssignments,
   idColor,
   type InvitableRole,
   inviteLink,
-  type LayoutPreset,
   type LocalStreamData,
   roleCan,
   type StreamData,
   type StreamDelayStatus,
   type StreamwallRole,
-  type StreamwallState,
-  type StreamWindowConfig,
-  type ViewState,
 } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
 import { AuthTokenLine, CreateInviteInput } from './AccessPanel.tsx'
 import { copyTextToClipboard } from './clipboard.ts'
-import { type CollabData } from './collabData.ts'
 import { createErrorSurfacingSend } from './commandError.ts'
 import { CommandErrorBanner } from './CommandErrorBanner.tsx'
 import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx'
@@ -64,6 +56,7 @@ import {
   CustomStreamInput,
   StreamList,
 } from './Sidebar.tsx'
+import { type StreamwallConnection } from './streamwallState.tsx'
 import { StyledButton, StyledDataContainer } from './StyledButton.tsx'
 import { useServerStatus } from './useServerStatus.ts'
 import { useTileDrag } from './useTileDrag.ts'
@@ -78,15 +71,6 @@ import {
 // which mount it alongside `<ControlUI>` — its implementation now lives in
 // `./globalStyle.tsx` alongside the theme tokens it applies.
 export { GlobalStyle } from './globalStyle.tsx'
-
-export interface ViewInfo {
-  state: ViewState
-  isListening: boolean
-  isBackgroundListening: boolean
-  isBlurred: boolean
-  volume: number
-  spaces: number[]
-}
 
 const normalStreamKinds = new Set(['video', 'audio', 'web'])
 function filterStreams(
@@ -127,122 +111,17 @@ function filterStreams(
 }
 
 export { collabDataSchema, type CollabData } from './collabData.ts'
+export {
+  useStreamwallState,
+  type StreamwallConnection,
+  type ViewInfo,
+} from './streamwallState.tsx'
+export {
+  useCollabConnection,
+  type CollabTransport,
+  type CollabTransportEvents,
+} from './useCollabConnection.ts'
 export { useYDoc } from './useYDoc.ts'
-
-export interface StreamwallConnection {
-  isConnected: boolean
-  /**
-   * Why the websocket is currently closed, when the server said so before
-   * closing it. `undefined`/`null` while connected, or while disconnected
-   * for an unexplained reason (network blip, generic retry).
-   */
-  disconnectReason?: DisconnectReason | null
-  role: StreamwallRole | null
-  send: (msg: ControlCommand, cb?: (msg: unknown) => void) => void
-  sharedState: CollabData | undefined
-  stateDoc: Y.Doc
-  undoManager?: Y.UndoManager
-  config: StreamWindowConfig | undefined
-  streams: StreamData[]
-  customStreams: StreamData[]
-  views: ViewInfo[]
-  /**
-   * Anchor cell index of the view currently expanded to fill the whole wall,
-   * or `null` for the normal grid layout (issue #362).
-   */
-  fullscreenViewIdx: number | null
-  stateIdxMap: Map<number, ViewInfo>
-  delayState: StreamDelayStatus | null | undefined
-  authState?: StreamwallState['auth']
-  layoutPresets: LayoutPreset[]
-  favorites: string[]
-  dataSourceHealth: DataSourceHealth[]
-}
-
-export function useStreamwallState(state: StreamwallState | undefined) {
-  return useMemo(() => {
-    if (state === undefined) {
-      return {
-        role: null,
-        config: undefined,
-        streams: [],
-        customStreams: [],
-        views: [],
-        fullscreenViewIdx: null,
-        stateIdxMap: new Map(),
-        delayState: undefined,
-        authState: undefined,
-        layoutPresets: [],
-        favorites: [],
-        dataSourceHealth: [],
-      }
-    }
-
-    const {
-      identity: { role },
-      auth,
-      config,
-      streams: stateStreams,
-      views: stateViews,
-      fullscreenViewIdx,
-      streamdelay,
-      layoutPresets,
-      favorites,
-      dataSourceHealth,
-    } = state
-    const stateIdxMap = new Map()
-    const views = []
-    for (const viewState of stateViews) {
-      const { pos } = viewState.context
-      const isListening = matchesState(
-        'displaying.running.audio.listening',
-        viewState.state,
-      )
-      const isBackgroundListening = matchesState(
-        'displaying.running.audio.background',
-        viewState.state,
-      )
-      const isBlurred = matchesState(
-        'displaying.running.video.blurred',
-        viewState.state,
-      )
-      const spaces = pos?.spaces ?? []
-      const viewInfo = {
-        state: viewState,
-        isListening,
-        isBackgroundListening,
-        isBlurred,
-        volume: viewState.context.volume,
-        spaces,
-      }
-      views.push(viewInfo)
-      for (const space of spaces) {
-        if (!stateIdxMap.has(space)) {
-          stateIdxMap.set(space, {})
-        }
-        Object.assign(stateIdxMap.get(space), viewInfo)
-      }
-    }
-
-    const streams = orderBy(stateStreams, ['addedDate', '_id'], ['desc', 'asc'])
-    const customStreams = stateStreams.filter((s) => s._dataSource === 'custom')
-
-    return {
-      role,
-      authState: auth,
-      delayState: streamdelay,
-      views,
-      fullscreenViewIdx,
-      config,
-      streams,
-      customStreams,
-      stateIdxMap,
-      layoutPresets,
-      favorites,
-      dataSourceHealth,
-    }
-  }, [state])
-}
 
 export function ControlUI({
   connection,
