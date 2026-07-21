@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { after } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
@@ -13,6 +14,7 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import type { ScryptParams } from './auth.ts'
+import type { RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
@@ -161,6 +163,43 @@ export function recordingLogger() {
 }
 
 /**
+ * Sets process-wide environment variables for the duration of the current test
+ * and restores the previous values afterwards (`undefined` unsets a variable).
+ * Reach for it only where the behaviour under test genuinely reads
+ * `process.env`; anything `initApp` accepts by injection — the rate limits
+ * included — should be passed to `buildTestApp` instead, so the variables never
+ * become test API.
+ */
+export function setEnvForTest(vars: Record<string, string | undefined>): void {
+  const previous = Object.entries(vars).map(
+    ([key]) => [key, process.env[key]] as const,
+  )
+  const apply = (
+    entries: readonly (readonly [string, string | undefined])[],
+  ) => {
+    for (const [key, value] of entries) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+  apply(Object.entries(vars))
+  after(() => apply(previous))
+}
+
+/**
+ * Rate limits wide enough to stay out of the way of suites that are not about
+ * throttling: a live-server spec opens sockets and redeems invites in a tight
+ * loop and would otherwise trip the production budget.
+ */
+export const WIDE_RATE_LIMITS: Partial<RateLimitConfig> = {
+  globalMax: 10000,
+  authMax: 10000,
+}
+
+/**
  * A deliberately cheap scrypt work factor for tests. Suites that boot a live
  * server pay roughly four derivations per test (mint and verify an uplink
  * token, mint and redeem an invite) that have nothing to do with what is under
@@ -181,6 +220,7 @@ export function buildTestApp(
     db?: StorageDB
     logs?: LogCapture
     logLevel?: LogLevel
+    rateLimit?: Partial<RateLimitConfig>
     scryptParams?: ScryptParams
     sentryEnabled?: boolean
     sentryClient?: SentryCaptureClient

@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
+import process from 'node:process'
 import { test } from 'node:test'
 
 import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
-import { captureLogs, TEST_SCRYPT_PARAMS } from './testHelpers.ts'
+import {
+  captureLogs,
+  setEnvForTest,
+  TEST_SCRYPT_PARAMS,
+} from './testHelpers.ts'
+
+/** Snapshot taken before any override, so the restore assertion is exact. */
+const RATE_LIMIT_MAX_AT_LOAD = process.env.STREAMWALL_RATE_LIMIT_MAX
 
 /** Serializes a log entry the way pino writes it to the capture stream. */
 function line(msg: string, fields: Record<string, unknown> = {}): string {
@@ -72,4 +80,20 @@ test('tests derive token hashes with a cheaper work factor than production', () 
   // The whole point of the injected parameters: a live-server suite must not
   // pay the production cost, while production keeps it.
   assert.ok(TEST_SCRYPT_PARAMS.N < DEFAULT_SCRYPT_PARAMS.N)
+})
+
+test('setEnvForTest applies the requested values for the running test', () => {
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '4242',
+    STREAMWALL_RATE_LIMIT_WINDOW: undefined,
+  })
+
+  assert.equal(process.env.STREAMWALL_RATE_LIMIT_MAX, '4242')
+  assert.equal(process.env.STREAMWALL_RATE_LIMIT_WINDOW, undefined)
+})
+
+test('setEnvForTest restores the previous values after the test that set them', () => {
+  // Guards the whole point of the helper: the override above must not have
+  // leaked into this test, nor into any later file.
+  assert.equal(process.env.STREAMWALL_RATE_LIMIT_MAX, RATE_LIMIT_MAX_AT_LOAD)
 })

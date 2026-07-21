@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { parseTrustProxy } from './index.ts'
-import { buildTestApp } from './testHelpers.ts'
+import { buildTestApp, setEnvForTest, WIDE_RATE_LIMITS } from './testHelpers.ts'
 
 test('rate-limits the invite auth route with a strict per-route budget', async () => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '100'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '3'
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '100',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: '3',
+  })
   const { app } = await buildTestApp()
 
   const codes: number[] = []
@@ -29,8 +31,10 @@ test('rate-limits the invite auth route with a strict per-route budget', async (
 })
 
 test('applies a global rate limit to non-auth routes', async () => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '4'
-  delete process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '4',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: undefined,
+  })
   const { app } = await buildTestApp()
 
   const codes: number[] = []
@@ -49,8 +53,10 @@ test('applies a global rate limit to non-auth routes', async () => {
 })
 
 test('the auth route budget is stricter than the global budget', async () => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '50'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '2'
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '50',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+  })
   const { app } = await buildTestApp()
 
   const inviteCodes: number[] = []
@@ -81,9 +87,11 @@ test('parseTrustProxy is off by default and accepts boolean-ish or proxy lists',
 })
 
 test('with trustProxy, distinct X-Forwarded-For clients keep separate rate-limit budgets', async () => {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '2'
-  delete process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX
-  process.env.STREAMWALL_TRUST_PROXY = 'true'
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '2',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: undefined,
+    STREAMWALL_TRUST_PROXY: 'true',
+  })
   const { app } = await buildTestApp()
 
   for (let i = 0; i < 2; i++) {
@@ -114,5 +122,48 @@ test('with trustProxy, distinct X-Forwarded-For clients keep separate rate-limit
   )
 
   await app.close()
-  delete process.env.STREAMWALL_TRUST_PROXY
+})
+
+test('an injected rate limit takes precedence over the environment', async () => {
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '1',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: '1',
+  })
+  const { app } = await buildTestApp({ rateLimit: WIDE_RATE_LIMITS })
+  after(() => app.close())
+
+  for (let i = 0; i < 5; i++) {
+    const res = await app.inject({ method: 'GET', url: '/' })
+    assert.notEqual(
+      res.statusCode,
+      429,
+      'the injected budget should replace the (much stricter) env one',
+    )
+  }
+})
+
+test('a partial injected rate limit still reads the rest from the environment', async () => {
+  setEnvForTest({
+    STREAMWALL_RATE_LIMIT_MAX: '10000',
+    STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+  })
+  const { app } = await buildTestApp({ rateLimit: { globalMax: 10000 } })
+  after(() => app.close())
+
+  const codes: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invite/x',
+      headers: { 'content-type': 'application/json' },
+      payload: { token: 'y' },
+    })
+    codes.push(res.statusCode)
+  }
+
+  assert.equal(
+    codes[2],
+    429,
+    `expected the env auth budget of 2 to apply, got ${codes}`,
+  )
 })

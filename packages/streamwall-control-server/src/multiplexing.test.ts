@@ -23,6 +23,7 @@ import {
   mintUplinkToken,
   redeemInviteAndConnectClient,
   VALID_STATE,
+  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
@@ -58,11 +59,12 @@ function applyDelta(state: StreamwallState, delta: Delta): StreamwallState {
  * `/client/ws` socket.
  */
 async function bootServerWithUplink() {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
-
   const logs = captureLogs()
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
+  const { app, auth } = await buildTestApp({
+    baseURL: BASE_URL,
+    logs,
+    rateLimit: WIDE_RATE_LIMITS,
+  })
   after(() => app.close())
   const port = await listenTestApp(app)
 
@@ -226,9 +228,12 @@ test("an admin's state broadcast includes auth while an operator's does not", as
 
 /** Boots a live server and mints a Streamwall uplink token, without connecting yet. */
 async function startUplinkServer() {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
   const logs = captureLogs()
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
+  const { app, auth } = await buildTestApp({
+    baseURL: BASE_URL,
+    logs,
+    rateLimit: WIDE_RATE_LIMITS,
+  })
   after(() => app.close())
   const port = await listenTestApp(app)
   const { base, secret } = await mintUplinkToken(auth, port)

@@ -10,6 +10,7 @@ import {
   mintUplinkToken,
   redeemInviteAndConnectClient,
   VALID_STATE,
+  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
@@ -23,11 +24,12 @@ const WARN = 40
  * an authenticated Streamwall uplink and seeds it with a valid state.
  */
 async function bootWithCapturedLogs() {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
-
   const logs = captureLogs()
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
+  const { app, auth } = await buildTestApp({
+    baseURL: BASE_URL,
+    logs,
+    rateLimit: WIDE_RATE_LIMITS,
+  })
   after(() => app.close())
   const port = await listenTestApp(app)
 

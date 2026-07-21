@@ -17,6 +17,7 @@ import {
   listenTestApp,
   redeemInviteAndConnectClient,
   VALID_STATE,
+  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
 const BASE_URL = 'http://localhost:3000'
@@ -60,8 +61,6 @@ async function connectStreamwallAndClient({
   role?: StreamwallRole
   wsUpdateMaxBytes?: number
 } = {}) {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '10000'
-  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
   if (wsUpdateMaxBytes !== undefined) {
     process.env.STREAMWALL_WS_UPDATE_MAX_BYTES = String(wsUpdateMaxBytes)
   } else {
@@ -69,7 +68,11 @@ async function connectStreamwallAndClient({
   }
 
   const logs = captureLogs()
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
+  const { app, auth } = await buildTestApp({
+    baseURL: BASE_URL,
+    logs,
+    rateLimit: WIDE_RATE_LIMITS,
+  })
   after(() => app.close())
   const port = await listenTestApp(app)
 

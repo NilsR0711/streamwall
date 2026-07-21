@@ -15,6 +15,7 @@ import {
   getRateLimitConfig,
   getWsMessageLimitConfig,
   parseTrustProxy,
+  type RateLimitConfig,
 } from './config.ts'
 import {
   type AppContext,
@@ -54,6 +55,7 @@ export async function initApp({
   db: injectedDb,
   logLevel,
   logStream,
+  rateLimit: injectedRateLimit,
   sentryEnabled: injectedSentryEnabled,
   sentryClient,
   scryptParams,
@@ -70,6 +72,13 @@ export async function initApp({
   logLevel?: LogLevel
   /** Test-only sink for log output; defaults to pino's stdout destination. */
   logStream?: { write(line: string): void }
+  /**
+   * Overrides individual per-IP rate limits, so specs that are not about
+   * throttling widen them without writing the process-wide environment (which
+   * would leak into whichever file runs next). Unset fields keep the value
+   * `getRateLimitConfig()` reads from the environment.
+   */
+  rateLimit?: Partial<RateLimitConfig>
   /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
   sentryEnabled?: boolean
   /** Test-only override for the client `captureException(...)` reports to. */
@@ -121,7 +130,7 @@ export async function initApp({
     app.log,
   )
 
-  const rateLimitConfig = getRateLimitConfig()
+  const rateLimitConfig = { ...getRateLimitConfig(), ...injectedRateLimit }
 
   const ctx: AppContext = {
     log: app.log,

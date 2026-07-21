@@ -3,13 +3,18 @@ import { once } from 'node:events'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
-import { buildTestApp, listenTestApp, mintUplinkToken } from './testHelpers.ts'
+import {
+  buildTestApp,
+  listenTestApp,
+  mintUplinkToken,
+  setEnvForTest,
+  WIDE_RATE_LIMITS,
+} from './testHelpers.ts'
 
 async function startStreamwallSocket(env: Record<string, string>) {
-  process.env.STREAMWALL_RATE_LIMIT_MAX = '1000'
-  Object.assign(process.env, env)
+  setEnvForTest(env)
 
-  const { app, auth } = await buildTestApp()
+  const { app, auth } = await buildTestApp({ rateLimit: WIDE_RATE_LIMITS })
   const port = await listenTestApp(app)
   const { base, secret } = await mintUplinkToken(auth, port)
 
