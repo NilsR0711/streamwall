@@ -51,6 +51,39 @@ test('every workspace that builds typechecks first', () => {
   }
 })
 
+// The Electron app has no `build` script - it packages through
+// electron-forge, whose Vite plugin strips types just as silently. The
+// equivalent guarantee lives in a forge `prePackage` hook, which `package`,
+// `make` and `publish` all run. Issue #472.
+test('every workspace that packages with electron-forge typechecks first', () => {
+  for (const relativePath of workspacePackageJsonPaths()) {
+    const { scripts = {} } = readPackageJson(relativePath)
+    if (
+      !Object.values(scripts).some((script) =>
+        script.startsWith('electron-forge package'),
+      )
+    ) {
+      continue
+    }
+
+    assert.ok(
+      scripts.typecheck,
+      `${relativePath} packages with electron-forge but has no "typecheck" script`,
+    )
+
+    const forgeConfig = readFileSync(
+      join(rootDir, dirname(relativePath), 'forge.config.ts'),
+      'utf8',
+    )
+    assert.match(
+      forgeConfig,
+      /prePackage:[^,]*runTypecheck\(\)/,
+      `${dirname(relativePath)}/forge.config.ts must run the typecheck in its ` +
+        '"prePackage" hook so packaging cannot pass with type errors',
+    )
+  }
+})
+
 // The E2E suite deliberately has no `test` script (it needs a browser, so it
 // stays out of the `npm test` workspace fan-out), which means the only way to
 // discover it is a root-level entry point. Issue #411.
