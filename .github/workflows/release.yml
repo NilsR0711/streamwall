@@ -80,11 +80,11 @@ jobs:
   # exercises the makers too, but it is up to a week stale and does not gate
   # the tag.
   #
-  # Two legs, because MakerZIP is darwin-only and cannot be cross-built: the
-  # Linux runner covers deb/rpm natively plus the cross-built Windows NSIS
-  # installer, and a macOS runner covers the ZIP and the `latest-mac.yml`
-  # half of the update-metadata hook, which would otherwise run for the first
-  # time inside the macOS publish leg (#517).
+  # One leg per platform, mirroring the publish matrix: MakerZIP is
+  # darwin-only and the NSIS maker needs a Windows host, so each runner makes
+  # for itself. That also covers both halves of the update-metadata hook
+  # (`latest.yml` on Windows, `latest-mac.yml` on macOS), which would
+  # otherwise run for the first time inside a publish leg (#517).
   make:
     name: Installer smoke (${{ matrix.leg.name }} makers)
     runs-on: ${{ matrix.leg.os }}
@@ -96,9 +96,12 @@ jobs:
         leg:
           # `artifacts` is the whitespace-separated list of kinds only this
           # runner can produce; the verification step below asserts each one.
-          - name: linux + windows
+          - name: linux
             os: ubuntu-latest
-            artifacts: '*.deb *.rpm *-setup-*.exe latest.yml'
+            artifacts: '*.deb *.rpm'
+          - name: windows
+            os: windows-latest
+            artifacts: '*-setup-*.exe latest.yml'
           - name: macos
             os: macos-latest
             artifacts: '*.zip latest-mac.yml'
@@ -116,17 +119,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm fakeroot
 
-      # Host-platform makers: deb/rpm on Linux, the darwin ZIP on macOS.
+      # Host-platform makers: deb/rpm on Linux, the NSIS installer plus the
+      # `latest.yml` half of the update-metadata hook on Windows, the darwin
+      # ZIP on macOS. Each leg makes for its own platform: cross-building the
+      # NSIS installer from Linux needs Wine, which the Ubuntu runner image no
+      # longer ships (`spawn wine ENOENT`), and the publish matrix builds
+      # Windows on a Windows runner anyway.
       - name: Make (host installers)
         run: npm -w streamwall run make
-
-      # The NSIS maker and the `latest.yml` half of the update-metadata hook
-      # only run for win32. electron-builder bundles makensis for every host
-      # OS, so the expensive Windows-only path is verified from the Linux
-      # runner rather than trusting the Windows publish leg.
-      - name: Make (windows NSIS, cross-built)
-        if: matrix.leg.os == 'ubuntu-latest'
-        run: npm -w streamwall run make -- --platform=win32
 
       # A maker that is silently skipped (unsupported-platform detection, a
       # config change that drops it) produces no output but also no error, so
