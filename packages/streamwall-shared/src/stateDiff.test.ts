@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stateDiff } from './stateDiff.ts'
+import { stateDeltaSchema, stateDiff } from './stateDiff.ts'
 import type { StreamData, StreamwallState, ViewState } from './types.ts'
 
 function makeStream(
@@ -61,6 +61,9 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
 // `patch` mutates a clone of `prev` in place using the delta from `diff`.
 function expectRoundTrip(prev: unknown, next: unknown) {
   const delta = stateDiff.diff(prev, next)
+  // Everything the differ emits has to survive the wire-level delta gate,
+  // otherwise the gate would drop legitimate updates (issue #539).
+  expect(stateDeltaSchema.safeParse(delta).success).toBe(true)
   const patched = stateDiff.patch(structuredClone(prev), delta)
   expect(patched).toEqual(next)
   return delta
@@ -201,5 +204,93 @@ describe('stateDiff round-trips', () => {
       },
     })
     expectRoundTrip(prev, next)
+  })
+})
+
+// `stateDiff.patch` has no total signature for untrusted input, and some
+// malformed shapes are not even catchable: a string where a nested delta
+// belongs makes jsondiffpatch enumerate the string as an index collection,
+// which allocates until the heap dies. Deltas therefore have to be checked
+// *before* they are patched (issue #539).
+//
+// None of these tests may call `stateDiff.patch` on a rejected delta - doing
+// so would hang the test worker, which is exactly the bug being guarded.
+describe('stateDeltaSchema (issue #539)', () => {
+  it('accepts an added, modified, deleted and moved op', () => {
+    const delta = {
+      identity: [{ role: 'admin' }],
+      fullscreenViewIdx: [null, 1],
+      auth: [0, 0, 0],
+      streams: { _t: 'a', _2: ['', 0, 3] },
+    }
+    expect(stateDeltaSchema.safeParse(delta).success).toBe(true)
+  })
+
+  it('accepts a nested delta', () => {
+    const delta = { views: { _t: 'a', 0: { context: { volume: [1, 0] } } } }
+    expect(stateDeltaSchema.safeParse(delta).success).toBe(true)
+  })
+
+  it('rejects a string where a nested delta belongs', () => {
+    expect(stateDeltaSchema.safeParse({ config: 'not-a-delta' }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects a number where a nested delta belongs', () => {
+    expect(stateDeltaSchema.safeParse({ config: 42 }).success).toBe(false)
+  })
+
+  it('rejects a nested string deeper in the tree', () => {
+    expect(
+      stateDeltaSchema.safeParse({ views: { _t: 'a', 0: 'boom' } }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a null or boolean value', () => {
+    expect(stateDeltaSchema.safeParse({ config: null }).success).toBe(false)
+    expect(stateDeltaSchema.safeParse({ config: true }).success).toBe(false)
+  })
+
+  it('rejects an array container marker other than "a"', () => {
+    expect(
+      stateDeltaSchema.safeParse({ streams: { _t: 'nope' } }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an op with more than three elements', () => {
+    expect(stateDeltaSchema.safeParse({ config: [1, 2, 3, 4] }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects an empty op', () => {
+    expect(stateDeltaSchema.safeParse({ config: [] }).success).toBe(false)
+  })
+
+  it('rejects a three-element op that is neither a deletion nor a move', () => {
+    expect(stateDeltaSchema.safeParse({ config: [1, 2, 9] }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects a text diff, which this stateDiff instance cannot patch', () => {
+    expect(
+      stateDeltaSchema.safeParse({ label: ['@@ -1 +1 @@', 0, 2] }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a delta that is not an object', () => {
+    expect(stateDeltaSchema.safeParse('nope').success).toBe(false)
+    expect(stateDeltaSchema.safeParse([1, 2]).success).toBe(false)
+    expect(stateDeltaSchema.safeParse(undefined).success).toBe(false)
+  })
+
+  it('rejects nesting deeper than the patcher ever needs', () => {
+    let delta: Record<string, unknown> = { config: [1, 2] }
+    for (let i = 0; i < 64; i++) {
+      delta = { nested: delta }
+    }
+    expect(stateDeltaSchema.safeParse(delta).success).toBe(false)
   })
 })

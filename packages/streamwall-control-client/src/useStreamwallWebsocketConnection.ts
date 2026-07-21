@@ -1,4 +1,3 @@
-import type { Delta } from 'jsondiffpatch'
 import { useMemo, useRef } from 'preact/hooks'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 import {
@@ -9,6 +8,7 @@ import {
 import {
   isSocketOpen,
   parseDisconnectReason,
+  stateDeltaSchema,
   stateDiff,
   type StreamwallState,
   streamwallStateSchema,
@@ -24,6 +24,10 @@ import {
  * The base is cloned before patching because `stateDiff.patch` mutates its
  * target in place - patching `lastStateData` directly would corrupt it even
  * when the caller then discards the result (issue #488).
+ *
+ * The delta itself is validated first: some malformed shapes - a string where
+ * a nested delta belongs - make `patch` allocate until the heap dies, which no
+ * `try`/`catch` around it can contain (issue #539).
  */
 function patchState(
   lastStateData: StreamwallState | undefined,
@@ -33,13 +37,17 @@ function patchState(
     console.warn('Ignored Streamwall state delta received before a snapshot')
     return undefined
   }
+  const deltaResult = stateDeltaSchema.safeParse(delta)
+  if (!deltaResult.success) {
+    console.warn('Ignored malformed Streamwall state delta')
+    return undefined
+  }
   let patched: unknown
   try {
     // Cloning also gives the updated object a fresh identity, which is what
-    // triggers React renders downstream. The cast is deliberate: the payload
-    // came off the wire unvalidated, and `patch` has no total signature for
-    // untrusted input - hence the catch below.
-    patched = stateDiff.patch(stateDiff.clone(lastStateData), delta as Delta)
+    // triggers React renders downstream. A well-formed delta can still fail to
+    // apply against this particular base - hence the catch below.
+    patched = stateDiff.patch(stateDiff.clone(lastStateData), deltaResult.data)
   } catch (err) {
     console.warn('Ignored unpatchable Streamwall state delta:', err)
     return undefined
