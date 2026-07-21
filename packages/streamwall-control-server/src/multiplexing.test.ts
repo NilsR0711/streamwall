@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { after, test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
 import type { Delta } from 'jsondiffpatch'
@@ -72,7 +71,9 @@ async function bootServerWithUplink() {
     port,
   )
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
-  await delay(150)
+  // The uplink is only the state authority once the server has accepted the
+  // seeded snapshot; wait for that signal rather than a blind sleep.
+  await logs.waitForMessage('Streamwall connected')
 
   async function connectClient(role: StreamwallRole) {
     const { ws: clientWs, client } = await redeemInviteAndConnectClient(
@@ -244,9 +245,9 @@ test('rejects a second Streamwall connection while the first stays connected', a
   } = await bootServerWithUplink()
   // Registering the first uplink connection requires the server to await a
   // real `validateToken` scrypt derivation, so the client's 'open' event
-  // (and even the fixed delay in `bootServerWithUplink`) is not proof that
-  // registration has actually completed — most visible on a loaded/slower
-  // CI runner. Round-trip a client through the state broadcast the uplink
+  // alone is not proof that registration has actually completed — most
+  // visible on a loaded/slower CI runner. Round-trip a client through the
+  // state broadcast the uplink
   // just sent: that broadcast can only happen after registration finished,
   // so it deterministically proves the race window has closed rather than
   // assuming a fixed ordering.

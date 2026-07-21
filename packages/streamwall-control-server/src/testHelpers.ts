@@ -12,6 +12,7 @@ import type {
   StreamwallRole,
 } from 'streamwall-shared'
 import WebSocket from 'ws'
+import type { ScryptParams } from './auth.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
@@ -49,26 +50,83 @@ export interface LogCapture {
   stream: { write(line: string): void }
   /** True when any captured entry's message contains `substring`. */
   hasMessage(substring: string): boolean
+  /**
+   * Resolves with the first entry matching `predicate`, waiting for one to be
+   * logged if none has been yet. Already-captured entries satisfy it, so there
+   * is no race between the server logging and the test awaiting. Rejects after
+   * `timeoutMs` rather than hanging until the runner's timeout.
+   */
+  waitFor(
+    predicate: (entry: Record<string, unknown>) => boolean,
+    timeoutMs?: number,
+  ): Promise<Record<string, unknown>>
+  /** `waitFor` for the common case of matching a substring of the message. */
+  waitForMessage(
+    substring: string,
+    timeoutMs?: number,
+  ): Promise<Record<string, unknown>>
 }
 
 export function captureLogs(): LogCapture {
-  const entries: Record<string, unknown>[] = []
+  type Entry = Record<string, unknown>
+  const entries: Entry[] = []
+  const waiters: {
+    predicate: (entry: Entry) => boolean
+    resolve: (entry: Entry) => void
+  }[] = []
+
+  function waitFor(
+    predicate: (entry: Entry) => boolean,
+    timeoutMs = 2000,
+  ): Promise<Entry> {
+    const existing = entries.find(predicate)
+    if (existing !== undefined) {
+      return Promise.resolve(existing)
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('timed out waiting for matching log entry')),
+        timeoutMs,
+      )
+      waiters.push({
+        predicate,
+        resolve: (entry) => {
+          clearTimeout(timer)
+          resolve(entry)
+        },
+      })
+    })
+  }
+
+  const messageMatches = (substring: string) => (entry: Entry) =>
+    typeof entry.msg === 'string' && entry.msg.includes(substring)
+
   return {
     entries,
     stream: {
       write(line: string) {
+        let entry: Entry
         try {
-          entries.push(JSON.parse(line))
+          entry = JSON.parse(line)
         } catch {
           // Non-JSON output cannot be asserted on; ignore it.
+          return
+        }
+        entries.push(entry)
+        for (let i = waiters.length - 1; i >= 0; i--) {
+          if (waiters[i].predicate(entry)) {
+            waiters[i].resolve(entry)
+            waiters.splice(i, 1)
+          }
         }
       },
     },
     hasMessage(substring: string) {
-      return entries.some(
-        (entry) =>
-          typeof entry.msg === 'string' && entry.msg.includes(substring),
-      )
+      return entries.some(messageMatches(substring))
+    },
+    waitFor,
+    waitForMessage(substring: string, timeoutMs?: number) {
+      return waitFor(messageMatches(substring), timeoutMs)
     },
   }
 }
@@ -103,6 +161,15 @@ export function recordingLogger() {
 }
 
 /**
+ * A deliberately cheap scrypt work factor for tests. Suites that boot a live
+ * server pay roughly four derivations per test (mint and verify an uplink
+ * token, mint and redeem an invite) that have nothing to do with what is under
+ * test; at the production factor that is ~200ms of pure overhead per test.
+ * `DEFAULT_SCRYPT_PARAMS` stays in force everywhere it is not injected.
+ */
+export const TEST_SCRYPT_PARAMS: ScryptParams = { N: 16, r: 8, p: 1 }
+
+/**
  * Builds a fully-wired app instance backed by in-memory storage and throwaway
  * static assets, ready for `app.inject()` or `app.listen()` in tests.
  *
@@ -114,6 +181,7 @@ export function buildTestApp(
     db?: StorageDB
     logs?: LogCapture
     logLevel?: LogLevel
+    scryptParams?: ScryptParams
     sentryEnabled?: boolean
     sentryClient?: SentryCaptureClient
     updateChecker?: UpdateChecker
@@ -125,6 +193,7 @@ export function buildTestApp(
     clientStaticPath: makeStaticDir(),
     db: inMemoryDb(),
     logLevel: logLevel ?? (logs ? 'trace' : 'silent'),
+    scryptParams: TEST_SCRYPT_PARAMS,
     ...(logs && { logStream: logs.stream }),
     ...rest,
   })

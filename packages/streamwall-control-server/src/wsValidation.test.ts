@@ -78,7 +78,16 @@ async function connectStreamwallAndClient({
     port,
   )
   streamwallWs.send(JSON.stringify(stateMessage))
-  await delay(150)
+  // Wait for the server to have finished with the seeded state instead of
+  // sleeping: it either accepts it (the uplink becomes the state authority) or
+  // rejects it with a structured warning. Both outcomes end the seeding step,
+  // and specs here deliberately exercise each of them.
+  await logs.waitFor(
+    (entry) =>
+      entry.msg === 'Streamwall connected' ||
+      (typeof entry.msg === 'string' &&
+        entry.msg.startsWith('Rejected invalid Streamwall state')),
+  )
 
   const { ws: clientWs, client } = await redeemInviteAndConnectClient(
     app,
@@ -212,12 +221,9 @@ test('drops a malformed state update on an already-connected uplink without cras
   streamwallWs.send(
     JSON.stringify({ type: 'state', state: { ...VALID_STATE, streams: {} } }),
   )
-  await delay(150)
-
-  assert.ok(
-    logs.hasMessage('Rejected invalid Streamwall state payload'),
-    'the malformed update must be rejected with a structured warning',
-  )
+  // The rejection warning is the observable signal that the update was handled
+  // and dropped; waiting for it doubles as the assertion.
+  await logs.waitForMessage('Rejected invalid Streamwall state payload')
 
   // The session must still be alive and functional: a subsequent valid
   // command from the client is still forwarded to the (still-connected)

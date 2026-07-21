@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
+import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
 import runServer, {
   initApp,
   resolveListenPort,
@@ -116,6 +117,19 @@ describe('session cookie security attributes', () => {
     assert.equal(response.statusCode, 403)
     assert.equal(response.headers['set-cookie'], undefined)
   })
+})
+
+test('initApp keeps the production scrypt work factor unless one is injected', async () => {
+  // `scryptParams` exists so tests can pay a cheap derivation; a real
+  // deployment must never end up with a lowered work factor by omission.
+  const { app, auth } = await initApp({
+    baseURL: 'http://localhost:3000',
+    clientStaticPath: import.meta.dirname,
+    db: inMemoryDb(),
+  })
+  after(() => app.close())
+
+  assert.deepEqual(auth.scryptParams, DEFAULT_SCRYPT_PARAMS)
 })
 
 describe('runServer', () => {

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { after, test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
 import {
@@ -39,7 +38,7 @@ async function bootWithCapturedLogs() {
   after(() => ws.terminate())
   await once(ws, 'open')
   ws.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
-  await delay(150)
+  await logs.waitForMessage('Streamwall connected')
 
   return { app, auth, port, ws, logs, uplinkTokenId: tokenId }
 }
@@ -117,12 +116,10 @@ test('logs an unauthorized client command as a warning without the session name'
   clientWs.send(
     JSON.stringify({ id: 1, type: 'create-invite', role: 'admin', name: 'x' }),
   )
-  await delay(150)
-
-  const entry = logs.entries.find((e) =>
-    String(e.msg).includes('Unauthorized attempt to "create-invite"'),
+  const entry = await logs.waitForMessage(
+    'Unauthorized attempt to "create-invite"',
   )
-  assert.ok(entry, 'the rejection must be logged')
+
   assert.equal(entry.level, WARN)
   assert.equal(entry.role, 'monitor')
   assert.equal(

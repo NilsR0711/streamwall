@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import type WebSocket from 'ws'
 import * as Y from 'yjs'
 
 import type { SentryCaptureClient } from './sentry.ts'
-import type { LogCapture } from './testHelpers.ts'
 import {
   buildTestApp,
   captureLogs,
@@ -24,11 +22,6 @@ function updateFrom(mutate: (doc: Y.Doc) => void): Uint8Array {
 }
 
 const BASE_URL = 'http://localhost:3000'
-
-/** Finds the captured log entry with exactly this message. */
-function findLogged(logs: LogCapture, msg: string) {
-  return logs.entries.find((entry) => entry.msg === msg)
-}
 
 /** Reads the message off pino's serialized `err` field of a log entry. */
 function loggedErrorMessage(entry: Record<string, unknown>) {
@@ -81,10 +74,10 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
 
   const { ws: streamwallWs } = await connectStreamwallUplink(auth, port)
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
-  await delay(150)
+  await logs.waitForMessage('Streamwall connected')
 
   await redeemInviteAndConnectClient(app, auth, port, BASE_URL, 'admin')
-  await delay(50)
+  await logs.waitForMessage('Client connected')
 
   // Force the next `ws.send()` carrying a state-delta payload to throw
   // synchronously, simulating the kind of internal `ws` send failure the
@@ -116,13 +109,13 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
       state: { ...VALID_STATE, config: { ...VALID_STATE.config, cols: 4 } },
     }),
   )
-  await delay(150)
+  // The local log entry is the observable signal that the failure was caught;
+  // waiting for it doubles as the assertion that it is logged at all.
+  const logged = await logs.waitForMessage('Failed to send client state delta')
 
   assert.equal(sentryClient.calls.length, 1)
   assert.equal(sentryClient.calls[0], sendError)
 
-  const logged = findLogged(logs, 'Failed to send client state delta')
-  assert.ok(logged, 'expected the send failure to be logged locally too')
   assert.equal(
     loggedErrorMessage(logged),
     sendError.message,
@@ -147,7 +140,7 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
 
   const { ws: streamwallWs } = await connectStreamwallUplink(auth, port)
   streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
-  await delay(150)
+  await logs.waitForMessage('Streamwall connected')
 
   const { ws: clientWs } = await redeemInviteAndConnectClient(
     app,
@@ -156,7 +149,7 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
     BASE_URL,
     'admin',
   )
-  await delay(50)
+  await logs.waitForMessage('Client connected')
 
   // Force every subsequent server-side binary (Yjs doc-update) send to throw,
   // simulating the kind of internal `ws` send failure the `Failed to send
@@ -185,22 +178,25 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
   )
 
   streamwallWs.send(updateFrom((d) => d.getMap('test').set('a', 'b')))
-  await delay(150)
+  // Both relay paths fail independently; wait for each to have been logged
+  // rather than for a fixed window that may or may not cover them.
+  const uplinkEntry = await logs.waitForMessage(
+    'Failed to send Streamwall doc update',
+  )
+  const clientEntry = await logs.waitForMessage(
+    'Failed to send client doc update',
+  )
 
   assert.equal(sentryClient.calls.length, 2)
   assert.equal(sentryClient.calls[0], sendError)
   assert.equal(sentryClient.calls[1], sendError)
 
-  const uplinkEntry = findLogged(logs, 'Failed to send Streamwall doc update')
-  assert.ok(uplinkEntry, 'expected the uplink send failure to be logged')
   assert.equal(
     loggedErrorMessage(uplinkEntry),
     sendError.message,
     'the local log should include the caught error',
   )
 
-  const clientEntry = findLogged(logs, 'Failed to send client doc update')
-  assert.ok(clientEntry, 'expected the client send failure to be logged')
   assert.equal(
     loggedErrorMessage(clientEntry),
     sendError.message,
