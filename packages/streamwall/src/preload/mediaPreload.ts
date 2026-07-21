@@ -279,15 +279,110 @@ async function waitForQuery(
   })
 }
 
-async function waitForVideo(
-  kind: 'video' | 'audio',
-  timeoutMs = INITIAL_TIMEOUT,
-): Promise<{
+type MediaSearchResult = {
   video?: HTMLMediaElement
   iframe?: HTMLIFrameElement
   iframeDocument?: Document
   crossOriginIframe?: boolean
-}> {
+}
+
+// One pass over the top-level document and every iframe embedded in it.
+//
+// Some pages embed their player in an iframe. Its document is only reachable
+// when it is same-origin: a cross-origin frame has an opaque origin, so
+// `contentDocument` reads as null and no amount of waiting will ever make the
+// <video> inside visible from here. Report that case so findMedia can name it
+// instead of reporting a generic missing video.
+function scanForMedia(kind: 'video' | 'audio'): MediaSearchResult {
+  const video = document.querySelector(kind)
+  if (video instanceof HTMLMediaElement) {
+    return { video }
+  }
+
+  let crossOriginIframe = false
+  for (const iframe of document.querySelectorAll('iframe')) {
+    const iframeDocument = iframe.contentDocument
+    if (!iframeDocument) {
+      crossOriginIframe = true
+      continue
+    }
+    const framedVideo = iframeDocument.querySelector(kind)
+    if (framedVideo instanceof HTMLMediaElement) {
+      return { video: framedVideo, iframe, iframeDocument }
+    }
+  }
+  return { crossOriginIframe }
+}
+
+// Resolves with the first media element found in the document or in any
+// same-origin iframe, or with the last scan's outcome if `signal` aborts
+// first. Both places are covered by the same retry loop: scanning iframes
+// only once, after the top-level wait had run out, meant a frame inserted (or
+// filled) later was never re-examined, and an unbounded search -- which never
+// times out -- never scanned them at all (#485).
+async function waitForMedia(
+  kind: 'video' | 'audio',
+  signal: AbortSignal,
+): Promise<MediaSearchResult> {
+  console.log(`waiting for '${kind}'...`)
+  // The abort has to cut this wait short too, not just the observing below:
+  // a page that never reaches DOMContentLoaded (a stalled or dead stream
+  // page) would otherwise leave the caller's timeout with nothing to settle.
+  await Promise.race([pageReady, aborted(signal)])
+  if (signal.aborted) {
+    return {}
+  }
+  return new Promise((resolve) => {
+    // Iframes already wired for their own 'load' event. A frame's document is
+    // outside the tree observed below, so mutations in the embedder never
+    // report the moment a frame finishes loading the player it contains.
+    const watchedIframes = new Set<HTMLIFrameElement>()
+    const rescan = () => scan()
+
+    const scan = throttle(() => {
+      const result = scanForMedia(kind)
+      for (const iframe of document.querySelectorAll('iframe')) {
+        if (watchedIframes.has(iframe)) {
+          continue
+        }
+        watchedIframes.add(iframe)
+        iframe.addEventListener('load', rescan)
+      }
+      if (result.video) {
+        console.log(`found '${kind}'`)
+        stop()
+        resolve(result)
+      }
+    }, SCAN_THROTTLE)
+
+    const stopObserving = observeBody(scan)
+    const stop = () => {
+      for (const iframe of watchedIframes) {
+        iframe.removeEventListener('load', rescan)
+      }
+      watchedIframes.clear()
+      stopObserving()
+    }
+
+    signal.addEventListener(
+      'abort',
+      () => {
+        stop()
+        // The teardown just cancelled whatever trailing scan the throttle was
+        // holding, so take one final look before giving up -- and report the
+        // freshest cross-origin verdict rather than an early scan's.
+        resolve(scanForMedia(kind))
+      },
+      { once: true },
+    )
+    scan()
+  })
+}
+
+async function waitForVideo(
+  kind: 'video' | 'audio',
+  timeoutMs = INITIAL_TIMEOUT,
+): Promise<MediaSearchResult> {
   lockdownMediaTags()
 
   // One search, bounded by its own abort timer. Racing a search against a
@@ -298,34 +393,11 @@ async function waitForVideo(
     timeoutMs === Infinity
       ? undefined
       : setTimeout(() => search.abort(), timeoutMs)
-  let video: Element | null | undefined
   try {
-    video = await waitForQuery(kind, search.signal)
+    return await waitForMedia(kind, search.signal)
   } finally {
     clearTimeout(searchTimeout)
   }
-  if (video instanceof HTMLMediaElement) {
-    return { video }
-  }
-
-  // Some pages embed their player in an iframe. Its document is only
-  // reachable when it is same-origin: a cross-origin frame has an opaque
-  // origin, so `contentDocument` reads as null and no amount of waiting will
-  // ever make the <video> inside visible from here. Remember that case so
-  // findMedia can name it instead of reporting a generic missing video.
-  let crossOriginIframe = false
-  for (const iframe of document.querySelectorAll('iframe')) {
-    const iframeDocument = iframe.contentDocument
-    if (!iframeDocument) {
-      crossOriginIframe = true
-      continue
-    }
-    video = iframeDocument.querySelector(kind)
-    if (video instanceof HTMLMediaElement) {
-      return { video, iframe, iframeDocument }
-    }
-  }
-  return { crossOriginIframe }
 }
 
 const igHacks = {
