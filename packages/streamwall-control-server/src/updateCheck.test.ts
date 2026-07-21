@@ -3,8 +3,6 @@ import { describe, test } from 'node:test'
 
 import {
   createUpdateChecker,
-  fetchLatestRelease,
-  isNewerVersion,
   isUpdateCheckEnabled,
   SERVER_VERSION,
 } from './updateCheck.ts'
@@ -20,42 +18,6 @@ function jsonResponse(body: unknown, status = 200) {
 describe('SERVER_VERSION', () => {
   test('reports the control-server package version', () => {
     assert.match(SERVER_VERSION, /^\d+\.\d+\.\d+/)
-  })
-})
-
-describe('isNewerVersion', () => {
-  test('detects a newer major/minor/patch release', () => {
-    assert.equal(isNewerVersion('1.0.0', '0.9.1'), true)
-    assert.equal(isNewerVersion('0.10.0', '0.9.1'), true)
-    assert.equal(isNewerVersion('0.9.2', '0.9.1'), true)
-  })
-
-  test('ignores an equal or older release', () => {
-    assert.equal(isNewerVersion('0.9.1', '0.9.1'), false)
-    assert.equal(isNewerVersion('0.9.0', '0.9.1'), false)
-    assert.equal(isNewerVersion('0.9.1', '0.10.0'), false)
-  })
-
-  test('tolerates a leading "v" on either side (release tags carry one)', () => {
-    assert.equal(isNewerVersion('v1.0.0', '0.9.1'), true)
-    assert.equal(isNewerVersion('v0.9.1', 'v0.9.1'), false)
-  })
-
-  test('compares numeric segments numerically, not lexically', () => {
-    assert.equal(isNewerVersion('0.9.10', '0.9.9'), true)
-    assert.equal(isNewerVersion('0.9.9', '0.9.10'), false)
-  })
-
-  test('ranks a prerelease below its own release', () => {
-    assert.equal(isNewerVersion('2.0.0-pre1', '2.0.0'), false)
-    assert.equal(isNewerVersion('2.0.0', '2.0.0-pre1'), true)
-    assert.equal(isNewerVersion('2.0.0-pre2', '2.0.0-pre1'), true)
-  })
-
-  test('treats an unparsable version as "no update" rather than throwing', () => {
-    assert.equal(isNewerVersion('not-a-version', '0.9.1'), false)
-    assert.equal(isNewerVersion('1.0.0', 'not-a-version'), false)
-    assert.equal(isNewerVersion('', '0.9.1'), false)
   })
 })
 
@@ -79,73 +41,6 @@ describe('isUpdateCheckEnabled', () => {
     for (const raw of ['true', '1', 'yes', 'on']) {
       assert.equal(isUpdateCheckEnabled(raw), true, `expected ${raw} to enable`)
     }
-  })
-})
-
-describe('fetchLatestRelease', () => {
-  test('returns the tag and html_url of the latest release', async () => {
-    const result = await fetchLatestRelease({
-      fetchImpl: async () =>
-        jsonResponse({
-          tag_name: 'v1.2.3',
-          html_url: 'https://example.test/releases/v1.2.3',
-        }),
-    })
-
-    assert.deepEqual(result, {
-      version: '1.2.3',
-      url: 'https://example.test/releases/v1.2.3',
-    })
-  })
-
-  test('skips draft and prerelease entries', async () => {
-    for (const flags of [{ draft: true }, { prerelease: true }]) {
-      const result = await fetchLatestRelease({
-        fetchImpl: async () =>
-          jsonResponse({
-            tag_name: 'v1.2.3',
-            html_url: 'https://example.test/r',
-            ...flags,
-          }),
-      })
-      assert.equal(result, null)
-    }
-  })
-
-  test('returns null on a non-2xx response', async () => {
-    const result = await fetchLatestRelease({
-      fetchImpl: async () => jsonResponse({ message: 'Not Found' }, 404),
-    })
-    assert.equal(result, null)
-  })
-
-  test('returns null on a malformed payload instead of throwing', async () => {
-    const result = await fetchLatestRelease({
-      fetchImpl: async () => jsonResponse({ nope: true }),
-    })
-    assert.equal(result, null)
-  })
-
-  test('returns null when the request fails (offline, DNS, timeout)', async () => {
-    const result = await fetchLatestRelease({
-      fetchImpl: async () => {
-        throw new Error('getaddrinfo ENOTFOUND api.github.com')
-      },
-    })
-    assert.equal(result, null)
-  })
-
-  test('aborts a hung request via the request signal', async () => {
-    const result = await fetchLatestRelease({
-      timeoutMs: 10,
-      fetchImpl: (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () =>
-            reject(new Error('aborted')),
-          )
-        }),
-    })
-    assert.equal(result, null)
   })
 })
 

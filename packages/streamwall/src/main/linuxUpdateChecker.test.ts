@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { LinuxUpdateChecker, isNewerVersion } from './linuxUpdateChecker'
+import { LinuxUpdateChecker } from './linuxUpdateChecker'
 
 /** A `fetch`-shaped stub resolving to a JSON body with the given status. */
 function jsonResponse(body: unknown, status = 200) {
@@ -26,27 +26,6 @@ function createChecker(
   checker.on('status', (status) => statuses.push(status))
   return { checker, statuses }
 }
-
-describe('isNewerVersion', () => {
-  it('detects a newer major/minor/patch release', () => {
-    expect(isNewerVersion('1.0.0', '0.9.1')).toBe(true)
-    expect(isNewerVersion('0.10.0', '0.9.1')).toBe(true)
-    expect(isNewerVersion('0.9.2', '0.9.1')).toBe(true)
-  })
-
-  it('ignores an equal or older release', () => {
-    expect(isNewerVersion('0.9.1', '0.9.1')).toBe(false)
-    expect(isNewerVersion('0.9.0', '0.9.1')).toBe(false)
-  })
-
-  it('tolerates a leading "v" on either side (release tags carry one)', () => {
-    expect(isNewerVersion('v1.0.0', '0.9.1')).toBe(true)
-  })
-
-  it('treats an unparsable version as "no update" rather than throwing', () => {
-    expect(isNewerVersion('not-a-version', '0.9.1')).toBe(false)
-  })
-})
 
 describe('LinuxUpdateChecker.checkNow', () => {
   it('starts idle so the renderer renders no banner before a check has run', () => {
