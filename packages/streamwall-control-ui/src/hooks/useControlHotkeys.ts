@@ -30,16 +30,23 @@ export function useControlHotkeys({
   stateIdxMap: Map<number, ViewInfo>
   focusedInputIdx: number | undefined
   role: StreamwallRole | null
-  handleSetListening: (idx: number, listening: boolean) => void
-  handleSetBlurred: (idx: number, blurred: boolean) => void
+  handleSetListening: (viewId: number, listening: boolean) => void
+  handleSetBlurred: (viewId: number, blurred: boolean) => void
   setStreamCensored: (isCensored: boolean) => void
   handleSwapView: (idx: number) => void
   undoManager: Y.UndoManager | undefined
 }) {
+  // The hotkeys are addressed by grid cell, but the commands take a stable
+  // view id (`webContents.id`, see #397/#467) - resolve one into the other via
+  // the cell's view instead of passing the index through (issue #470). An
+  // empty cell has no view to toggle, so the keypress is a no-op.
   const toggleListening = useCallback(
     (idx: number) => {
-      const isListening = stateIdxMap.get(idx)?.isListening ?? false
-      handleSetListening(idx, !isListening)
+      const view = stateIdxMap.get(idx)
+      if (!view) {
+        return
+      }
+      handleSetListening(view.state.context.id, !view.isListening)
     },
     [stateIdxMap, handleSetListening],
   )
@@ -68,10 +75,14 @@ export function useControlHotkeys({
     { enableOnFormTags: true },
     [toggleListening],
   )
+  // Same cell-index -> view-id resolution as `toggleListening` above (#470).
   const toggleBlurred = useCallback(
     (idx: number) => {
-      const isBlurred = stateIdxMap.get(idx)?.isBlurred ?? false
-      handleSetBlurred(idx, !isBlurred)
+      const view = stateIdxMap.get(idx)
+      if (!view) {
+        return
+      }
+      handleSetBlurred(view.state.context.id, !view.isBlurred)
     },
     [stateIdxMap, handleSetBlurred],
   )
