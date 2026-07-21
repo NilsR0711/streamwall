@@ -48,6 +48,27 @@ export default tseslint.config(
       // and idiomatic here; these stylistic checks add noise without value.
       'import-x/no-named-as-default': 'off',
       'import-x/no-named-as-default-member': 'off',
+      // The workspace standardizes on the ESM build of lodash. Importing the
+      // CJS package (or one of its `lodash/<fn>` subpaths) pulls a second copy
+      // of lodash into the Vite/Forge bundles and reintroduces ESM/CJS interop
+      // surprises in the main and preload builds.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'lodash',
+              message: "Use named imports from 'lodash-es' instead.",
+            },
+          ],
+          patterns: [
+            {
+              group: ['lodash/*'],
+              message: "Use named imports from 'lodash-es' instead.",
+            },
+          ],
+        },
+      ],
     },
   },
   {

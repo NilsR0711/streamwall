@@ -8,8 +8,7 @@ import {
   WebContentsView,
 } from 'electron'
 import EventEmitter from 'events'
-import intersection from 'lodash/intersection'
-import isEqual from 'lodash/isEqual'
+import { intersection, isEqual } from 'lodash-es'
 import path from 'path'
 import {
   boxesFromViewContentMap,

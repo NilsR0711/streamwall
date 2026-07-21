@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
-import throttle from 'lodash/throttle'
+import { throttle } from 'lodash-es'
 import { ContentDisplayOptions } from 'streamwall-shared'
 import { MEDIA_PAUSE_EVENT, MEDIA_RESUME_EVENT } from './mediaParkEvents'
 import { VolumeController } from './volumeController'
