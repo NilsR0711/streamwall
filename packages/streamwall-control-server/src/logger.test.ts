@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
-import process from 'node:process'
-import { after, test } from 'node:test'
+import { test } from 'node:test'
 
 import {
   getLoggerOptions,
@@ -8,10 +7,7 @@ import {
   resolveLogLevel,
   tokenIdPrefix,
 } from './logger.ts'
-
-after(() => {
-  delete process.env.LOG_LEVEL
-})
+import { setEnvForTest } from './testHelpers.ts'
 
 test('resolveLogLevel defaults to info when unset or blank', () => {
   assert.equal(resolveLogLevel(undefined), 'info')
@@ -40,9 +36,14 @@ test('resolveLogLevel falls back to info for an unknown level', () => {
 })
 
 test('getLoggerOptions reads LOG_LEVEL from the environment', () => {
-  process.env.LOG_LEVEL = 'debug'
+  setEnvForTest({ LOG_LEVEL: 'debug' })
+
   assert.equal(getLoggerOptions().level, 'debug')
-  delete process.env.LOG_LEVEL
+})
+
+test('getLoggerOptions falls back to info when LOG_LEVEL is unset', () => {
+  setEnvForTest({ LOG_LEVEL: undefined })
+
   assert.equal(getLoggerOptions().level, 'info')
 })
 

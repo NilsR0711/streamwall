@@ -8,45 +8,35 @@ import {
   getSentryConfig,
   initSentry,
 } from './sentry.ts'
-import { recordingLogger } from './testHelpers.ts'
+import { recordingLogger, setEnvForTest } from './testHelpers.ts'
 
 describe('getSentryConfig', () => {
-  const originalEnabled = process.env[SENTRY_ENABLED_ENV]
-  const originalDsn = process.env[SENTRY_DSN_ENV]
-
-  afterEach(() => {
-    if (originalEnabled === undefined) {
-      delete process.env[SENTRY_ENABLED_ENV]
-    } else {
-      process.env[SENTRY_ENABLED_ENV] = originalEnabled
-    }
-    if (originalDsn === undefined) {
-      delete process.env[SENTRY_DSN_ENV]
-    } else {
-      process.env[SENTRY_DSN_ENV] = originalDsn
-    }
-  })
-
   test('defaults to disabled with no DSN when unset', () => {
-    delete process.env[SENTRY_ENABLED_ENV]
-    delete process.env[SENTRY_DSN_ENV]
+    setEnvForTest({
+      [SENTRY_ENABLED_ENV]: undefined,
+      [SENTRY_DSN_ENV]: undefined,
+    })
 
     assert.deepEqual(getSentryConfig(), { enabled: false, dsn: undefined })
   })
 
-  test('enables only on the exact string "true"', () => {
-    process.env[SENTRY_ENABLED_ENV] = 'true'
-    assert.equal(getSentryConfig().enabled, true)
+  // Anything but the exact string stays off, so a half-set variable never
+  // silently starts shipping events.
+  for (const [value, enabled] of [
+    ['true', true],
+    ['1', false],
+    ['TRUE', false],
+  ] as const) {
+    test(`is ${enabled ? 'enabled' : 'disabled'} for ${SENTRY_ENABLED_ENV}=${value}`, () => {
+      setEnvForTest({ [SENTRY_ENABLED_ENV]: value })
 
-    process.env[SENTRY_ENABLED_ENV] = '1'
-    assert.equal(getSentryConfig().enabled, false)
-
-    process.env[SENTRY_ENABLED_ENV] = 'TRUE'
-    assert.equal(getSentryConfig().enabled, false)
-  })
+      assert.equal(getSentryConfig().enabled, enabled)
+    })
+  }
 
   test('reads the DSN from the environment', () => {
-    process.env[SENTRY_DSN_ENV] = 'https://example@o0.ingest.sentry.io/1'
+    setEnvForTest({ [SENTRY_DSN_ENV]: 'https://example@o0.ingest.sentry.io/1' })
+
     assert.equal(getSentryConfig().dsn, 'https://example@o0.ingest.sentry.io/1')
   })
 })

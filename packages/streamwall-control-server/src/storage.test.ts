@@ -7,22 +7,17 @@ import process from 'node:process'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { loadStorage, resolveDbPath } from './storage.ts'
+import { setEnvForTest } from './testHelpers.ts'
 
 describe('resolveDbPath', () => {
-  const originalDbPath = process.env.DB_PATH
   const originalCwd = process.cwd()
 
   afterEach(() => {
-    if (originalDbPath === undefined) {
-      delete process.env.DB_PATH
-    } else {
-      process.env.DB_PATH = originalDbPath
-    }
     process.chdir(originalCwd)
   })
 
   test('defaults to a path under the home directory, not the working directory', () => {
-    delete process.env.DB_PATH
+    setEnvForTest({ DB_PATH: undefined })
 
     const resolved = resolveDbPath()
 
@@ -38,7 +33,7 @@ describe('resolveDbPath', () => {
   })
 
   test('the default path is stable regardless of the process working directory', () => {
-    delete process.env.DB_PATH
+    setEnvForTest({ DB_PATH: undefined })
     const fromOriginalCwd = resolveDbPath()
 
     const scratchCwd = mkdtempSync(path.join(tmpdir(), 'sw-cwd-'))
@@ -53,23 +48,14 @@ describe('resolveDbPath', () => {
   })
 
   test('an explicit DB_PATH override always wins', () => {
-    process.env.DB_PATH = '/custom/path/storage.json'
+    setEnvForTest({ DB_PATH: '/custom/path/storage.json' })
 
     assert.equal(resolveDbPath(), '/custom/path/storage.json')
   })
 })
 
 describe('loadStorage', () => {
-  const originalDbPath = process.env.DB_PATH
   let scratchDir: string
-
-  afterEach(() => {
-    if (originalDbPath === undefined) {
-      delete process.env.DB_PATH
-    } else {
-      process.env.DB_PATH = originalDbPath
-    }
-  })
 
   after(() => {
     if (scratchDir) {
@@ -80,7 +66,7 @@ describe('loadStorage', () => {
   test('creates missing parent directories so a first write succeeds', async () => {
     scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-storage-'))
     const dbPath = path.join(scratchDir, 'nested', 'deeper', 'storage.json')
-    process.env.DB_PATH = dbPath
+    setEnvForTest({ DB_PATH: dbPath })
 
     const db = await loadStorage()
     assert.deepEqual(db.data.auth, { salt: null, tokens: [] })
@@ -95,7 +81,7 @@ describe('loadStorage', () => {
   test('persists writes to the resolved path', async () => {
     scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-storage-'))
     const dbPath = path.join(scratchDir, 'storage.json')
-    process.env.DB_PATH = dbPath
+    setEnvForTest({ DB_PATH: dbPath })
 
     const db = await loadStorage()
     db.data.auth.salt = 'test-salt'

@@ -39,11 +39,6 @@ function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
 const isBareError = (m: ServerToClientMessage): m is ClientErrorMessage =>
   !('response' in m) && 'error' in m
 
-// A per-test override of the update cap must not leak into other test files.
-after(() => {
-  delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
-})
-
 /**
  * Boots a live server, connects a Streamwall uplink and seeds a state message,
  * then redeems an invite and opens an authenticated client socket. JSON frames
@@ -61,17 +56,16 @@ async function connectStreamwallAndClient({
   role?: StreamwallRole
   wsUpdateMaxBytes?: number
 } = {}) {
-  if (wsUpdateMaxBytes !== undefined) {
-    process.env.STREAMWALL_WS_UPDATE_MAX_BYTES = String(wsUpdateMaxBytes)
-  } else {
-    delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
-  }
-
   const logs = captureLogs()
   const { app, auth } = await buildTestApp({
     baseURL: BASE_URL,
     logs,
     rateLimit: WIDE_RATE_LIMITS,
+    // Injected rather than set in the environment: the cap belongs to this one
+    // server instance and never leaks into whichever file runs next.
+    ...(wsUpdateMaxBytes !== undefined && {
+      docUpdateLimits: { maxUpdateBytes: wsUpdateMaxBytes },
+    }),
   })
   after(() => app.close())
   const port = await listenTestApp(app)
