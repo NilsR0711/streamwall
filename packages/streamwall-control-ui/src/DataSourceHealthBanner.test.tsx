@@ -106,4 +106,22 @@ describe('DataSourceHealthBanner', () => {
     expect(warnings.join(' ')).toContain('https://b.example/streams.json')
     expect(warnings.join(' ')).toContain('/tmp/streams.toml')
   })
+
+  // A data-source outage is recoverable and not user-triggered, so it is
+  // announced politely rather than interrupting the operator (WCAG 4.1.3,
+  // issue #398).
+  test('announces failing sources politely to assistive technology', () => {
+    const el = renderBanner([
+      {
+        id: 'https://dead.example/streams.json',
+        type: 'json-url',
+        status: 'error',
+        message: 'fetch failed',
+        updatedAt: 1000,
+      },
+    ])
+    const banner = el.querySelector('[role="status"]')
+    expect(banner).not.toBeNull()
+    expect(banner?.getAttribute('aria-live')).toBe('polite')
+  })
 })
