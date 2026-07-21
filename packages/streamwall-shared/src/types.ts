@@ -1,7 +1,8 @@
 import type { Delta } from 'jsondiffpatch'
+import type { z } from 'zod'
 import type { ViewContent, ViewPos } from './geometry.ts'
 import type { StreamwallRole } from './roles.ts'
-import type { ControlCommand } from './schemas.ts'
+import type { ControlCommand, viewStateValueSchema } from './schemas.ts'
 
 export interface StreamWindowConfig {
   cols: number
@@ -54,23 +55,12 @@ export type LocalStreamData = Omit<StreamData, '_id' | '_dataSource'>
 
 export type StreamList = StreamData[] & { byURL?: Map<string, StreamData> }
 
-// matches viewStateMachine.ts
-export type ViewStateValue =
-  | 'empty'
-  | {
-      displaying:
-        | 'error'
-        | {
-            loading: 'navigate' | 'waitForInit' | 'waitForVideo'
-          }
-        | {
-            running: {
-              playback: 'playing' | 'stalled'
-              video: 'normal' | 'blurred'
-              audio: 'background' | 'muted' | 'listening'
-            }
-          }
-    }
+/**
+ * Mirrors `viewStateMachine.ts`'s snapshot `.value`. Derived from the schema so
+ * that the type and the runtime validation can never disagree; the schema in
+ * turn is held to the machine by `viewStateMachineSchemaDrift.test.ts` (#419).
+ */
+export type ViewStateValue = z.infer<typeof viewStateValueSchema>
 
 export interface ViewState {
   state: ViewStateValue

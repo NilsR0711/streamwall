@@ -312,8 +312,21 @@ const viewPosSchema = z.object({
   spaces: z.array(z.number()),
 })
 
-/** Matches the shape produced by `viewStateMachine.ts`'s XState snapshot `.value`. */
-const viewStateValueSchema = z.union([
+/**
+ * Matches the shape produced by `viewStateMachine.ts`'s XState snapshot
+ * `.value`.
+ *
+ * This is a hand-written mirror of a machine that lives in another package
+ * (`streamwall`), so nothing but a test can keep the two in step: it is
+ * exported for `viewStateMachineSchemaDrift.test.ts`, which enumerates the
+ * machine's reachable state values and asserts every one of them parses here
+ * losslessly (issue #419).
+ *
+ * Unknown keys are stripped rather than rejected on purpose: an unforeseen new
+ * region should degrade the control server's picture of that view, never sever
+ * the uplink of an otherwise healthy desktop build.
+ */
+export const viewStateValueSchema = z.union([
   z.literal('empty'),
   z.object({
     displaying: z.union([
@@ -326,6 +339,15 @@ const viewStateValueSchema = z.union([
           playback: z.enum(['playing', 'stalled']),
           video: z.enum(['normal', 'blurred']),
           audio: z.enum(['background', 'muted', 'listening']),
+          // Media playback paused while the view is parked (issue #374).
+          pause: z.enum(['unpaused', 'paused']),
+          // Background preload of the next view during a content swap.
+          swap: z.union([
+            z.literal('idle'),
+            z.object({
+              preloading: z.enum(['navigate', 'waitForInit', 'waitForVideo']),
+            }),
+          ]),
         }),
       }),
     ]),

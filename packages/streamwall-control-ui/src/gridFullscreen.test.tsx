@@ -55,7 +55,13 @@ function makeView(streamId: string, spaces: number[]): ViewInfo {
     state: {
       state: {
         displaying: {
-          running: { playback: 'playing', video: 'normal', audio: 'muted' },
+          running: {
+            playback: 'playing',
+            video: 'normal',
+            audio: 'muted',
+            pause: 'unpaused',
+            swap: 'idle',
+          },
         },
       },
       context: {
