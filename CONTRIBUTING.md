@@ -243,3 +243,26 @@ When cutting a release, alongside the `release:version` bump:
 is missing an `## [Unreleased]` section or a heading for the version currently
 in `packages/streamwall/package.json`, so a version bump without a matching
 changelog entry is caught before release.
+
+### Release notes: the Windows upgrade notice
+
+Releases after v0.9.1 ship an NSIS installer plus `latest.yml` instead of the
+Squirrel.Windows artifacts (`RELEASES`, `.nupkg`) that v0.9.x installs poll for
+(#432, #452). Those installs therefore find no update and report no error —
+they stay on their version until their owner reinstalls by hand, and only a
+release note tells them to.
+
+Until v0.9.x is safely out of circulation, paste this block near the top of
+every release's notes:
+
+```markdown
+**Windows: upgrading from v0.9.1 or older requires a manual reinstall.** Those
+builds cannot see this release through their in-app updater. Uninstall the old
+**Streamwall** entry (Settings → Apps → Installed apps), then download and run
+`streamwall-setup-<version>.exe` below. Your config and logs in
+`%APPDATA%\Streamwall` are preserved, and updates work automatically from then
+on. macOS and Linux are unaffected.
+```
+
+The same notice lives in the README's [Download](README.md#download) section
+for people who arrive there instead.

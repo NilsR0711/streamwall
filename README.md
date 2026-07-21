@@ -28,6 +28,23 @@ Grab the latest build from the [**Releases**](https://github.com/NilsR0711/strea
 >
 > Signed builds are opt-in and produced automatically once the signing secrets are provisioned (see the same section).
 
+> [!IMPORTANT]
+> **Windows users on v0.9.1 or older: update manually, once.** Those builds
+> were installed by a Squirrel.Windows installer and look for Squirrel update
+> artifacts that releases no longer contain, so they never find a newer
+> version and report no error either — they just stay where they are. To move
+> across:
+>
+> 1. Uninstall the old **Streamwall** entry via **Settings → Apps → Installed apps**.
+> 2. Download `streamwall-setup-<version>.exe` from the
+>    [Releases](https://github.com/NilsR0711/streamwall/releases/latest) page and run it.
+>
+> The new NSIS installer places the app in its own location rather than
+> replacing the Squirrel install, which is why the old one has to go first.
+> Your configuration and logs live in `%APPDATA%\Streamwall` and are left
+> untouched. From this installer on, in-app updates work again (see
+> [In-app updates](#in-app-updates)). macOS and Linux are unaffected.
+
 Prefer to run from source instead of installing? See [Configuration](#configuration) and the `start:app` script below.
 
 ## How it works
@@ -356,6 +373,13 @@ once a day and show a **View Release** banner when a newer version is found —
 notification only, since `.deb`/`.rpm` installs go through the OS package
 manager rather than a self-updater. Note that macOS additionally requires the
 app to be **signed** (see below) before updates can install.
+
+Windows installs from v0.9.1 or older are the one gap in that mechanism: they
+were made by a Squirrel.Windows installer and poll for Squirrel artifacts
+(`RELEASES`, `.nupkg`) that the NSIS releases no longer publish (#432), so they
+silently never see an update. Those installs need the one-time manual move
+described under [Download](#download); every install made by the NSIS
+installer updates itself normally.
 
 To produce signed, notarized builds, set these environment variables before
 running `make`/`publish` (see `packages/streamwall/forge.signing.ts`):
