@@ -65,8 +65,15 @@ automatically before `build`. That covers all entry points — a local
 `globalSetup` — so a type error fails the build instead of slipping through to
 the separate `npm run typecheck` step.
 
+The `streamwall` package has no `build` script — it packages through
+electron-forge, whose Vite plugin strips types the same way. There the check
+runs from forge's `prePackage` hook (see `packages/streamwall/forge.typecheck.ts`),
+which `electron-forge package`, `make` and `publish` all pass through, so
+release artifacts cannot be built from code that does not compile.
+`electron-forge start` stays unchecked to keep the dev loop fast.
+
 If you add a `build` script to a package, add the matching `prebuild` hook;
-`test/workspace-metadata.test.mjs` enforces this.
+`test/workspace-metadata.test.mjs` enforces this, along with the forge hook.
 
 ### Test runners differ per package
 

@@ -13,6 +13,7 @@ import {
   getWindowsSigningConfig,
   isSigningConfigured,
 } from './forge.signing'
+import { runTypecheck } from './forge.typecheck'
 import { appendUpdateMetadata } from './forge.updateMetadata'
 import packageJson from './package.json'
 
@@ -54,6 +55,12 @@ const config: ForgeConfig = {
     },
   ],
   hooks: {
+    // Vite strips types without checking them, so packaging would otherwise
+    // emit a release artifact from code that does not compile (#472). `make`
+    // and `publish` both run the package step, so this one hook covers every
+    // command that produces a distributable; `start` stays unchecked to keep
+    // the dev loop fast (`npm run typecheck` still covers it in CI).
+    prePackage: async () => runTypecheck(),
     // latest.yml / latest-mac.yml for electron-updater (#432); uploaded to
     // the release alongside the installers by the GitHub publisher.
     postMake: async (_forgeConfig, makeResults) =>
