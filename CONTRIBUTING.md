@@ -153,7 +153,10 @@ else:
   builds, packaging, E2E, the control-server Docker build, dependency review,
   workflow linting and **CodeQL**
   all report through it — CodeQL runs as a job of `ci.yml` rather than as a
-  standalone workflow precisely so that its failures block a merge.
+  standalone workflow precisely so that its failures block a merge. Because a
+  reusable-workflow call produces no run of its own, the README carries no
+  separate CodeQL badge — the `CI` badge already reflects the analysis that ran
+  on the latest commit on `main`.
 - `Conventional Commits title` — `.github/workflows/pr-title.yml`.
 
 Adding a job to `ci.yml` therefore also means adding it to the `ci-ok` gate's
