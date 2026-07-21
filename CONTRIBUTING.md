@@ -192,10 +192,13 @@ The rule looks at the alerts a PR introduces, so a merge is never blocked by
 the pre-existing backlog. Alerts below the threshold, and quality alerts of any
 severity, are triaged in the Security tab instead.
 
-The rule needs a CodeQL result for the PR head commit or for its current merge
-commit, and GitHub regenerates that merge commit. `codeql.yml` therefore checks
-out the head commit rather than the default merge checkout, so its results stay
-attached to a SHA the rule can match; `test/ci-gate.test.mjs` guards that.
+Code scanning can only name the alerts a PR introduces when the PR carries a
+result for every configuration it sees on `main`, and a configuration is keyed
+by the analysis _category_ — which defaults to the calling workflow. `ci.yml`
+and `codeql-schedule.yml` would therefore register one configuration each, and
+a PR (which only runs the `ci.yml` one) would be blocked waiting for the other
+forever. `codeql.yml` pins one explicit category for all callers instead;
+`test/ci-gate.test.mjs` guards that.
 
 CodeQL does produce false positives here — see the `HTMLMediaElement.src` sink
 overmatch in [#301](https://github.com/NilsR0711/streamwall/issues/301). Resolve
