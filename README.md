@@ -332,11 +332,24 @@ or by right-clicking the app and choosing "Open" instead of double-clicking.
 ### CI releases
 
 Pushing a `v*` tag (or running the workflow manually) triggers
-`.github/workflows/release.yml`, which runs the quality gate (lint, typecheck,
-test) and then builds and publishes a GitHub release for Linux, Windows, and
-macOS via `electron-forge publish`. Signing in CI is opt-in, matching the
-local `make`/`publish` behavior above: builds stay unsigned until these
-repository secrets are set.
+`.github/workflows/release.yml`. Its quality gate mirrors the same checks a
+pull request must pass (`CI OK`), so a tag can never ship code that would have
+failed a PR:
+
+- **Format** — `prettier --check` (also Markdown and YAML)
+- **Lint + typecheck** — ESLint and `tsc` across all workspaces
+- **Tests** — the full unit suite on Ubuntu, Windows, and macOS
+- **Control-client build** — `streamwall-control-client` production build
+- **Package smoke** — an Electron `package` of the desktop app
+- **E2E smoke** — the control client in a real browser against a live server
+
+Cross-OS tests run in the gate itself (not merely trusted from `main` CI):
+a release ships binaries for all three platforms, so all three are verified
+before publishing. Only once every check passes does the workflow build and
+publish a GitHub release for Linux, Windows, and macOS via
+`electron-forge publish`. Signing in CI is opt-in, matching the local
+`make`/`publish` behavior above: builds stay unsigned until these repository
+secrets are set.
 
 | Secret                         | Purpose                                                       |
 | ------------------------------ | ------------------------------------------------------------- |

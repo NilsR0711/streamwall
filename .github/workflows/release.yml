@@ -16,33 +16,95 @@ concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# The quality gate mirrors the PR `ci-ok` inputs (format, cross-OS tests,
+# control-client build, Electron package smoke, E2E) so a tag can never ship
+# code that would have failed a PR. Unlike CI there are no docs-only path
+# filters: a release always builds and ships binaries, so every check runs
+# unconditionally. `publish` fans out only after all of them pass.
 jobs:
-  quality-gate:
-    name: Quality gate
+  # Prettier (also Markdown/YAML), ESLint and tsc — the CI `checks` job.
+  checks:
+    name: Static checks
     runs-on: ubuntu-latest
-    # Raised from 15 to cover the added packaging step.
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - name: Lint
+      - name: Format (Prettier)
+        run: npm run format:check
+      - name: Lint (ESLint)
+        if: ${{ !cancelled() }}
         run: npm run lint
-      - name: Typecheck
+      - name: Typecheck (tsc)
+        if: ${{ !cancelled() }}
         run: npm run typecheck
-      - name: Test
-        run: npm test
-      # Packaging smoke test before the three-OS publish matrix fans out: a
-      # Vite/Forge misconfiguration or a native-module unpacking failure
-      # fails here once (~45 seconds) instead of three times in parallel,
-      # each after a full Electron download.
-      - name: Package smoke build
-        run: npm -w streamwall run package
+
+  # Cross-OS unit tests. A release ships binaries for all three platforms, so
+  # the gate runs the full matrix rather than trusting a Linux-only leg.
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm test
+
+  build:
+    name: Build (web control client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm -w streamwall-control-client run build
+
+  # Packaging smoke test before the three-OS publish matrix fans out: a
+  # Vite/Forge misconfiguration or a native-module unpacking failure fails
+  # here once (~45 seconds) instead of three times in parallel, each after a
+  # full Electron download. `package` only, not `make` — the maker-specific
+  # installer steps are the publish job's concern.
+  package:
+    name: Package smoke (Electron app)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm -w streamwall run package
+
+  # End-to-end smoke tests: the control client in a real Chromium browser
+  # against a real control server + fake Streamwall uplink. Linux-only (the
+  # Playwright browser install with system deps is Linux-only).
+  e2e:
+    name: E2E smoke (control client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E smoke tests
+        run: npm -w streamwall-control-e2e run test:e2e
 
   publish:
     name: Publish (${{ matrix.platform.name }})
-    needs: quality-gate
+    needs: [checks, test, build, package, e2e]
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 30
     permissions:
