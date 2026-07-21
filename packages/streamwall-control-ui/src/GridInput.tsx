@@ -16,7 +16,6 @@ const StyledGridInput = styled(LazyChangeInput)<{
 }>`
   width: 100%;
   height: 100%;
-  outline: 1px solid rgba(0, 0, 0, 0.5);
   border: none;
   padding: 0;
   background: ${({ $color, $isHighlighted }) =>
@@ -26,9 +25,20 @@ const StyledGridInput = styled(LazyChangeInput)<{
   font-size: 20px;
   text-align: center;
 
-  &:focus {
-    outline: 1px solid black;
-    box-shadow: 0 0 5px black inset;
+  /* The cell divider. Scoped to :not(:focus-visible) so it cannot compete with
+     the shared focus ring in globalStyle.tsx: both are single-class /
+     single-pseudo-class selectors, so an unscoped outline here would win or
+     lose purely by stylesheet injection order (see #531). */
+  &:not(:focus-visible) {
+    outline: 1px solid rgba(0, 0, 0, 0.5);
+  }
+
+  /* The shared ring is drawn outside the cell (outline-offset plus a halo), so
+     the focused cell has to rise above its neighbours or the ring gets clipped
+     by them. z-index only applies to positioned elements, hence the
+     position. */
+  &:focus-visible {
+    position: relative;
     z-index: 100;
   }
 `
