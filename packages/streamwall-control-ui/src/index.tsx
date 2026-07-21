@@ -336,10 +336,10 @@ export function ControlUI({
   )
 
   const handleSetListening = useCallback(
-    (idx: number, listening: boolean) => {
+    (viewId: number, listening: boolean) => {
       send({
         type: 'set-listening-view',
-        viewIdx: listening ? idx : null,
+        viewId: listening ? viewId : null,
       })
     },
     [send],
@@ -350,10 +350,10 @@ export function ControlUI({
   // back to the grid. Purely runtime state -- the persisted layout is untouched
   // (issue #362).
   const handleToggleFullscreen = useCallback(
-    (idx: number) => {
+    (viewId: number) => {
       send({
         type: 'set-view-fullscreen',
-        viewIdx: idx,
+        viewId,
         fullscreen: fullscreenViewIdx == null,
       })
     },
@@ -390,10 +390,10 @@ export function ControlUI({
   )
 
   const handleSetBackgroundListening = useCallback(
-    (viewIdx: number, listening: boolean) => {
+    (viewId: number, listening: boolean) => {
       send({
         type: 'set-view-background-listening',
-        viewIdx,
+        viewId,
         listening,
       })
     },
@@ -401,10 +401,10 @@ export function ControlUI({
   )
 
   const handleSetBlurred = useCallback(
-    (viewIdx: number, blurred: boolean) => {
+    (viewId: number, blurred: boolean) => {
       send({
         type: 'set-view-blurred',
-        viewIdx,
+        viewId,
         blurred,
       })
     },
@@ -412,10 +412,10 @@ export function ControlUI({
   )
 
   const handleSetVolume = useCallback(
-    (viewIdx: number, volume: number) => {
+    (viewId: number, volume: number) => {
       send({
         type: 'set-view-volume',
-        viewIdx,
+        viewId,
         volume,
       })
     },
@@ -423,10 +423,10 @@ export function ControlUI({
   )
 
   const handleReloadView = useCallback(
-    (viewIdx: number) => {
+    (viewId: number) => {
       send({
         type: 'reload-view',
-        viewIdx,
+        viewId,
       })
     },
     [send],
@@ -462,10 +462,10 @@ export function ControlUI({
   )
 
   const handleDevTools = useCallback(
-    (viewIdx: number) => {
+    (viewId: number) => {
       send({
         type: 'dev-tools',
-        viewIdx,
+        viewId,
       })
     },
     [send],
@@ -966,7 +966,7 @@ export function ControlUI({
                   isBlurred,
                   volume,
                 }) => {
-                  const { pos } = state.context
+                  const { id: viewId, pos } = state.context
                   if (!pos) {
                     return null
                   }
@@ -981,6 +981,7 @@ export function ControlUI({
                     <GridControls
                       key={pos.spaces[0]}
                       idx={pos.spaces[0]}
+                      viewId={viewId}
                       streamId={streamId}
                       onToggleFullscreen={handleToggleFullscreen}
                       style={{

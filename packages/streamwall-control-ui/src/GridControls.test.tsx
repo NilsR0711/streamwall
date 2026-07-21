@@ -36,6 +36,7 @@ function renderControls(
     render(
       <GridControls
         idx={0}
+        viewId={0}
         streamId="abc"
         style={{}}
         isDisplaying={true}
@@ -80,9 +81,11 @@ describe('GridControls volume slider', () => {
     expect(box.querySelector('input[type="range"]')).toBeNull()
   })
 
-  test('sends the new volume for this tile when the slider changes', () => {
+  test('sends the new volume addressed by this tile view id when the slider changes', () => {
     const onSetVolume = vi.fn()
-    const box = renderControls({ idx: 3, volume: 1, onSetVolume })
+    // viewId deliberately differs from idx to prove the command carries the
+    // stable view id, not the grid cell index (issue #397).
+    const box = renderControls({ idx: 0, viewId: 3, volume: 1, onSetVolume })
     const slider = box.querySelector('input[type="range"]') as HTMLInputElement
 
     act(() => {
@@ -97,7 +100,7 @@ describe('GridControls volume slider', () => {
 describe('GridControls double-click to toggle fullscreen', () => {
   test('toggles fullscreen for this tile when its open area is double-clicked', () => {
     const onToggleFullscreen = vi.fn()
-    const box = renderControls({ idx: 4, onToggleFullscreen })
+    const box = renderControls({ idx: 0, viewId: 4, onToggleFullscreen })
     const controls = box.firstElementChild as HTMLElement
 
     act(() => {
