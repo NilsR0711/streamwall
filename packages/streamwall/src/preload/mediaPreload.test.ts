@@ -358,6 +358,104 @@ describe('mediaPreload iframe video extraction (issue #413)', () => {
   })
 })
 
+describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
+  // Records every observer the module creates so the tests can assert on how
+  // many are still connected at a given point. Deliberately inert: it never
+  // delivers mutations, which is enough because waitForQuery also scans
+  // eagerly and the pages under test are static.
+  class FakeMutationObserver {
+    static instances: FakeMutationObserver[] = []
+    observe = vi.fn()
+    disconnect = vi.fn()
+    takeRecords = vi.fn(() => [])
+
+    constructor(public callback: () => void) {
+      FakeMutationObserver.instances.push(this)
+    }
+  }
+
+  function connectedObservers() {
+    return FakeMutationObserver.instances.filter(
+      (observer) =>
+        observer.observe.mock.calls.length > 0 &&
+        observer.disconnect.mock.calls.length === 0,
+    )
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    FakeMutationObserver.instances = []
+    vi.stubGlobal('MutationObserver', FakeMutationObserver)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  async function loadVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  async function loadAcquiredVideo(): Promise<HTMLVideoElement> {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+    await loadVideoContent()
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    return video
+  }
+
+  it('leaves only the long-lived lockdown observer connected once media is acquired', async () => {
+    await loadAcquiredVideo()
+
+    // The element-search observer must not outlive the search that created
+    // it; only lockdownMediaTags' own observer keeps watching the document.
+    expect(connectedObservers()).toHaveLength(1)
+  })
+
+  it('disconnects the element-search observer when the acquisition times out', async () => {
+    // No <video> in the document, so findMedia's search runs to its timeout.
+    await loadVideoContent()
+    await vi.advanceTimersByTimeAsync(10 * 1000)
+
+    expect(connectedObservers()).toHaveLength(1)
+  })
+
+  it('does not register a duplicate lockdown observer when media is re-acquired', async () => {
+    const video = await loadAcquiredVideo()
+
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(send).toHaveBeenCalledWith('view-stalled')
+    expect(connectedObservers()).toHaveLength(1)
+  })
+
+  it('disconnects every remaining observer when the page goes away', async () => {
+    await loadAcquiredVideo()
+    expect(connectedObservers()).not.toHaveLength(0)
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(connectedObservers()).toHaveLength(0)
+  })
+})
+
 describe('mediaPreload pause/resume handling (issue #374)', () => {
   beforeEach(() => {
     vi.useFakeTimers()

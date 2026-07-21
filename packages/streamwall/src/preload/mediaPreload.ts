@@ -167,8 +167,47 @@ class SnapshotController {
   }
 }
 
+// A throttled scan callback, as returned by lodash's `throttle`.
+type ScanCallback = (() => void) & { cancel(): void }
+
+// Every MutationObserver created here is registered so a single teardown can
+// disconnect them all. A document is discarded on navigation, but a view can
+// search for media repeatedly within one document (see acquireMedia's
+// 'emptied' re-acquisition), and an abandoned observer would otherwise keep
+// firing its throttled callback for the rest of the page's life -- see #412.
+const observerTeardowns = new Set<() => void>()
+
+function observeBody(scan: ScanCallback): () => void {
+  const observer = new MutationObserver(scan)
+  observer.observe(document.body, { subtree: true, childList: true })
+  const stop = () => {
+    observer.disconnect()
+    scan.cancel()
+    observerTeardowns.delete(stop)
+  }
+  observerTeardowns.add(stop)
+  return stop
+}
+
+// Nothing in the page world outlives its document, so once it goes away even
+// the deliberately long-lived lockdown observer below can stop watching.
+window.addEventListener('pagehide', () => {
+  for (const stop of [...observerTeardowns]) {
+    stop()
+  }
+})
+
+// Set once the lockdown observer is installed. It watches for the document's
+// lifetime by design, so repeated calls must reuse it rather than stack up a
+// second observer running the same scan (#412).
+let isMediaTagsLockedDown = false
+
 // Watch for media tags and mute them as soon as possible.
 async function lockdownMediaTags() {
+  if (isMediaTagsLockedDown) {
+    return
+  }
+  isMediaTagsLockedDown = true
   const lockdown = throttle(() => {
     webFrame.executeJavaScript(`
       for (const el of document.querySelectorAll('video, audio')) {
@@ -184,25 +223,58 @@ async function lockdownMediaTags() {
     `)
   }, SCAN_THROTTLE)
   await pageReady
-  const observer = new MutationObserver(lockdown)
-  observer.observe(document.body, { subtree: true, childList: true })
+  observeBody(lockdown)
 }
 
-async function waitForQuery(query: string): Promise<Element> {
+// Resolves once `signal` aborts, and never if there is no signal to abort.
+const aborted = (signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (!signal) {
+      return
+    }
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    signal.addEventListener('abort', () => resolve(), { once: true })
+  })
+
+// Resolves with the first element matching `query`, or with `undefined` if
+// `signal` aborts first. Callers that give up on a search (timeout, or a
+// sibling search winning a race) must abort it: without that, the search's
+// observer would stay connected forever, since its promise can only settle by
+// finding the element (#412).
+async function waitForQuery(
+  query: string,
+  signal?: AbortSignal,
+): Promise<Element | undefined> {
   console.log(`waiting for '${query}'...`)
-  await pageReady
+  // The abort has to cut this wait short too, not just the observing below:
+  // a page that never reaches DOMContentLoaded (a stalled or dead stream
+  // page) would otherwise leave the caller's timeout with nothing to settle.
+  await Promise.race([pageReady, aborted(signal)])
+  if (signal?.aborted) {
+    return undefined
+  }
   return new Promise((resolve) => {
     const scan = throttle(() => {
       const el = document.querySelector(query)
       if (el) {
         console.log(`found '${query}'`)
+        stop()
         resolve(el)
-        observer.disconnect()
       }
     }, SCAN_THROTTLE)
 
-    const observer = new MutationObserver(scan)
-    observer.observe(document.body, { subtree: true, childList: true })
+    const stop = observeBody(scan)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        stop()
+        resolve(undefined)
+      },
+      { once: true },
+    )
     scan()
   })
 }
@@ -218,11 +290,20 @@ async function waitForVideo(
 }> {
   lockdownMediaTags()
 
-  let queryPromise: Promise<Element | void> = waitForQuery(kind)
-  if (timeoutMs !== Infinity) {
-    queryPromise = Promise.race([waitForQuery(kind), sleep(timeoutMs)])
+  // One search, bounded by its own abort timer. Racing a search against a
+  // sleep instead would both start a second, immediately orphaned search and
+  // leave the losing search observing the document forever (#412).
+  const search = new AbortController()
+  const searchTimeout =
+    timeoutMs === Infinity
+      ? undefined
+      : setTimeout(() => search.abort(), timeoutMs)
+  let video: Element | null | undefined
+  try {
+    video = await waitForQuery(kind, search.signal)
+  } finally {
+    clearTimeout(searchTimeout)
   }
-  let video: Element | null | void = await queryPromise
   if (video instanceof HTMLMediaElement) {
     return { video }
   }
@@ -252,11 +333,17 @@ const igHacks = {
     return location.host === 'www.instagram.com'
   },
   async onLoad() {
+    // Both searches share one abort: whichever settles the race first (a
+    // match or the timer), the other's observer is disconnected rather than
+    // left watching the document for the rest of the page's life (#412).
+    const search = new AbortController()
+    const searchTimeout = setTimeout(() => search.abort(), 1000)
     const playButton = await Promise.race([
-      waitForQuery('button'),
-      waitForQuery('video'),
-      sleep(1000),
+      waitForQuery('button', search.signal),
+      waitForQuery('video', search.signal),
     ])
+    clearTimeout(searchTimeout)
+    search.abort()
     if (
       playButton instanceof HTMLButtonElement &&
       playButton.tagName === 'BUTTON' &&
