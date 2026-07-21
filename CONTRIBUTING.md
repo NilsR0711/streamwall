@@ -346,6 +346,18 @@ breaking change bumps the minor version.
    electron-forge, and then copies the `CHANGELOG.md` section for that version
    into the GitHub Release body (`scripts/changelog-section.mjs`).
 
+Because that tag is the one manual step,
+[`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) checks
+every morning that the version on `main` has a matching `vX.Y.Z` tag and fails
+the run when it has been missing for more than a day — otherwise a forgotten
+tag stays invisible: `main` advertises a version with no GitHub Release and no
+installers, while the control server's update check tells self-hosters they are
+up to date. Run it from the Actions tab, or locally:
+
+```sh
+node scripts/check-release-tag.mjs
+```
+
 `test/changelog.test.mjs` and `test/release-please.test.mjs` run as part of
 `npm test` and fail if `CHANGELOG.md` is missing a heading for the version
 currently in `packages/streamwall/package.json`, if a hand-maintained
