@@ -17,8 +17,9 @@ concurrency:
   cancel-in-progress: false
 
 # The quality gate mirrors the PR `ci-ok` inputs (format, cross-OS tests,
-# control-client build, Electron package smoke, E2E) so a tag can never ship
-# code that would have failed a PR. Unlike CI there are no docs-only path
+# control-client build, Electron package smoke, E2E, dependency licenses) so
+# a tag can never ship code that would have failed a PR. Unlike CI there are
+# no docs-only path
 # filters: a release always builds and ships binaries, so every check runs
 # unconditionally. `publish` fans out only after all of them pass.
 jobs:
@@ -103,9 +104,22 @@ jobs:
       - name: Run E2E smoke tests
         run: npm -w streamwall-control-e2e run test:e2e
 
+  # Same license allowlist the PR gate enforces: a release must not ship a
+  # dependency whose license is incompatible with redistribution.
+  licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm run licenses:check
+
   publish:
     name: Publish (${{ matrix.platform.name }})
-    needs: [checks, test, build, package, e2e]
+    needs: [checks, test, build, package, e2e, licenses]
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 30
     permissions:

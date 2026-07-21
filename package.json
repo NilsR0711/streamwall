@@ -13,6 +13,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "node --test test/*.test.mjs && npm run test --workspaces --if-present",
     "test:e2e": "npm -w streamwall-control-e2e run test:e2e",
+    "licenses:check": "node scripts/check-licenses.mjs",
     "release:version": "node scripts/release-version.mjs"
   },
   "workspaces": [
