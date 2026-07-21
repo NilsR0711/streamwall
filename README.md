@@ -269,6 +269,44 @@ The overlay window has its own hotkey:
 
 - **ctrl+shift+i**: Open devtools for the overlay
 
+## Development
+
+Streamwall is an npm workspaces monorepo. You need **Node.js 22 or newer**
+(`engines.node` is `>=22`; run `nvm use` to pick up the pinned `.nvmrc`).
+
+Install dependencies from the repo root with a clean, lockfile-exact install:
+
+```sh
+npm ci
+```
+
+Use `npm ci`, not `npm install`: it hoists shared dependencies (such as
+Electron) to the root `node_modules` the way the main-process tests expect.
+
+Run the checks CI runs before pushing:
+
+```sh
+npm run lint          # ESLint
+npm run format:check  # Prettier (also checks Markdown and YAML)
+npm run typecheck     # tsc --noEmit across all workspaces
+npm test              # full test suite
+```
+
+The six workspaces under `packages/` are: `streamwall` (the Electron app),
+`streamwall-shared` (shared schemas/types), `streamwall-control-server`
+(remote-control backend), `streamwall-control-client` (its web frontend),
+`streamwall-control-ui` (shared control components), and
+`streamwall-control-e2e` (Playwright smoke tests). Start the app with
+`npm run start:app`, or the control server with its client via
+`npm run start:server`.
+
+Test runners differ per package — most use Vitest, while
+`streamwall-control-server` uses the native Node test runner. The Playwright
+E2E tests are not part of `npm test` and need a one-time browser install. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full setup, per-package test
+details, and commit/PR conventions, and [SECURITY.md](SECURITY.md) for how to
+report vulnerabilities.
+
 ## Building & releasing the desktop app
 
 `npm run package` / `npm run make` / `npm run publish` (in
@@ -371,5 +409,7 @@ signing are independent — provision either, both, or neither.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the local quality-gate commands
-and the license policy for workspace packages and dependencies.
+See the [Development](#development) section above for local setup, and
+[CONTRIBUTING.md](CONTRIBUTING.md) for the quality-gate commands, commit/PR
+conventions, and the license policy for workspace packages and dependencies.
+Found a security problem? Report it privately — see [SECURITY.md](SECURITY.md).
