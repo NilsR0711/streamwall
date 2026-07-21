@@ -1,12 +1,14 @@
 name: Packaging
 
 # Exercises the makers configured in `packages/streamwall/forge.config.ts`
-# (NSIS, darwin zip, rpm, deb) outside of a release. Without this, a
-# maker-specific regression — a rejected maker config after a Forge major
-# bump, a missing packaging tool on a runner image, a bad NSIS icon path —
-# surfaces for the first time during `electron-forge publish` on a `v*` tag,
-# i.e. once the version is already public and a failed matrix leg leaves a
-# partially-populated GitHub release behind (#425).
+# (NSIS, darwin zip, rpm, deb) on all three platforms, well before a release
+# (#425). A maker-specific regression — a rejected maker config after a Forge
+# major bump, a missing packaging tool on a runner image, a bad NSIS icon
+# path — is caught here rather than on release day.
+#
+# release.yml gates every tag on its own `make` smoke as the backstop (#453),
+# but that one is Ubuntu-only: it cross-builds the Windows NSIS installer and
+# cannot run the darwin-only zip maker at all, which stays this matrix's job.
 #
 # Deliberately not part of PR CI: `make` costs several minutes per platform,
 # while the failure modes shared by every platform (Vite/Forge config, asar

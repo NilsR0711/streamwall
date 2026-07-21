@@ -17,11 +17,10 @@ concurrency:
   cancel-in-progress: false
 
 # The quality gate mirrors the PR `ci-ok` inputs (format, cross-OS tests,
-# control-client build, Electron package smoke, E2E, dependency licenses) so
-# a tag can never ship code that would have failed a PR. Unlike CI there are
-# no docs-only path
-# filters: a release always builds and ships binaries, so every check runs
-# unconditionally. `publish` fans out only after all of them pass.
+# control-client build, Electron installer smoke, E2E, dependency licenses)
+# so a tag can never ship code that would have failed a PR. Unlike CI there
+# are no docs-only path filters: a release always builds and ships binaries,
+# so every check runs unconditionally. `publish` fans out only after all of them pass.
 jobs:
   # Prettier (also Markdown/YAML), ESLint and tsc — the CI `checks` job.
   checks:
@@ -70,22 +69,59 @@ jobs:
       - uses: ./.github/actions/setup
       - run: npm -w streamwall-control-client run build
 
-  # Packaging smoke test before the three-OS publish matrix fans out: a
-  # Vite/Forge misconfiguration or a native-module unpacking failure fails
-  # here once (~45 seconds) instead of three times in parallel, each after a
-  # full Electron download. `package` only, not `make` — the maker-specific
-  # installer steps are the publish job's concern here, and are exercised
-  # ahead of a release by the weekly `packaging.yml` matrix (#425).
-  package:
-    name: Package smoke (Electron app)
+  # Installer smoke test before the three-OS publish matrix fans out: a
+  # Vite/Forge misconfiguration, a native-module unpacking failure, a
+  # rejected maker config or a broken `postMake` update-metadata hook fails
+  # here once instead of half-way through the publish matrix, where a failed
+  # leg leaves a partially populated GitHub release behind and the tag has to
+  # be redone (#453).
+  #
+  # `make`, not just `package`: the weekly `packaging.yml` matrix (#425)
+  # exercises the makers too, but it is up to a week stale and does not gate
+  # the tag. Only the darwin ZIP stays uncovered here — MakerZIP is
+  # darwin-only and cannot be cross-built — so the macOS publish leg remains
+  # the first place it runs.
+  make:
+    name: Installer smoke (makers)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: npm -w streamwall run package
+
+      # MakerRpm shells out to `rpmbuild`, MakerDeb to `dpkg`/`fakeroot`.
+      # Only the latter two ship on the GitHub Ubuntu runner image.
+      - name: Install Linux maker tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm fakeroot
+
+      - name: Make (linux installers)
+        run: npm -w streamwall run make
+
+      # The NSIS maker and the `latest.yml` half of the update-metadata hook
+      # only run for win32. electron-builder bundles makensis for every host
+      # OS, so the expensive Windows-only path is verified from this runner
+      # rather than trusting the Windows publish leg.
+      - name: Make (windows NSIS, cross-built)
+        run: npm -w streamwall run make -- --platform=win32
+
+      # A maker that is silently skipped (unsupported-platform detection, a
+      # config change that drops it) produces no output but also no error, so
+      # the expected artifact kinds are asserted explicitly.
+      - name: Verify installer artifacts
+        shell: bash
+        run: |
+          make_dir=packages/streamwall/out/make
+          find "$make_dir" -type f -print | sort
+          for pattern in '*.deb' '*.rpm' '*-setup-*.exe' 'latest.yml'; do
+            if [ -z "$(find "$make_dir" -type f -name "$pattern" -print -quit)" ]; then
+              echo "::error::No $pattern artifact found in $make_dir"
+              exit 1
+            fi
+          done
 
   # End-to-end smoke tests: the control client in a real Chromium browser
   # against a real control server + fake Streamwall uplink. Linux-only (the
@@ -119,7 +155,7 @@ jobs:
 
   publish:
     name: Publish (${{ matrix.platform.name }})
-    needs: [checks, test, build, package, e2e, licenses]
+    needs: [checks, test, build, make, e2e, licenses]
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 30
     permissions:

@@ -266,10 +266,17 @@ app itself is distributed, via GitHub Releases.
 
 PR CI runs `electron-forge package` (Ubuntu only) as a smoke test. The
 installer makers themselves — NSIS, the macOS zip, deb and rpm — are exercised
-by `.github/workflows/packaging.yml`, which runs `electron-forge make` across
-all three platforms every Monday and on manual dispatch. Run it from the
-Actions tab (optionally with the `debug` input for verbose Forge logging)
-before cutting a release, or after a Forge/maker dependency bump.
+in two other places:
+
+- `.github/workflows/release.yml` gates every tag on an `electron-forge make`
+  run that builds the deb and rpm installers natively and cross-builds the
+  Windows NSIS installer plus its `latest.yml` update metadata, so a maker or
+  `postMake` regression fails before the first artifact is published.
+- `.github/workflows/packaging.yml` runs `electron-forge make` across all
+  three platforms every Monday and on manual dispatch — this is the only
+  place the darwin zip maker runs outside a release. Run it from the Actions
+  tab (optionally with the `debug` input for verbose Forge logging) after a
+  Forge/maker dependency bump.
 
 ### Dependency deprecations
 
