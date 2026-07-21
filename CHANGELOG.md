@@ -26,6 +26,12 @@ changelog are kept in step.
 
 ### Changed
 
+- The Twitch chat bot uses the maintained `@twurple` libraries instead of the
+  deprecated `dank-twitch-irc` (#406). **Breaking:** `twitch.username` is
+  replaced by `twitch.client-id` (the client ID of a Twitch application — the
+  bot account is derived from the token), and setting `twitch.color` now needs
+  the `user:manage:chat_color` scope on the token; without it the bot keeps
+  reading and posting messages and only logs a warning.
 - Release version bumps are automated across the release-tracking workspace
   manifests via `npm run release:version` (#448).
 

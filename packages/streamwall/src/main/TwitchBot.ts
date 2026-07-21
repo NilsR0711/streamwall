@@ -1,10 +1,7 @@
+import { ApiClient } from '@twurple/api'
+import { getTokenInfo, StaticAuthProvider } from '@twurple/auth'
+import { ChatClient } from '@twurple/chat'
 import Color from 'color'
-import {
-  ChatClient,
-  LoginError,
-  PrivmsgMessage,
-  SlowModeRateLimiter,
-} from 'dank-twitch-irc'
 import * as ejs from 'ejs'
 import EventEmitter from 'events'
 import { StreamList, StreamwallState } from 'streamwall-shared'
@@ -15,7 +12,7 @@ import log from './logger'
 const VOTE_RE = /^!(\d+)$/
 
 type TwitchBotConfig = StreamwallConfig['twitch'] & {
-  username: string
+  'client-id': string
   token: string
   channel: string
 }
@@ -30,19 +27,26 @@ export default class TwitchBot extends EventEmitter {
   dwellTimeout: NodeJS.Timeout | undefined
   announceTimeouts: Map<string, NodeJS.Timeout>
   votes!: Map<number, number>
+  private apiClient: ApiClient
+  private accessToken: string
 
   constructor(config: TwitchBotConfig) {
     super()
-    const { username, token, vote } = config
+    const { channel, vote } = config
     this.config = config
     this.announceTemplate = ejs.compile(config.announce.template)
 
-    const client = new ChatClient({
-      username,
-      password: `oauth:${token}`,
-      rateLimits: 'default',
-    })
-    client.use(new SlowModeRateLimiter(client, 0))
+    // Tokens from the usual Twitch token helpers often carry the prefix used
+    // by the raw IRC `PASS oauth:<token>` handshake; twurple wants the bare
+    // token.
+    this.accessToken = config.token.replace(/^oauth:/, '')
+    const authProvider = new StaticAuthProvider(
+      config['client-id'],
+      this.accessToken,
+    )
+    this.apiClient = new ApiClient({ authProvider })
+
+    const client = new ChatClient({ authProvider, channels: [channel] })
     this.client = client
 
     this.streams = []
@@ -60,23 +64,21 @@ export default class TwitchBot extends EventEmitter {
       }, vote.interval * 1000)
     }
 
-    client.on('ready', () => {
+    client.onConnect(() => {
       this.onReady().catch((err) => this.handleAsyncError('onReady', err))
     })
-    client.on('error', (err) => {
-      log.error('Twitch connection error:', err)
-      if (err instanceof LoginError) {
-        client.close()
-      }
+    client.onAuthenticationFailure((text) => {
+      log.error('Twitch authentication failed:', text)
+      client.quit()
     })
-    client.on('close', (err) => {
+    client.onDisconnect((_manually, reason) => {
       log.info('Twitch bot disconnected.')
-      if (err != null) {
-        log.error('Twitch bot disconnected due to error:', err)
+      if (reason != null) {
+        log.error('Twitch bot disconnected due to error:', reason)
       }
     })
-    client.on('PRIVMSG', (msg) => {
-      this.onMsg(msg)
+    client.onMessage((_channel, _user, text) => {
+      this.onMsg(text)
     })
   }
 
@@ -90,16 +92,35 @@ export default class TwitchBot extends EventEmitter {
   }
 
   async onReady() {
-    const { client } = this
-    const { channel, color: colorText } = this.config
-    const color = Color(colorText)
-    await client.setColor({
-      r: color.red(),
-      g: color.green(),
-      b: color.blue(),
-    })
-    await client.join(channel)
+    await this.setBotColor()
     this.emit('connected')
+  }
+
+  /**
+   * Twitch retired the `/color` chat command, so the bot's username color is
+   * set through Helix instead. That needs the `user:manage:chat_color` scope,
+   * which older tokens won't carry — a purely cosmetic failure that must not
+   * keep the bot from announcing.
+   */
+  private async setBotColor() {
+    const { color: colorText } = this.config
+    try {
+      const { userId } = await getTokenInfo(
+        this.accessToken,
+        this.config['client-id'],
+      )
+      if (!userId) {
+        log.warn('Twitch token has no associated user; skipping bot color.')
+        return
+      }
+      const color = Color(colorText).hex() as `#${string}`
+      await this.apiClient.chat.setColorForUser(userId, color)
+    } catch (err) {
+      log.warn(
+        'Could not set Twitch bot username color (needs the "user:manage:chat_color" scope):',
+        err,
+      )
+    }
   }
 
   onState({ views, streams }: StreamwallState) {
@@ -138,7 +159,7 @@ export default class TwitchBot extends EventEmitter {
     const { client, listeningURL, streams } = this
     const { channel, announce } = this.config
 
-    if (!client.ready || !listeningURL) {
+    if (!client.isConnected || !listeningURL) {
       return
     }
 
@@ -188,13 +209,13 @@ export default class TwitchBot extends EventEmitter {
     this.votes = new Map()
   }
 
-  onMsg(msg: PrivmsgMessage) {
+  onMsg(messageText: string) {
     const { vote } = this.config
     if (!vote.interval) {
       return
     }
 
-    const match = msg.messageText.match(VOTE_RE)
+    const match = messageText.match(VOTE_RE)
     if (!match) {
       return
     }

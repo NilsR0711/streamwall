@@ -358,15 +358,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   }
 
   const {
-    username: twitchUsername,
+    'client-id': twitchClientId,
     token: twitchToken,
     channel: twitchChannel,
   } = argv.twitch
-  if (twitchUsername && twitchToken && twitchChannel) {
+  if (twitchClientId && twitchToken && twitchChannel) {
     log.debug('Setting up Twitch bot...')
     const twitchBot = new TwitchBot({
       ...argv.twitch,
-      username: twitchUsername,
+      'client-id': twitchClientId,
       token: twitchToken,
       channel: twitchChannel,
     })

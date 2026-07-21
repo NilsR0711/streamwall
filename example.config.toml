@@ -69,10 +69,17 @@ json-url = []
 
 [twitch]
 #channel = "woke"
-#username = "bot-username"
 #color = "#ff0000"
 
-# Use https://twitchtokengenerator.com/?scope=chat:read+chat:edit to generate an OAuth token:
+# Register an application at https://dev.twitch.tv/console/apps and use its
+# client ID here. The bot's account is derived from the token below, so no
+# username is configured.
+#client-id = "twitch-application-client-id"
+
+# Generate an OAuth token for the bot account, e.g. via
+# https://twitchtokengenerator.com/?scope=chat:read+chat:edit+user:manage:chat_color
+# The `user:manage:chat_color` scope is only needed for the `color` option above;
+# without it the bot still reads and posts messages.
 #token = "twitch-oauth-token"
 
     [twitch.announce]

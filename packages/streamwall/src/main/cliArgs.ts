@@ -53,7 +53,7 @@ export interface StreamwallConfig {
   }
   twitch: {
     channel: string | null
-    username: string | null
+    'client-id': string | null
     token: string | null
     color: string
     announce: {
@@ -292,7 +292,7 @@ export function parseArgs({
     .group(
       [
         'twitch.channel',
-        'twitch.username',
+        'twitch.client-id',
         'twitch.token',
         'twitch.color',
         'twitch.announce.template',
@@ -306,12 +306,12 @@ export function parseArgs({
       describe: 'Name of Twitch channel',
       default: null,
     })
-    .option('twitch.username', {
-      describe: 'Username of Twitch bot account',
+    .option('twitch.client-id', {
+      describe: 'Client ID of the Twitch application the token was issued for',
       default: null,
     })
     .option('twitch.token', {
-      describe: 'Password of Twitch bot account',
+      describe: 'OAuth access token of the Twitch bot account',
       default: null,
     })
     .option('twitch.color', {

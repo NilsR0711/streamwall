@@ -1,32 +1,58 @@
-import type { PrivmsgMessage } from 'dank-twitch-irc'
 import { EventEmitter } from 'events'
 import type { StreamData } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type TwitchBotType from './TwitchBot'
 
+// Stands in for `@twurple/chat`'s `ChatClient`, whose listeners are registered
+// through `onX(handler)` binder methods rather than `on('x', handler)`.
 class FakeChatClient extends EventEmitter {
-  ready = false
-  setColor = vi.fn().mockResolvedValue(undefined)
-  join = vi.fn().mockResolvedValue(undefined)
+  isConnected = false
   say = vi.fn().mockResolvedValue(undefined)
   connect = vi.fn()
-  close = vi.fn()
-  use = vi.fn()
+  quit = vi.fn()
+
+  onConnect = (handler: () => void) => this.on('connect', handler)
+  onDisconnect = (handler: (manually: boolean, reason?: Error) => void) =>
+    this.on('disconnect', handler)
+  onAuthenticationFailure = (handler: (text: string) => void) =>
+    this.on('authenticationFailure', handler)
+  onMessage = (
+    handler: (channel: string, user: string, text: string) => void,
+  ) => this.on('message', handler)
 }
 
 let fakeClient: FakeChatClient
+let chatClientOptions: { channels?: string[] } | undefined
+let staticAuthProviderArgs: unknown[]
+let setColorForUser: ReturnType<typeof vi.fn>
+let getTokenInfo: ReturnType<typeof vi.fn>
 
-vi.mock('dank-twitch-irc', () => ({
-  ChatClient: vi.fn().mockImplementation(function ChatClient() {
+vi.mock('@twurple/chat', () => ({
+  ChatClient: vi.fn().mockImplementation(function ChatClient(options: never) {
+    chatClientOptions = options
     return fakeClient
   }),
-  LoginError: class LoginError extends Error {},
-  SlowModeRateLimiter: vi.fn(),
+}))
+
+vi.mock('@twurple/auth', () => ({
+  StaticAuthProvider: vi.fn().mockImplementation(function StaticAuthProvider(
+    ...args: unknown[]
+  ) {
+    staticAuthProviderArgs = args
+    return { clientId: args[0] }
+  }),
+  getTokenInfo: (...args: unknown[]) => getTokenInfo(...args),
+}))
+
+vi.mock('@twurple/api', () => ({
+  ApiClient: vi.fn().mockImplementation(function ApiClient() {
+    return { chat: { setColorForUser } }
+  }),
 }))
 
 const CONFIG = {
   channel: 'testchannel',
-  username: 'testuser',
+  'client-id': 'testclientid',
   token: 'testtoken',
   color: '#ff0000',
   announce: { template: 'now playing', interval: 60, delay: 30 },
@@ -49,6 +75,10 @@ describe('TwitchBot', () => {
   beforeEach(async () => {
     vi.resetModules()
     fakeClient = new FakeChatClient()
+    chatClientOptions = undefined
+    staticAuthProviderArgs = []
+    setColorForUser = vi.fn().mockResolvedValue(undefined)
+    getTokenInfo = vi.fn().mockResolvedValue({ userId: 'user-1' })
     ;({ default: TwitchBot } = await import('./TwitchBot'))
     vi.useFakeTimers()
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -64,31 +94,59 @@ describe('TwitchBot', () => {
     vi.restoreAllMocks()
   })
 
+  it('authenticates with the configured client id and token', () => {
+    new TwitchBot(CONFIG)
+
+    // Scopes are deliberately not declared: twurple then resolves the token's
+    // real scopes itself, so a token missing `user:manage:chat_color` fails
+    // loudly on the color call instead of silently misbehaving elsewhere.
+    expect(staticAuthProviderArgs).toEqual([CONFIG['client-id'], CONFIG.token])
+  })
+
+  it('strips the legacy "oauth:" prefix from the configured token', () => {
+    new TwitchBot({ ...CONFIG, token: `oauth:${CONFIG.token}` })
+
+    expect(staticAuthProviderArgs[1]).toBe(CONFIG.token)
+  })
+
+  it('joins the configured channel on connect', () => {
+    new TwitchBot(CONFIG)
+
+    expect(chatClientOptions?.channels).toEqual([CONFIG.channel])
+  })
+
   it('connects and emits "connected" once the client is ready', async () => {
     const bot = new TwitchBot(CONFIG)
     const connected = vi.fn()
     bot.on('connected', connected)
 
-    fakeClient.emit('ready')
+    fakeClient.emit('connect')
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(fakeClient.join).toHaveBeenCalledWith(CONFIG.channel)
+    expect(setColorForUser).toHaveBeenCalledWith('user-1', '#FF0000')
     expect(connected).toHaveBeenCalled()
     expect(unhandledRejections).toEqual([])
   })
 
-  it('does not crash the process when onReady rejects', async () => {
-    fakeClient.setColor.mockRejectedValue(new Error('setColor failed'))
-    new TwitchBot(CONFIG)
+  it('still emits "connected" when setting the bot color fails', async () => {
+    setColorForUser.mockRejectedValue(new Error('missing scope'))
+    const bot = new TwitchBot(CONFIG)
+    const connected = vi.fn()
+    bot.on('connected', connected)
 
-    fakeClient.emit('ready')
+    fakeClient.emit('connect')
     await vi.advanceTimersByTimeAsync(0)
 
+    expect(connected).toHaveBeenCalled()
     expect(unhandledRejections).toEqual([])
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining('onReady'),
-      expect.any(Error),
-    )
+  })
+
+  it('closes the connection when authentication fails', () => {
+    new TwitchBot(CONFIG)
+
+    fakeClient.emit('authenticationFailure', 'Login authentication failed')
+
+    expect(fakeClient.quit).toHaveBeenCalled()
   })
 
   it('does not crash the process when the vote tally interval rejects', async () => {
@@ -107,7 +165,7 @@ describe('TwitchBot', () => {
   })
 
   it('does not crash the process when the dwell-timeout announce rejects', async () => {
-    fakeClient.ready = true
+    fakeClient.isConnected = true
     fakeClient.say.mockRejectedValue(new Error('say failed'))
     const bot = new TwitchBot(CONFIG)
     bot.streams = [STREAM]
@@ -127,7 +185,7 @@ describe('TwitchBot', () => {
   it('tallies a vote when a chat message matches the vote pattern', () => {
     const bot = new TwitchBot(CONFIG)
 
-    bot.onMsg({ messageText: '!2' } as PrivmsgMessage)
+    fakeClient.emit('message', CONFIG.channel, 'viewer', '!2')
 
     expect(bot.votes.get(2)).toBe(1)
   })
@@ -135,13 +193,13 @@ describe('TwitchBot', () => {
   it('ignores chat messages that do not match the vote pattern', () => {
     const bot = new TwitchBot(CONFIG)
 
-    bot.onMsg({ messageText: 'hello there' } as PrivmsgMessage)
+    fakeClient.emit('message', CONFIG.channel, 'viewer', 'hello there')
 
     expect(bot.votes.size).toBe(0)
   })
 
   it('does not crash the process when the repeat-announce timeout rejects', async () => {
-    fakeClient.ready = true
+    fakeClient.isConnected = true
     const bot = new TwitchBot(CONFIG)
     bot.streams = [STREAM]
     bot.listeningURL = STREAM.link
