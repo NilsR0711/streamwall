@@ -605,6 +605,8 @@ describe('streamwallStateSchema', () => {
                 playback: 'playing',
                 video: 'normal',
                 audio: 'listening',
+                pause: 'unpaused',
+                swap: { preloading: 'waitForVideo' },
               },
             },
           },
