@@ -28,6 +28,10 @@ changelog are kept in step.
 
 - Release version bumps are automated across the release-tracking workspace
   manifests via `npm run release:version` (#448).
+- Windows releases ship an NSIS installer instead of Squirrel.Windows (#432).
+  Installs from v0.9.1 or older cannot see newer releases and must be
+  reinstalled once by hand — README and the release-notes checklist in
+  CONTRIBUTING now spell out the steps (#452).
 
 ### Fixed
 
