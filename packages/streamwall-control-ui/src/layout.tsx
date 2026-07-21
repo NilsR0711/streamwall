@@ -43,6 +43,12 @@ export const AppShell = styled.div`
 
   > .stream-list {
     flex: 0 0 340px;
+    /* The sidebar is the scrolling region (overflow-y: auto), and overflow
+       clipping applies on both axes. Its filter input spans the full width and
+       the shared :focus-visible ring is drawn outside the control, so without
+       this much horizontal room the ring's left and right edges would be
+       clipped away (see #553). */
+    padding-inline: 6px;
   }
 
   @media (max-width: ${NARROW_BREAKPOINT}px) {

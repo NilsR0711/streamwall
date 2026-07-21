@@ -97,13 +97,16 @@ export const GlobalStyle = createGlobalStyle`
 
   * { box-sizing: border-box; }
 
-  /* Shared keyboard focus affordance. Text inputs get their accent ring from
-     the .stream-list rules below, but the custom-coloured buttons (sidebar
-     stream handle, favorite star, grid preset buttons) used to fall back to
-     the user-agent ring, which is easily lost against their own background
-     (see #508). The outline sits outside the control - so it stays visible
-     whatever the control's colours are - and the soft halo matches the ring
-     the inputs draw. */
+  /* Shared keyboard focus affordance for every focusable control: the
+     custom-coloured buttons (sidebar stream handle, favorite star, grid preset
+     buttons) used to fall back to the user-agent ring, which is easily lost
+     against their own background (see #508). The outline sits outside the
+     control - so it stays visible whatever the control's colours are - and the
+     soft halo widens it.
+
+     The sidebar text inputs and selects used to draw a bespoke ring of their
+     own on :focus, which fired on pointer interaction as well and cleared
+     this outline; they now inherit this rule like everything else (#553). */
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
@@ -151,12 +154,6 @@ export const GlobalStyle = createGlobalStyle`
     padding: 7px 10px;
   }
   .stream-list input::placeholder { color: var(--text-faint); }
-  .stream-list input:focus,
-  .stream-list select:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
   .stream-list .filter-input {
     width: 100%;
     margin-bottom: 4px;
