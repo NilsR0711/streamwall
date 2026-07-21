@@ -30,3 +30,29 @@ Streamwall is distributed under the [MIT License](LICENSE).
   Distributed release binaries do not currently bundle a consolidated
   `THIRD_PARTY_NOTICES` file; each dependency's own license file remains the
   source of truth via `node_modules`.
+
+## Cutting a release
+
+electron-forge derives the packaged app's version — and the `vX.Y.Z` tag that
+triggers `.github/workflows/release.yml` — from `packages/streamwall/package.json`.
+The control server reports its own `package.json` version in the self-hosting
+update notification and compares it against release tags, so that manifest
+must always match. `packages/streamwall-control-server/src/version.test.ts`
+enforces this as a regression backstop, not as the bump mechanism itself.
+
+To bump both release-tracking manifests (and `package-lock.json`) together in
+one step:
+
+```sh
+npm run release:version -- <x.y.z>
+```
+
+No other workspace tracks the release line:
+
+- `streamwall-shared` and `streamwall-control-ui` stay pinned at `0.0.0`
+  (`"private": true`, never published or versioned independently).
+- `streamwall-control-client` and `streamwall-control-e2e` stay at a fixed
+  `1.0.0` for the same reason.
+
+None of the workspaces are published to the npm registry — only the Electron
+app itself is distributed, via GitHub Releases.
