@@ -26,11 +26,12 @@ cd streamwall/deploy
 cp .env.example .env
 # edit .env: set STREAMWALL_DOMAIN, STREAMWALL_ACME_EMAIL, and
 # STREAMWALL_CONTROL_URL to match your domain (see comments in the file)
-docker compose up -d --build
+docker compose up -d
 ```
 
-This builds [`packages/streamwall-control-server/Dockerfile`](../packages/streamwall-control-server/Dockerfile)
-and starts two containers, wired together by
+This pulls the control-server image published for the latest release
+(`ghcr.io/nilsr0711/streamwall-control-server:latest`) and starts two
+containers, wired together by
 [`deploy/docker-compose.yml`](../deploy/docker-compose.yml):
 
 - **`control-server`** — the Fastify backend, not published to the host
@@ -40,6 +41,25 @@ and starts two containers, wired together by
   for `STREAMWALL_DOMAIN` and forwards traffic to `control-server`. Caddy was
   chosen over nginx/Traefik for this specifically because it needs no manual
   ACME/cert configuration — see [`deploy/Caddyfile`](../deploy/Caddyfile).
+
+To pin a specific release instead of following `latest` — recommended for
+anything you depend on, since it makes an update (and a rollback) an explicit
+change — set the tag in `.env`:
+
+```sh
+STREAMWALL_IMAGE_TAG=0.9.1
+```
+
+To run code that has not been released yet (or a local modification), build
+the image from this checkout instead of pulling it:
+
+```sh
+docker compose up -d --build
+```
+
+That builds [`packages/streamwall-control-server/Dockerfile`](../packages/streamwall-control-server/Dockerfile)
+and tags the result as the same image name, so the two paths stay
+interchangeable without editing the compose file.
 
 Auth-token storage (`storage.json`) lives on the `control-server-data` named
 volume, so it survives container restarts/rebuilds; back that volume up like
@@ -183,6 +203,18 @@ update is available — so checking no longer requires shelling into the host
 or querying `/admin/status` by hand. Every other role sees neither.
 
 ## Updating
+
+```sh
+cd streamwall/deploy
+docker compose pull
+docker compose up -d
+```
+
+That fetches the image published for the newest release. If you pinned
+`STREAMWALL_IMAGE_TAG`, set it to the new version first (and set it back to
+the previous one to roll back — every released version stays available).
+
+If you build from source instead, update the checkout first:
 
 ```sh
 cd streamwall

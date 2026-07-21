@@ -239,6 +239,66 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: npm -w streamwall run publish
 
+  # The self-hosting image (#478). CI already builds and boots this Dockerfile
+  # on every PR that touches it, but throws the result away, so operators had
+  # to clone the repo and run the whole toolchain build on their own host with
+  # no immutable artifact to pin or roll back to. Publishing it here makes
+  # `docker compose pull` the update path and every release an addressable
+  # version tag.
+  #
+  # Runs alongside the desktop publish matrix rather than after it: the two
+  # ship unrelated artifacts, and a registry outage should not hold back the
+  # binaries (or the other way round). Both wait for the same quality gate.
+  docker-image:
+    name: Publish (control-server image)
+    needs: [checks, test, build, make, e2e, licenses]
+    # Only a tag carries the version to publish under; a workflow_dispatch run
+    # would otherwise move `latest` to an unreleased commit.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # pushing to ghcr.io/<owner>/streamwall-control-server
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derived from the owner rather than hardcoded so a repository transfer
+      # does not silently keep publishing under the old account. The action
+      # lowercases the image name, which GHCR requires.
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/streamwall-control-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      # linux/amd64 only: an emulated arm64 leg would run `npm ci` plus the
+      # control-client build under QEMU and dominate the release time. Native
+      # arm64 runners are tracked separately.
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: packages/streamwall-control-server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   # electron-forge's GitHub publisher creates the release for the tag but leaves
   # its body empty. The changelog section for that version — generated from the
   # Conventional Commit subjects by release-please.yml — is exactly the release

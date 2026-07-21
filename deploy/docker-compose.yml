@@ -4,10 +4,15 @@
 #
 # Usage (from this directory):
 #   cp .env.example .env   # then fill in STREAMWALL_DOMAIN etc.
-#   docker compose up -d --build
+#   docker compose up -d          # pulls the published image
+#   docker compose up -d --build  # builds from this checkout instead
 
 services:
   control-server:
+    # Released image (pin a version with STREAMWALL_IMAGE_TAG in .env). It is
+    # also the tag `--build` writes to locally, so both paths use one service
+    # definition and switching between them needs no compose-file edit.
+    image: ghcr.io/nilsr0711/streamwall-control-server:${STREAMWALL_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: packages/streamwall-control-server/Dockerfile
