@@ -43,6 +43,7 @@ export function Overlay({
           'displaying.running.video.blurred',
           state,
         )
+        const isPaused = matchesState('displaying.running.pause.paused', state)
         const isLoading =
           matchesState('displaying.loading', state) ||
           matchesState('displaying.running.playback.stalled', state)
@@ -65,6 +66,7 @@ export function Overlay({
               isBackgroundListening={isBackgroundListening}
               isBlurred={isBlurred}
               isLoading={isLoading}
+              isPaused={isPaused}
               activeColor={activeColor}
             />
           </SpaceBorder>

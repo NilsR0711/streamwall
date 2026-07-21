@@ -181,7 +181,7 @@ export function ControlGrid({
         })}
       </div>
       <StyledGridPreview>
-        {views.map(({ state, isListening }) => {
+        {views.map(({ state, isListening, isPaused }) => {
           const { pos } = state.context
           if (pos == null) {
             return null
@@ -217,6 +217,7 @@ export function ControlGrid({
               isSmall={isSmall}
               isError={isError}
               errorReason={errorReason}
+              isPaused={isPaused}
               orientation={data?.orientation ?? null}
               source={data?.source}
               city={data?.city}

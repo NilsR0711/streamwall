@@ -4,6 +4,7 @@ import {
   FaFacebook,
   FaInstagram,
   FaMapMarkerAlt,
+  FaPause,
   FaTiktok,
   FaTwitch,
   FaVolumeUp,
@@ -25,6 +26,7 @@ export function OverlayViewTile({
   isBackgroundListening,
   isBlurred,
   isLoading,
+  isPaused,
   activeColor,
 }: {
   url: string
@@ -35,6 +37,12 @@ export function OverlayViewTile({
   isBackgroundListening: boolean
   isBlurred: boolean
   isLoading: boolean
+  /**
+   * Media playback is paused because this view is parked behind a fullscreen
+   * expansion and the wall runs with `--park.pause` (issue #374). Marked so a
+   * frozen tile doesn't read as a broken stream (issue #490).
+   */
+  isPaused: boolean
   activeColor: string
 }) {
   const hasTitle = data && (data.label || data.source)
@@ -58,7 +66,10 @@ export function OverlayViewTile({
 
   return (
     <>
-      <FilterCover $isBlurred={isBlurred} $isDesaturated={isLoading} />
+      <FilterCover
+        $isBlurred={isBlurred}
+        $isDesaturated={isLoading || isPaused}
+      />
       {hasTitle && (
         <StreamTitle
           $position={position}
@@ -77,6 +88,12 @@ export function OverlayViewTile({
             {data.city} {data.state}
           </span>
         </StreamLocation>
+      )}
+      {isPaused && (
+        <PausedBadge data-testid="overlay-paused-badge">
+          <FaPause />
+          <span>Paused</span>
+        </PausedBadge>
       )}
       <LoadingSpinner $isVisible={isLoading} />
     </>
@@ -200,6 +217,36 @@ const StreamLocation = styled.div`
 
   svg {
     flex-shrink: 0;
+  }
+`
+
+const PausedBadge = styled.div`
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 6px 14px;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.025em;
+  color: white;
+  text-shadow: 0 0 4px black;
+  background: ${Color('black').alpha(0.5).toString()};
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+
+  svg {
+    width: 1em;
+    height: 1em;
+    filter: drop-shadow(0 0 4px black);
+
+    path {
+      fill: white;
+    }
   }
 `
 

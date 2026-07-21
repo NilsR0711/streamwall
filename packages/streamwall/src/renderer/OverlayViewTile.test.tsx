@@ -31,6 +31,7 @@ function renderTile(
         isBackgroundListening={false}
         isBlurred={false}
         isLoading={false}
+        isPaused={false}
         activeColor="#fff"
         {...props}
       />,
@@ -117,6 +118,30 @@ describe('OverlayViewTile', () => {
     expect(getComputedStyle(spinner!).visibility).toBe('hidden')
   })
 
+  test('renders the paused badge for a parked view whose playback is paused (#490)', () => {
+    const tile = renderTile({ isPaused: true })
+
+    const badge = tile.querySelector('[data-testid="overlay-paused-badge"]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toContain('Paused')
+    expect(badge!.querySelector('svg')).not.toBeNull()
+  })
+
+  test('does not render the paused badge for a playing view (#490)', () => {
+    const tile = renderTile({ isPaused: false })
+
+    expect(
+      tile.querySelector('[data-testid="overlay-paused-badge"]'),
+    ).toBeNull()
+  })
+
+  test('desaturates the tile while it is paused (#490)', () => {
+    const tile = renderTile({ isPaused: true })
+
+    const cover = tile.firstElementChild as HTMLElement
+    expect(getComputedStyle(cover).backdropFilter).toContain('grayscale')
+  })
+
   test('does not leak custom styled-component props onto the DOM nodes (#152)', () => {
     const data: StreamData = {
       _id: 'a',
@@ -134,6 +159,7 @@ describe('OverlayViewTile', () => {
       isListening: true,
       isBlurred: true,
       isLoading: true,
+      isPaused: true,
       activeColor: '#f00',
     })
 
@@ -145,6 +171,7 @@ describe('OverlayViewTile', () => {
         'isvisible',
         'isblurred',
         'isdesaturated',
+        'ispaused',
       ]) {
         expect(
           el.hasAttribute(propName),
