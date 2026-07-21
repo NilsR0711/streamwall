@@ -4,17 +4,12 @@ import fs from 'fs'
 import { throttle } from 'lodash-es'
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
-import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
 import {
-  ControlCommand,
   DataSourceType,
   StreamwallState,
   fullscreenViewContentMap,
-  isSocketOpen,
-  parseControlEndpoint,
 } from 'streamwall-shared'
-import WebSocket from 'ws'
 import * as Y from 'yjs'
 import packageJson from '../../package.json'
 import {
@@ -25,10 +20,9 @@ import {
 import { parseRepositorySlug } from '../updateStatus'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { StreamwallConfig, parseArgs } from './cliArgs'
-import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
+import { dispatchLocalCommand } from './commandDispatch'
 import { createOnCommand } from './commandHandlers'
 import { resolveConfigInitError } from './configInitError'
-import { decideControlEndpointConnection } from './controlEndpointConnection'
 import ControlWindow from './ControlWindow'
 import {
   CONTROL_WINDOW_ORIGIN,
@@ -56,38 +50,12 @@ import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
 import { setupAppUpdater } from './updaterSetup'
-import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
-import { routeUplinkWsMessage } from './uplinkMessageRouting'
+import { connectControlUplink } from './uplinkConnection'
 import { initializeViewsState } from './viewsStateInit'
 import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
-
-/**
- * Builds a WebSocket subclass for the control uplink.
- *
- * It enforces TLS certificate validation on wss:// connections: together with
- * the wss:// requirement on the control endpoint, this authenticates the
- * control server to the desktop and prevents a man-in-the-middle from
- * impersonating it. `rejectUnauthorized` defaults to true in `ws`, but we set
- * it explicitly so the guarantee cannot be silently lost to a future change.
- *
- * It also injects the uplink credential as an `Authorization` header rather
- * than a URL query parameter, keeping the secret out of server and proxy
- * access logs. `reconnecting-websocket` does not forward constructor options,
- * so the header is baked into the subclass here.
- */
-function makeControlWebSocket(authorization: string | null) {
-  return class ControlWebSocket extends WebSocket {
-    constructor(url: string, protocols?: string | string[]) {
-      super(url, protocols, {
-        rejectUnauthorized: true,
-        headers: authorization ? { authorization } : undefined,
-      })
-    }
-  }
-}
 
 async function main(argv: ReturnType<typeof parseArgs>) {
   const db = await loadStorage(
@@ -427,77 +395,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       })
   })
 
-  const controlConnection = decideControlEndpointConnection(
-    argv.control.endpoint,
-  )
-  if (
-    controlConnection.action === 'skip' &&
-    controlConnection.reason === 'insecure'
-  ) {
-    log.error(
-      `Refusing to connect to insecure control endpoint "${controlConnection.endpoint}". ` +
-        'The control connection must use wss:// (or ws:// to a loopback host).',
-    )
-  } else if (controlConnection.action === 'connect') {
-    log.debug('Connecting to control server...')
-    // Move the uplink secret out of the URL query string and into an
-    // Authorization header so it never reaches server or proxy access logs.
-    const { url: controlURL, authorization } = parseControlEndpoint(
-      controlConnection.endpoint,
-    )
-    const ws = new ReconnectingWebSocket(controlURL, [], {
-      WebSocket: makeControlWebSocket(authorization),
-      maxReconnectionDelay: 5000,
-      minReconnectionDelay: 100 + Math.random() * 500,
-      reconnectionDelayGrowFactor: 1.25,
-      // The 'open' handler below always re-sends the full client state and
-      // Yjs doc as soon as the connection (re)opens, so anything sent while
-      // disconnected is stale by the time it could be delivered. Disable the
-      // library's default unbounded queue rather than let it buffer full
-      // state snapshots for as long as the control server is unreachable.
-      maxEnqueuedMessages: 0,
-    })
-    ws.binaryType = 'arraybuffer'
-    ws.addEventListener('open', () => {
-      log.debug('Control WebSocket connected.')
-      ws.send(JSON.stringify({ type: 'state', state: clientState }))
-      ws.send(Y.encodeStateAsUpdate(stateDoc))
-    })
-    ws.addEventListener('close', () => {
-      log.debug('Control WebSocket disconnected.')
-    })
-    ws.addEventListener('message', (ev) => {
-      const route = routeUplinkWsMessage(ev.data)
-      switch (route.kind) {
-        case 'yjs-update':
-          Y.applyUpdate(stateDoc, route.update, UPLINK_ORIGIN)
-          return
-        case 'parse-error':
-          log.warn('Failed to parse control WebSocket message:', route.error)
-          return
-        case 'uplink-error':
-          log.warn(
-            'Control server refused the uplink connection:',
-            route.message,
-          )
-          return
-        case 'command':
-          dispatchCommand(onCommand, route.message as ControlCommand, 'uplink')
-      }
-    })
-    stateEmitter.on('state', () => {
-      if (!isSocketOpen(ws)) {
-        return
-      }
-      ws.send(JSON.stringify({ type: 'state', state: clientState }))
-    })
-    stateDoc.on('update', (update, origin) => {
-      if (!shouldForwardUpdateToUplink(origin) || !isSocketOpen(ws)) {
-        return
-      }
-      ws.send(update)
-    })
-  }
+  connectControlUplink({
+    endpoint: argv.control.endpoint,
+    stateDoc,
+    stateEmitter,
+    getClientState: () => clientState,
+    onCommand,
+  })
 
   if (argv.streamdelay.key) {
     log.debug('Setting up Streamdelay client...')
