@@ -89,9 +89,13 @@ The E2E smoke tests need a browser that is not installed by `npm ci`. They are
 locally:
 
 ```sh
-npx playwright install --with-deps chromium
-npm -w streamwall-control-e2e run test:e2e
+npx playwright install --with-deps chromium  # once; drop --with-deps on macOS
+npm run test:e2e                             # from the repo root
 ```
+
+The suite builds `streamwall-control-client` itself before the first test (a
+Playwright `globalSetup` hook, not the npm script), so the server has real
+`dist/` assets to serve — no separate build step is needed.
 
 ### Self-hosting image
 

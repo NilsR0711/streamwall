@@ -19,13 +19,15 @@ networking and real layout:
 # once, to fetch the browser (Linux CI uses `--with-deps`):
 npx playwright install chromium
 
-# build the client and run the suite:
+# run the suite (equivalent: `npm run test:e2e` from the repo root):
 npm -w streamwall-control-e2e run test:e2e
 ```
 
-`test:e2e` builds the control client first (the server serves its `dist/`), then
-runs Playwright. Each test spins up its own server + uplink on a fresh port, so
-there is no shared global setup or fixed port.
+The npm script itself only starts Playwright. The control-client build runs
+inside Playwright's `globalSetup` hook ([tests/global-setup.ts](tests/global-setup.ts)),
+once per suite run, so the server has real `dist/` assets to serve. Beyond that
+build there is no shared state: each test spins up its own server + uplink on a
+fresh ephemeral port, so there is no `webServer`, no `baseURL`, and no fixed port.
 
 The suite is intentionally kept out of the per-workspace `npm test` matrix (it
 has no `test` script) because it needs a browser and only runs on Linux/macOS —
