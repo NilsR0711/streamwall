@@ -228,12 +228,24 @@ jobs:
   #
   # The image is also started once: a container that builds but exits at
   # boot is just as broken for self-hosters, and the check costs seconds.
+  #
+  # Both architectures the release publishes (#524) are built here on native
+  # runners — `ubuntu-24.04-arm` is free for public repositories, so an
+  # arm64-breaking Dockerfile change fails the pull request instead of the
+  # tag release, where a failed leg leaves the manifest unpublished (#545).
   docker:
-    name: Docker build (control server)
+    name: Docker build (control server, ${{ matrix.platform.arch }})
     needs: changes
     if: needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
+    strategy:
+      # One broken architecture must not hide the state of the other.
+      fail-fast: false
+      matrix:
+        platform:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
