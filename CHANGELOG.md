@@ -17,6 +17,90 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.0](https://github.com/NilsR0711/streamwall/compare/v0.9.1...v0.10.0) (2026-07-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **streamwall:** `twitch.username` is replaced by `twitch.client-id`. twurple authenticates against a Twitch application and derives the bot account from the token, so a username is no longer configured. Twitch also retired the `/color` chat command, so `twitch.color` is now applied through the Helix chat-color endpoint and needs the `user:manage:chat_color` scope; without it the bot still reads and posts messages and only logs a warning.
+
+### Added
+
+* **control-server:** replace console logging with structured Fastify logs ([#491](https://github.com/NilsR0711/streamwall/issues/491)) ([84de9c8](https://github.com/NilsR0711/streamwall/commit/84de9c80d4e3289f3b70eb5055fde0ffb2e11d76)), closes [#410](https://github.com/NilsR0711/streamwall/issues/410)
+* **control-server:** report version and notify about new releases ([#430](https://github.com/NilsR0711/streamwall/issues/430)) ([e246e96](https://github.com/NilsR0711/streamwall/commit/e246e966552a2d5b6161e49f1d08ecc58f7656c9)), closes [#382](https://github.com/NilsR0711/streamwall/issues/382)
+* **control-server:** route remaining startup output through the logger ([#516](https://github.com/NilsR0711/streamwall/issues/516)) ([6166565](https://github.com/NilsR0711/streamwall/commit/6166565c53ad75e30865355c326c6d6579bcd5a2)), closes [#493](https://github.com/NilsR0711/streamwall/issues/493)
+* **control-ui:** add a shared focus-visible affordance for buttons ([#528](https://github.com/NilsR0711/streamwall/issues/528)) ([bf1c283](https://github.com/NilsR0711/streamwall/commit/bf1c2835fe1fc323a97665359a93833c15ab6770)), closes [#508](https://github.com/NilsR0711/streamwall/issues/508)
+* **control-ui:** add accessible names to AccessPanel and Sidebar controls ([#461](https://github.com/NilsR0711/streamwall/issues/461)) ([c14f065](https://github.com/NilsR0711/streamwall/commit/c14f065c0e3095fa79a7ec07ca1306f97dd5090e))
+* **control-ui:** give the sidebar stream handle a keyboard path ([#504](https://github.com/NilsR0711/streamwall/issues/504)) ([7c439d0](https://github.com/NilsR0711/streamwall/commit/7c439d097dd8ab1202cf76433e5642197608e6db)), closes [#460](https://github.com/NilsR0711/streamwall/issues/460)
+* **control-ui:** surface control-server version and update notice for admins ([#444](https://github.com/NilsR0711/streamwall/issues/444)) ([2b70145](https://github.com/NilsR0711/streamwall/commit/2b70145dbc131fe672acf08087eafc0bf3517382))
+* **control-ui:** surface paused views in the control UI and wall overlay ([#535](https://github.com/NilsR0711/streamwall/issues/535)) ([74f6ae3](https://github.com/NilsR0711/streamwall/commit/74f6ae35ea18741a36a369c98dc13ca5927ab520)), closes [#490](https://github.com/NilsR0711/streamwall/issues/490)
+* **release:** automate release version bumps across workspace manifests ([#448](https://github.com/NilsR0711/streamwall/issues/448)) ([84701d8](https://github.com/NilsR0711/streamwall/commit/84701d868c2076f43847e063e43b8db25361ed53))
+* **release:** generate the changelog and release notes from Conventional Commits ([#505](https://github.com/NilsR0711/streamwall/issues/505)) ([9587a39](https://github.com/NilsR0711/streamwall/commit/9587a3921d1998d5b17793313a985491e61d29d1))
+* **release:** publish the control-server image to GHCR ([#525](https://github.com/NilsR0711/streamwall/issues/525)) ([2455975](https://github.com/NilsR0711/streamwall/commit/2455975dbf63b6386056516205c7844b209823f2)), closes [#478](https://github.com/NilsR0711/streamwall/issues/478)
+* **streamwall:** add in-app update notification with install & restart ([#434](https://github.com/NilsR0711/streamwall/issues/434)) ([ef39f29](https://github.com/NilsR0711/streamwall/commit/ef39f293291ecb35bab5cefb4d82e4b2b98148e9)), closes [#381](https://github.com/NilsR0711/streamwall/issues/381)
+* **streamwall:** gate update downloads behind user consent with determinate progress ([#454](https://github.com/NilsR0711/streamwall/issues/454)) ([8097df3](https://github.com/NilsR0711/streamwall/commit/8097df3fed8cf4f874e63fc6f28153a5981de1fc))
+* **streamwall:** notify Linux users of available updates via GitHub Releases ([#443](https://github.com/NilsR0711/streamwall/issues/443)) ([d10e3b2](https://github.com/NilsR0711/streamwall/commit/d10e3b27c5237ea84941c6084d271da1c2a95be3)), closes [#433](https://github.com/NilsR0711/streamwall/issues/433)
+* **streamwall:** stop HLS segment loading for parked views ([#424](https://github.com/NilsR0711/streamwall/issues/424)) ([e1ec356](https://github.com/NilsR0711/streamwall/commit/e1ec356eab9b7f8f9bf558b6bf70a616b47a3d1b)), closes [#384](https://github.com/NilsR0711/streamwall/issues/384)
+
+
+### Fixed
+
+* **control-client:** typecheck before vite build ([#473](https://github.com/NilsR0711/streamwall/issues/473)) ([29e1deb](https://github.com/NilsR0711/streamwall/commit/29e1deb48ace9d1e7014f5fc453e0fcaeb7ef880))
+* **control-client:** validate the patched state on the WebSocket delta path ([#540](https://github.com/NilsR0711/streamwall/issues/540)) ([71c23c8](https://github.com/NilsR0711/streamwall/commit/71c23c835b7bd5715ea903c920ffe97b96ff839b)), closes [#488](https://github.com/NilsR0711/streamwall/issues/488)
+* **control-server:** register onClose hook before app.listen() ([#449](https://github.com/NilsR0711/streamwall/issues/449)) ([74a135a](https://github.com/NilsR0711/streamwall/commit/74a135aaa34a4c350ec7f8ae79563928433a69d1)), closes [#442](https://github.com/NilsR0711/streamwall/issues/442)
+* **control-server:** validate uplink state payload against a strict schema ([#416](https://github.com/NilsR0711/streamwall/issues/416)) ([c642f0c](https://github.com/NilsR0711/streamwall/commit/c642f0c8bf437f349226345fff95941ae5129397))
+* **control-ui:** adopt the shared focus-visible ring for grid cells ([#544](https://github.com/NilsR0711/streamwall/issues/544)) ([2d07d57](https://github.com/NilsR0711/streamwall/commit/2d07d57e5640f5208f82e0a24a01464cd7acd1d5)), closes [#531](https://github.com/NilsR0711/streamwall/issues/531)
+* **control-ui:** adopt the shared focus-visible ring for the sidebar inputs ([#565](https://github.com/NilsR0711/streamwall/issues/565)) ([22d3754](https://github.com/NilsR0711/streamwall/commit/22d3754ef8f74389c05bcc84e8d52af8a3de6283))
+* **control-ui:** announce command and data-source banners to assistive tech ([#458](https://github.com/NilsR0711/streamwall/issues/458)) ([ad9b642](https://github.com/NilsR0711/streamwall/commit/ad9b6423649741c2a046b9342d0265e7c28cb713)), closes [#398](https://github.com/NilsR0711/streamwall/issues/398)
+* **control-ui:** announce the server update notice politely ([#512](https://github.com/NilsR0711/streamwall/issues/512)) ([0e81ae2](https://github.com/NilsR0711/streamwall/commit/0e81ae25cea354845d3a703ae0aa1ae90e8606de))
+* **control-ui:** derive the grid focus ring from the tile colour ([#563](https://github.com/NilsR0711/streamwall/issues/563)) ([b8afc1b](https://github.com/NilsR0711/streamwall/commit/b8afc1b7097eddd1acb049feced6d8730bd6bb23)), closes [#557](https://github.com/NilsR0711/streamwall/issues/557)
+* **control-ui:** keep banner live regions mounted while healthy ([#500](https://github.com/NilsR0711/streamwall/issues/500)) ([a102c52](https://github.com/NilsR0711/streamwall/commit/a102c52f5e417f5e55b8d647d57968fe718f2487))
+* **control-ui:** reveal the grid cell layer while it holds keyboard focus ([#564](https://github.com/NilsR0711/streamwall/issues/564)) ([fb3b470](https://github.com/NilsR0711/streamwall/commit/fb3b470cba31dc9fed2e9d5b5e2dbe9b225588b6)), closes [#551](https://github.com/NilsR0711/streamwall/issues/551)
+* **control-ui:** send stable view ids from audio and blur hotkeys ([#501](https://github.com/NilsR0711/streamwall/issues/501)) ([b6690f6](https://github.com/NilsR0711/streamwall/commit/b6690f64eafe94503b8eeac91fcd2e59c99bc5bc)), closes [#470](https://github.com/NilsR0711/streamwall/issues/470)
+* **control-ui:** translate CommandErrorBanner strings to English ([#415](https://github.com/NilsR0711/streamwall/issues/415)) ([a245575](https://github.com/NilsR0711/streamwall/commit/a245575c54bd7763704b1c6a8fc12fe8a60e1fab))
+* **data:** log a chokidar watcher error only once ([#541](https://github.com/NilsR0711/streamwall/issues/541)) ([edec101](https://github.com/NilsR0711/streamwall/commit/edec1012ce76f9a32bc120be866d85d4d8827a66)), closes [#464](https://github.com/NilsR0711/streamwall/issues/464)
+* **deps:** bump transitive fast-uri to 3.1.4 to patch host confusion ([#511](https://github.com/NilsR0711/streamwall/issues/511)) ([6a739a5](https://github.com/NilsR0711/streamwall/commit/6a739a5aa6b2ab69bebc6676f8cd5a559b4b5766)), closes [#503](https://github.com/NilsR0711/streamwall/issues/503)
+* **preload:** keep rescanning iframes for a late-appearing player ([#530](https://github.com/NilsR0711/streamwall/issues/530)) ([653187d](https://github.com/NilsR0711/streamwall/commit/653187ddfe9c89461f3793e625bddab38e5d35a2)), closes [#485](https://github.com/NilsR0711/streamwall/issues/485)
+* **preload:** observe same-origin iframe documents while searching for media ([#543](https://github.com/NilsR0711/streamwall/issues/543)) ([03b40a1](https://github.com/NilsR0711/streamwall/commit/03b40a1c2ac484a28a5e5b35cbc7117cb4178779))
+* **release:** dispatch the release PR checks without a checkout ([#575](https://github.com/NilsR0711/streamwall/issues/575)) ([6b08cca](https://github.com/NilsR0711/streamwall/commit/6b08ccab5a878b7975f61730144ef12fc3d4b925)), closes [#574](https://github.com/NilsR0711/streamwall/issues/574)
+* **release:** exclude the generated CHANGELOG from Prettier ([#577](https://github.com/NilsR0711/streamwall/issues/577)) ([579e2b1](https://github.com/NilsR0711/streamwall/commit/579e2b123fa72b49b6afd263531f6647f740342c)), closes [#576](https://github.com/NilsR0711/streamwall/issues/576)
+* **shared:** validate state deltas before patching them ([#548](https://github.com/NilsR0711/streamwall/issues/548)) ([6ef059d](https://github.com/NilsR0711/streamwall/commit/6ef059d38344ee8add69adafb57919b5d244f977)), closes [#539](https://github.com/NilsR0711/streamwall/issues/539)
+* **streamwall:** disconnect mediaPreload MutationObservers on teardown ([#412](https://github.com/NilsR0711/streamwall/issues/412)) ([#482](https://github.com/NilsR0711/streamwall/issues/482)) ([635af56](https://github.com/NilsR0711/streamwall/commit/635af56a15ef7effe172fc56baccbcddb4e19c90))
+* **streamwall:** log swallowed promise rejections on hot paths ([#462](https://github.com/NilsR0711/streamwall/issues/462)) ([cfccace](https://github.com/NilsR0711/streamwall/commit/cfccace93fad7f5d89ac45244ce1f671e0c1181c))
+* **streamwall:** main-process tests depend on electron being hoisted to the root node_modules ([#441](https://github.com/NilsR0711/streamwall/issues/441)) ([084932a](https://github.com/NilsR0711/streamwall/commit/084932a6c4bf08a9d199a7bb8b20d7b6f7360032))
+* **streamwall:** report cross-origin iframe as a distinct media failure ([#479](https://github.com/NilsR0711/streamwall/issues/479)) ([84e9b9c](https://github.com/NilsR0711/streamwall/commit/84e9b9c317136177435b4abe816117db8d7e8afb)), closes [#413](https://github.com/NilsR0711/streamwall/issues/413)
+* **streamwall:** return IPC command errors to CommandErrorBanner ([#417](https://github.com/NilsR0711/streamwall/issues/417)) ([37f11c2](https://github.com/NilsR0711/streamwall/commit/37f11c204efc7b3b4fd8c9fc53cb067955df071a))
+* **streamwall:** stage each packaging run in its own temp directory ([#532](https://github.com/NilsR0711/streamwall/issues/532)) ([04870ea](https://github.com/NilsR0711/streamwall/commit/04870ea5f8dca855229919c1f1c39f6aaa22eafd))
+* **streamwall:** typecheck before electron-forge packages the app ([#497](https://github.com/NilsR0711/streamwall/issues/497)) ([c9e0733](https://github.com/NilsR0711/streamwall/commit/c9e0733bc9d4597c4ee6d5d99bf0888fe5d97ca6)), closes [#472](https://github.com/NilsR0711/streamwall/issues/472)
+* **streamwall:** use lodash-es imports in the Electron package ([#487](https://github.com/NilsR0711/streamwall/issues/487)) ([b2995aa](https://github.com/NilsR0711/streamwall/commit/b2995aaa2f2aecb91582582033f3611b431c4468)), closes [#407](https://github.com/NilsR0711/streamwall/issues/407)
+* **streamwall:** validate IPC-delivered StreamwallState in control renderer ([#481](https://github.com/NilsR0711/streamwall/issues/481)) ([c8caa84](https://github.com/NilsR0711/streamwall/commit/c8caa840d0804572fc7228e16ab5e04f28659d33)), closes [#409](https://github.com/NilsR0711/streamwall/issues/409)
+
+
+### Changed
+
+* address grid view commands by stable view id ([#397](https://github.com/NilsR0711/streamwall/issues/397)) ([#467](https://github.com/NilsR0711/streamwall/issues/467)) ([1c623b6](https://github.com/NilsR0711/streamwall/commit/1c623b6fc8cc82b7c2c1005fa4af3f00fe17cd20))
+* **control-server:** modularize the 1000-line entrypoint ([#465](https://github.com/NilsR0711/streamwall/issues/465)) ([a47cb5d](https://github.com/NilsR0711/streamwall/commit/a47cb5d2b2cf13c282694d5b513fb832a6bfcc7c)), closes [#395](https://github.com/NilsR0711/streamwall/issues/395)
+* **control-server:** use shared inMemoryDb() helper in index.test.ts ([#495](https://github.com/NilsR0711/streamwall/issues/495)) ([6939111](https://github.com/NilsR0711/streamwall/commit/6939111c0ab3e3ae181c2d6f80febb016acdb5f0)), closes [#451](https://github.com/NilsR0711/streamwall/issues/451)
+* **control-ui:** split monolithic ControlUI into hooks and components ([#468](https://github.com/NilsR0711/streamwall/issues/468)) ([2d70e0f](https://github.com/NilsR0711/streamwall/commit/2d70e0f380c680406eaa97ead5d481c19733d028)), closes [#393](https://github.com/NilsR0711/streamwall/issues/393)
+* dedupe semver/GitHub-release-fetch logic between control-server and streamwall ([#450](https://github.com/NilsR0711/streamwall/issues/450)) ([a1b4c8c](https://github.com/NilsR0711/streamwall/commit/a1b4c8ca507a578df3456446df00d0c0a37b054c))
+* deduplicate collab connection logic behind a shared useCollabConnection hook ([#466](https://github.com/NilsR0711/streamwall/issues/466)) ([71d3ddc](https://github.com/NilsR0711/streamwall/commit/71d3ddcf10c3a67250efaa244089bce0967ee1a6)), closes [#396](https://github.com/NilsR0711/streamwall/issues/396)
+* **shared:** brand the view-id and cell-index axes ([#560](https://github.com/NilsR0711/streamwall/issues/560)) ([dfb17e7](https://github.com/NilsR0711/streamwall/commit/dfb17e78101e76125ab00deec6da4095029dab1a)), closes [#507](https://github.com/NilsR0711/streamwall/issues/507)
+* **shared:** extend the CellIdx brand to the cell-geometry helpers ([#572](https://github.com/NilsR0711/streamwall/issues/572)) ([d5fff66](https://github.com/NilsR0711/streamwall/commit/d5fff6609d7880fc9fb65488ad0e625e9e34eba8)), closes [#567](https://github.com/NilsR0711/streamwall/issues/567)
+* **streamwall:** extract main-process orchestration from index.ts ([#469](https://github.com/NilsR0711/streamwall/issues/469)) ([df84c1a](https://github.com/NilsR0711/streamwall/commit/df84c1a5beba039c6dd23c7fd2764047b2196a6e)), closes [#394](https://github.com/NilsR0711/streamwall/issues/394)
+* **streamwall:** replace deprecated dank-twitch-irc with [@twurple](https://github.com/twurple) ([#486](https://github.com/NilsR0711/streamwall/issues/486)) ([92fa751](https://github.com/NilsR0711/streamwall/commit/92fa751853afca8b2a3754259567fd7d251dab9d))
+
+
+### Documentation
+
+* add CHANGELOG and wire it to the release process ([#456](https://github.com/NilsR0711/streamwall/issues/456)) ([babf944](https://github.com/NilsR0711/streamwall/commit/babf94409ccaeabe42e9108d6c27e0019b6941bd)), closes [#405](https://github.com/NilsR0711/streamwall/issues/405)
+* add SECURITY.md, contributor guide, and README Development section ([#459](https://github.com/NilsR0711/streamwall/issues/459)) ([eae8194](https://github.com/NilsR0711/streamwall/commit/eae8194e6f538fdcab15228931355d18fb187521)), closes [#404](https://github.com/NilsR0711/streamwall/issues/404)
+* **contributing:** explain how to start CI on the release PR ([#520](https://github.com/NilsR0711/streamwall/issues/520)) ([0f06da4](https://github.com/NilsR0711/streamwall/commit/0f06da4767d10fc6b7ad774e8513e80c4642077a))
+* **contributing:** note how to retire a stale code scanning configuration ([#559](https://github.com/NilsR0711/streamwall/issues/559)) ([77c9ae1](https://github.com/NilsR0711/streamwall/commit/77c9ae1238ca121c2d4f8f61fc0bc09a4f1c9b01))
+* document the manual Windows upgrade path off Squirrel installs ([#452](https://github.com/NilsR0711/streamwall/issues/452)) ([#496](https://github.com/NilsR0711/streamwall/issues/496)) ([7e61cae](https://github.com/NilsR0711/streamwall/commit/7e61cae05f0a7d176418158a088fe98635e101a9))
+* normalize license metadata across workspace packages ([#427](https://github.com/NilsR0711/streamwall/issues/427)) ([9f9892d](https://github.com/NilsR0711/streamwall/commit/9f9892d29127cae28c7f0176ecdefb1fb59c65e4))
+* **readme:** drop the stale CodeQL badge ([#519](https://github.com/NilsR0711/streamwall/issues/519)) ([fc57d44](https://github.com/NilsR0711/streamwall/commit/fc57d4448d4a19777141ae50ec257cf20da80428)), closes [#475](https://github.com/NilsR0711/streamwall/issues/475)
+* **release:** explain the inherited v2.0.0-pre tags and how to prune them ([#562](https://github.com/NilsR0711/streamwall/issues/562)) ([bcf3ee5](https://github.com/NilsR0711/streamwall/commit/bcf3ee5e1564e959bcfbdab4fb5923b7162f53ce)), closes [#554](https://github.com/NilsR0711/streamwall/issues/554)
+
 ## [0.9.1] - 2026-07-15
 
 ### Added
