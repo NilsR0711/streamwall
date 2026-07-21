@@ -25,6 +25,7 @@ type ControlApi = {
   createExampleConfig: () => unknown
   getAppVersion: () => unknown
   getUpdateStatus: () => unknown
+  downloadUpdate: () => unknown
   installUpdate: () => unknown
   openReleaseNotes: () => unknown
   onState: (handleState: (state: unknown) => void) => () => void
@@ -55,6 +56,7 @@ describe('controlPreload bridge shape', () => {
     expect(Object.keys(importedControlApi()).sort()).toEqual(
       [
         'createExampleConfig',
+        'downloadUpdate',
         'getAppVersion',
         'getFirstRunInfo',
         'getUpdateStatus',
@@ -100,6 +102,7 @@ describe('controlPreload channel wiring', () => {
     ['createExampleConfig', 'control:create-example-config'],
     ['getAppVersion', 'control:app-version'],
     ['getUpdateStatus', 'control:update-status'],
+    ['downloadUpdate', 'control:download-update'],
     ['installUpdate', 'control:install-update'],
     ['openReleaseNotes', 'control:open-release-notes'],
   ] as const)('invokes %s on the %s channel', async (method, channel) => {

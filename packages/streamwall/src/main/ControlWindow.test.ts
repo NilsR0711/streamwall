@@ -205,10 +205,16 @@ describe('ControlWindow update notifications', () => {
     const controlWindow = new ControlWindow(configInfo)
     const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
 
-    controlWindow.onUpdateStatus({ state: 'downloading' })
+    controlWindow.onUpdateStatus({
+      state: 'downloading',
+      version: '0.9.2',
+      progress: null,
+    })
 
     expect(webContents.send).toHaveBeenCalledWith('update-status', {
       state: 'downloading',
+      version: '0.9.2',
+      progress: null,
     })
   })
 
@@ -224,6 +230,7 @@ describe('ControlWindow update notifications', () => {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => '0.9.1',
       getStatus: () => status,
+      download: vi.fn(),
       install: vi.fn(),
       openReleaseNotes: vi.fn(),
     })
@@ -251,6 +258,7 @@ describe('ControlWindow update notifications', () => {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => '0.9.1',
       getStatus: () => ({ state: 'idle' }),
+      download: vi.fn(),
       install,
       openReleaseNotes: vi.fn(),
     })
@@ -258,6 +266,24 @@ describe('ControlWindow update notifications', () => {
     await ipcHandlers.get('control:install-update')!({ sender })
 
     expect(install).toHaveBeenCalledOnce()
+  })
+
+  it('starts the update download when the renderer asks', async () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const sender = (controlWindow.win as unknown as FakeBrowserWindow)
+      .webContents
+    const download = vi.fn()
+    controlWindow.setUpdateHandlers({
+      getAppVersion: () => '0.9.1',
+      getStatus: () => ({ state: 'idle' }),
+      download,
+      install: vi.fn(),
+      openReleaseNotes: vi.fn(),
+    })
+
+    await ipcHandlers.get('control:download-update')!({ sender })
+
+    expect(download).toHaveBeenCalledOnce()
   })
 
   it('opens release notes without taking a URL from the renderer, so the target cannot be spoofed', async () => {
@@ -268,6 +294,7 @@ describe('ControlWindow update notifications', () => {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => '0.9.1',
       getStatus: () => ({ state: 'idle' }),
+      download: vi.fn(),
       install: vi.fn(),
       openReleaseNotes,
     })
@@ -284,17 +311,21 @@ describe('ControlWindow update notifications', () => {
   it('ignores update IPC from a sender other than its own window', async () => {
     const controlWindow = new ControlWindow(configInfo)
     const install = vi.fn()
+    const download = vi.fn()
     controlWindow.setUpdateHandlers({
       getAppVersion: () => '0.9.1',
       getStatus: () => ({ state: 'checking' }),
+      download,
       install,
       openReleaseNotes: vi.fn(),
     })
     const foreignSender = { sender: { send: vi.fn() } }
 
     await ipcHandlers.get('control:install-update')!(foreignSender)
+    await ipcHandlers.get('control:download-update')!(foreignSender)
 
     expect(install).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
     expect(
       await ipcHandlers.get('control:update-status')!(foreignSender),
     ).toBeUndefined()
@@ -309,6 +340,7 @@ describe('ControlWindow app version', () => {
     controlWindow.setUpdateHandlers({
       getAppVersion: () => '0.9.1',
       getStatus: () => ({ state: 'idle' }),
+      download: vi.fn(),
       install: vi.fn(),
       openReleaseNotes: vi.fn(),
     })
