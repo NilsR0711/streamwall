@@ -56,6 +56,37 @@ describe('ServerUpdateBanner', () => {
     expect(el.querySelector('.server-update-banner')).toBeNull()
   })
 
+  // `aria-live` only guarantees an announcement for content that changes
+  // inside an already-present region, so the region stays mounted (empty)
+  // while there is no update - otherwise the notice, which appears without
+  // any user action once `GET /admin/status` resolves, can go unannounced
+  // (WCAG 4.1.3, issue #502).
+  test('keeps the live region mounted while there is no update', () => {
+    const el = renderBanner({ ...AVAILABLE_STATUS, updateAvailable: false })
+    const region = el.querySelector('[role="status"]')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('aria-live')).toBe('polite')
+    expect(el.textContent).toBe('')
+  })
+
+  test('reuses the same live region element when the notice appears', () => {
+    const el = renderBanner({ ...AVAILABLE_STATUS, updateAvailable: false })
+    const regionWithoutUpdate = el.querySelector('[role="status"]')
+    act(() => {
+      render(<ServerUpdateBanner status={AVAILABLE_STATUS} />, container!)
+    })
+    expect(el.querySelector('[role="status"]')).toBe(regionWithoutUpdate)
+    expect(regionWithoutUpdate?.textContent).toContain('1.0.0')
+  })
+
+  test('announces an available update politely to assistive technology', () => {
+    const el = renderBanner(AVAILABLE_STATUS)
+    const region = el.querySelector('[role="status"]')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('aria-live')).toBe('polite')
+    expect(region?.textContent).toContain('1.0.0')
+  })
+
   test('shows a notice linking to the release when an update is available', () => {
     const el = renderBanner(AVAILABLE_STATUS)
     const banner = el.querySelector('.server-update-banner')

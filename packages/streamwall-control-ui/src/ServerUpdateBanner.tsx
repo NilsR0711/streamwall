@@ -9,6 +9,12 @@ const StyledServerUpdateBanner = styled.div`
   font-size: 12px;
   color: var(--text-dim);
 
+  .server-update-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   a {
     color: inherit;
   }
@@ -38,6 +44,15 @@ function readDismissedKey(): string | null {
  * Dismissible "a newer release is available" notice for admins, sourced
  * from `GET /admin/status` (#436). Dismissal is keyed on `latestVersion` so
  * dismissing one release doesn't hide the next one.
+ *
+ * The live region itself stays mounted while there is no update and only its
+ * contents are swapped: `aria-live` announcements are only reliable for
+ * changes inside a region that already exists in the accessibility tree, so
+ * mounting the region together with the notice risks losing exactly that
+ * announcement - and the notice appears without any user action, once
+ * `GET /admin/status` resolves (WCAG 4.1.3, issue #502). The
+ * `server-update-banner` class therefore sits on the notice, which is still
+ * present only while an update is pending.
  */
 export function ServerUpdateBanner({
   status,
@@ -47,43 +62,40 @@ export function ServerUpdateBanner({
   const releaseKey = status?.latestVersion ?? status?.version ?? null
   const [dismissedKey, setDismissedKey] = useState(readDismissedKey)
 
-  if (
-    status == null ||
-    !status.checkEnabled ||
-    !status.updateAvailable ||
-    releaseKey == null ||
-    dismissedKey === releaseKey
-  ) {
-    return null
-  }
-  // Reassign into a freshly-typed `const` (`string`, not `string | null`):
-  // TypeScript doesn't carry the `releaseKey == null` narrowing above into
-  // the nested `handleDismiss` closure.
-  const confirmedReleaseKey: string = releaseKey
-
-  function handleDismiss() {
-    setDismissedKey(confirmedReleaseKey)
+  function handleDismiss(releaseToDismiss: string) {
+    setDismissedKey(releaseToDismiss)
     try {
-      localStorage.setItem(DISMISSED_STORAGE_KEY, confirmedReleaseKey)
+      localStorage.setItem(DISMISSED_STORAGE_KEY, releaseToDismiss)
     } catch {
       // ignore (e.g. storage disabled)
     }
   }
 
+  const hasUpdate =
+    status != null &&
+    releaseKey != null &&
+    status.checkEnabled &&
+    status.updateAvailable &&
+    dismissedKey !== releaseKey
+
   return (
-    <StyledServerUpdateBanner className="server-update-banner">
-      <span>
-        A Streamwall update is available: {status.latestVersion} (you're on{' '}
-        {status.version}).
-      </span>
-      {status.releaseUrl && (
-        <a href={status.releaseUrl} target="_blank" rel="noreferrer">
-          Release notes
-        </a>
+    <StyledServerUpdateBanner role="status" aria-live="polite">
+      {hasUpdate && (
+        <span className="server-update-banner">
+          <span>
+            A Streamwall update is available: {status.latestVersion} (you're on{' '}
+            {status.version}).
+          </span>
+          {status.releaseUrl && (
+            <a href={status.releaseUrl} target="_blank" rel="noreferrer">
+              Release notes
+            </a>
+          )}
+          <button type="button" onClick={() => handleDismiss(releaseKey)}>
+            Dismiss
+          </button>
+        </span>
       )}
-      <button type="button" onClick={handleDismiss}>
-        Dismiss
-      </button>
     </StyledServerUpdateBanner>
   )
 }
