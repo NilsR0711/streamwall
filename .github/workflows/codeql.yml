@@ -1,26 +1,10 @@
 name: CodeQL
 
+# Push and pull-request analysis is driven by ci.yml, which calls this
+# workflow as a job of the `CI OK` gate — that is what makes a CodeQL failure
+# block a merge. Only the periodic scan is triggered here.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.gitattributes'
-      - 'example.config.toml'
-      - 'example.streams.toml'
-      - '.github/dependabot.yml'
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.gitattributes'
-      - 'example.config.toml'
-      - 'example.streams.toml'
-      - '.github/dependabot.yml'
+  workflow_call:
   schedule:
     # Weekly scan (Mondays 03:30 UTC) to catch newly disclosed patterns.
     - cron: '30 3 * * 1'

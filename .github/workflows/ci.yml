@@ -228,6 +228,19 @@ jobs:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
 
+  # Static security analysis. Runs here — instead of standing alone — so that
+  # a CodeQL failure fails the single `CI OK` check branch protection requires.
+  # The same analysis runs weekly from codeql.yml's schedule.
+  codeql:
+    name: CodeQL
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    uses: ./.github/workflows/codeql.yml
+
   # Lints the workflow files themselves (also shellchecks run: scripts).
   actionlint:
     name: Lint workflows (actionlint)
@@ -259,6 +272,7 @@ jobs:
         e2e,
         docker,
         dependency-review,
+        codeql,
         actionlint,
       ]
     runs-on: ubuntu-latest
