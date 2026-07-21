@@ -45,6 +45,14 @@ Auth-token storage (`storage.json`) lives on the `control-server-data` named
 volume, so it survives container restarts/rebuilds; back that volume up like
 you would any other persistent data.
 
+CI covers this path: every pull request that touches the server, the web
+control client, the shared packages or `deploy/` builds the image, starts a
+container and checks it serves the control client, and validates the compose
+stack (see the `Docker build (control server)` job in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). A broken
+`docker compose up -d --build` therefore blocks the merge instead of reaching
+you.
+
 ## First run
 
 Watch the logs for the two links the server prints once, on its very first
