@@ -4,6 +4,7 @@ import { StyleSheetManager } from 'styled-components'
 import { afterEach, describe, expect, test } from 'vitest'
 import { StreamList } from './Sidebar.tsx'
 import { GlobalStyle } from './globalStyle.tsx'
+import { AppShell } from './layout.tsx'
 
 let container: HTMLDivElement | undefined
 let styleTarget: HTMLDivElement | undefined
@@ -107,7 +108,92 @@ describe('GlobalStyle', () => {
       true,
     )
   })
+
+  // The sidebar text inputs and selects used to carry their own ring
+  // (`outline: none` plus a border-colour change and a halo) keyed on `:focus`,
+  // so it fired on pointer interaction and suppressed the shared outline
+  // (see #553). They now inherit the shared affordance like every other
+  // control, so no bare `:focus` rule may survive anywhere in the sheet.
+  test('emits no bare :focus rule, so pointer interaction draws no keyboard ring', () => {
+    renderWithStyles(<GlobalStyle />)
+
+    expect(bareFocusSelectors(collectCss())).toEqual([])
+  })
+
+  test('never suppresses the shared outline', () => {
+    renderWithStyles(<GlobalStyle />)
+
+    expect(collectCss()).not.toMatch(/outline:\s*none/)
+  })
+
+  test('leaves the ring for the sidebar inputs and selects entirely to the shared rule', () => {
+    renderWithStyles(<GlobalStyle />)
+
+    const bodies = ruleBodiesMatching(
+      collectCss(),
+      /\.stream-list\s+(input|select)/,
+    )
+
+    expect(bodies.length).toBeGreaterThan(0)
+    for (const body of bodies) {
+      expect(body).not.toMatch(/outline/)
+      expect(body).not.toMatch(/box-shadow/)
+    }
+  })
+
+  // The sidebar is the scrolling region of the shell (`overflow-y: auto`, which
+  // clips horizontally too), and its filter input spans the full width. The
+  // shared ring is drawn *outside* the control, so without horizontal room in
+  // the scroll container its left and right edges would be clipped away.
+  test('reserves enough horizontal room in the scrolling sidebar for the ring', () => {
+    renderWithStyles(
+      <>
+        <GlobalStyle />
+        <AppShell />
+      </>,
+    )
+
+    const css = collectCss()
+    const rule = focusVisibleRule(css)
+    expect(rule).toBeDefined()
+
+    const sidebar = /\.stream-list\s*{([^}]*)}/.exec(css)
+    expect(sidebar, 'app shell declares no sidebar rule').not.toBeNull()
+
+    const padding = /padding-inline:\s*(\d+)px/.exec(sidebar![1])
+    expect(padding, 'sidebar reserves no inline padding').not.toBeNull()
+    expect(Number(padding![1])).toBeGreaterThanOrEqual(ringExtent(rule!.body))
+  })
 })
+
+/**
+ * How far the shared ring extends beyond the control's border box: the outline
+ * (offset plus its own width) or the soft halo, whichever reaches further.
+ */
+function ringExtent(body: string): number {
+  const outlineWidth = /outline:\s*(\d+)px/.exec(body)
+  const outlineOffset = /outline-offset:\s*(\d+)px/.exec(body)
+  const halo = /box-shadow:\s*0\s+0\s+0\s+(\d+)px/.exec(body)
+  return Math.max(
+    Number(outlineWidth?.[1] ?? 0) + Number(outlineOffset?.[1] ?? 0),
+    Number(halo?.[1] ?? 0),
+  )
+}
+
+/** Every selector in the sheet keyed on `:focus` rather than `:focus-visible`. */
+function bareFocusSelectors(css: string): string[] {
+  return Array.from(css.matchAll(/([^{}]*){[^}]*}/g))
+    .flatMap(([, selectorList]) => selectorList.split(','))
+    .map((selector) => selector.trim())
+    .filter((selector) => /:focus(?!-visible)/.test(selector))
+}
+
+/** Bodies of every rule whose selector list matches `selector`. */
+function ruleBodiesMatching(css: string, selector: RegExp): string[] {
+  return Array.from(css.matchAll(/([^{}]*){([^}]*)}/g))
+    .filter(([, selectorList]) => selector.test(selectorList))
+    .map(([, , body]) => body)
+}
 
 function collectCss(): string {
   return Array.from(document.querySelectorAll('style'))
