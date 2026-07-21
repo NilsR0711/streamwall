@@ -89,6 +89,15 @@ the same runner:
 To run a single package's tests, target its workspace, e.g.
 `npm -w streamwall-control-server test`.
 
+`node --test` applies `--test-timeout` to every test _including the implicit
+file-level test_ it wraps each file in, so the value has to clear the slowest
+whole file, not the slowest single test. When a file exceeds it, the run
+reports `# fail 0` alongside `# cancelled 1` and still exits non-zero — an
+easily misread symptom, so check the `cancelled` counter before hunting for a
+failing assertion. `test/workspace-metadata.test.mjs` keeps the configured
+timeout above a floor that leaves the live-server WebSocket suites room to
+finish under load.
+
 ### End-to-end tests
 
 The E2E smoke tests need a browser that is not installed by `npm ci`. They are
