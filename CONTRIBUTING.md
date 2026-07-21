@@ -128,6 +128,30 @@ cd deploy && cp .env.example .env && docker compose config --quiet
 - **No AI-tool attribution** anywhere — not in commit messages, PR
   descriptions, or code comments.
 
+### Required status checks
+
+Branch protection on `main` requires exactly these two checks, and nothing
+else:
+
+- `CI OK` — the aggregate gate of `.github/workflows/ci.yml`. It is green only
+  when every job in that workflow succeeded or was skipped as irrelevant to the
+  change (docs-only edits skip the heavy jobs). Format, lint, typecheck, tests,
+  builds, packaging, E2E, the control-server Docker build, dependency review,
+  workflow linting and **CodeQL**
+  all report through it — CodeQL runs as a job of `ci.yml` rather than as a
+  standalone workflow precisely so that its failures block a merge.
+- `Conventional Commits title` — `.github/workflows/pr-title.yml`.
+
+Adding a job to `ci.yml` therefore also means adding it to the `ci-ok` gate's
+`needs:` list; `test/ci-gate.test.mjs` fails if that is forgotten, and it also
+keeps this list in sync with the workflows.
+
+Two things intentionally sit outside this gate: `.github/workflows/release.yml`
+(tag-triggered) and CodeQL's weekly scheduled scan, which surfaces newly
+disclosed patterns in code that was already merged. Open code-scanning alerts
+are triaged in the Security tab; the gate blocks on the analysis _failing_, not
+on pre-existing alerts.
+
 ### PR checklist
 
 - [ ] `npm run lint`, `npm run format:check`, `npm run typecheck`, and
