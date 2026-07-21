@@ -421,7 +421,10 @@ failed a PR:
 - **Lint + typecheck** — ESLint and `tsc` across all workspaces
 - **Tests** — the full unit suite on Ubuntu, Windows, and macOS
 - **Control-client build** — `streamwall-control-client` production build
-- **Package smoke** — an Electron `package` of the desktop app
+- **Installer smoke** — an Electron `make` of the desktop app: the deb and rpm
+  installers natively, the Windows NSIS installer and its update metadata
+  cross-built, so a maker regression fails the gate instead of a half-finished
+  release
 - **E2E smoke** — the control client in a real browser against a live server
 
 Cross-OS tests run in the gate itself (not merely trusted from `main` CI):
