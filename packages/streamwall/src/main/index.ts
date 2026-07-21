@@ -24,23 +24,14 @@ import {
   CONTROL_WINDOW_ORIGIN,
   shouldForwardUpdateToControlWindow,
 } from './controlWindowEcho'
-import {
-  LocalStreamData,
-  OVERLAY_DATA_SOURCE_NAME,
-  StreamIDGenerator,
-  combineDataSources,
-  markDataSource,
-  pollDataURL,
-  presetDataSource,
-  watchDataFile,
-} from './data'
+import { LocalStreamData, StreamIDGenerator, combineDataSources } from './data'
 import { DataSourceHealthTracker } from './dataSourceHealth'
+import { buildDataSources } from './dataSources'
 import log, { initLogger, setLogLevel } from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
-import { loadPresetPack } from './presets'
 import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
@@ -395,37 +386,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     }
   }
 
-  const dataSources = [
-    ...argv.data['json-url'].map((url) => {
-      log.debug('Setting data source from json-url:', url)
-      return markDataSource(
-        pollDataURL(
-          url,
-          argv.data.interval,
-          trackDataSourceHealth(url, 'json-url'),
-        ),
-        'json-url',
-      )
-    }),
-    ...argv.data['toml-file'].map((path) => {
-      log.debug('Setting data source from toml-file:', path)
-      return markDataSource(
-        watchDataFile(path, trackDataSourceHealth(path, 'toml-file')),
-        'toml-file',
-      )
-    }),
-    ...argv.presets.flatMap((packId) => {
-      const pack = loadPresetPack(packId)
-      if (!pack) {
-        log.warn(`Unknown preset pack "${packId}", skipping`)
-        return []
-      }
-      log.debug('Loading preset pack:', pack.id)
-      return [markDataSource(presetDataSource(pack), `preset:${pack.id}`)]
-    }),
-    markDataSource(localStreamData.gen(), 'custom'),
-    markDataSource(overlayStreamData.gen(), OVERLAY_DATA_SOURCE_NAME),
-  ]
+  const dataSources = buildDataSources({
+    jsonUrls: argv.data['json-url'],
+    tomlFiles: argv.data['toml-file'],
+    presets: argv.presets,
+    interval: argv.data.interval,
+    localStreamData,
+    overlayStreamData,
+    trackDataSourceHealth,
+  })
 
   for await (const streams of combineDataSources(dataSources, idGen)) {
     updateState({ streams })
