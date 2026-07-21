@@ -19,12 +19,17 @@ function readReleaseVersion() {
   return manifest.version
 }
 
-test('CHANGELOG.md keeps an Unreleased section', () => {
+// release-please owns the changelog now (#457): it derives pending entries from
+// the Conventional Commit subjects on main and shows them in the open release
+// PR. A hand-maintained "## [Unreleased]" section would sit above the generated
+// ones and silently duplicate them, so keep it out.
+test('CHANGELOG.md has no hand-maintained Unreleased section', () => {
   const changelog = readRootFile('CHANGELOG.md')
-  assert.match(
+  assert.doesNotMatch(
     changelog,
     /^## \[Unreleased\]/m,
-    'CHANGELOG.md must keep an "## [Unreleased]" section for pending changes',
+    'Pending changes live in the release-please release PR, not in an ' +
+      '"## [Unreleased]" section — see CONTRIBUTING.md#changelog',
   )
 })
 

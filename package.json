@@ -1,5 +1,7 @@
 {
   "name": "streamwall",
+  "version": "0.9.1",
+  "private": true,
   "license": "MIT",
   "engines": {
     "node": ">=22"
