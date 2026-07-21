@@ -1,23 +1,11 @@
 import * as Sentry from '@sentry/electron/main'
 import { BrowserWindow, Event as ElectronEvent, app, shell } from 'electron'
-import { MacUpdater, NsisUpdater } from 'electron-updater'
 import fs from 'fs'
 import { throttle } from 'lodash-es'
-import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
-import ReconnectingWebSocket from 'reconnecting-websocket'
 import 'source-map-support/register'
-import {
-  ControlCommand,
-  DataSourceType,
-  StreamwallState,
-  fullscreenViewContentMap,
-  isSocketOpen,
-  parseControlEndpoint,
-} from 'streamwall-shared'
-import WebSocket from 'ws'
-import yargs from 'yargs'
+import { DataSourceType, StreamwallState } from 'streamwall-shared'
 import * as Y from 'yjs'
 import packageJson from '../../package.json'
 import {
@@ -27,418 +15,36 @@ import {
 } from '../sentryConfig'
 import { parseRepositorySlug } from '../updateStatus'
 import { createSessionHostResolver, ensureValidURL } from '../util'
-import { AppUpdater } from './appUpdater'
-import { dispatchCommand, dispatchLocalCommand } from './commandDispatch'
-import {
-  findUnknownConfigKeys,
-  parseConfigToml,
-  validateConfig,
-} from './config'
+import { StreamwallConfig, parseArgs } from './cliArgs'
+import { dispatchLocalCommand } from './commandDispatch'
+import { createOnCommand } from './commandHandlers'
 import { resolveConfigInitError } from './configInitError'
-import { decideControlEndpointConnection } from './controlEndpointConnection'
 import ControlWindow from './ControlWindow'
 import {
   CONTROL_WINDOW_ORIGIN,
   shouldForwardUpdateToControlWindow,
 } from './controlWindowEcho'
-import {
-  LocalStreamData,
-  OVERLAY_DATA_SOURCE_NAME,
-  StreamIDGenerator,
-  combineDataSources,
-  markDataSource,
-  pollDataURL,
-  presetDataSource,
-  watchDataFile,
-} from './data'
+import { LocalStreamData, StreamIDGenerator, combineDataSources } from './data'
 import { DataSourceHealthTracker } from './dataSourceHealth'
-import { addFavorite, removeFavorite } from './favorites'
-import { applyGridResize } from './gridResize'
-import {
-  addLayoutPreset,
-  applyLayoutPreset,
-  buildLayoutPreset,
-} from './layoutPresets'
-import { LinuxUpdateChecker } from './linuxUpdateChecker'
-import log, {
-  LOG_LEVELS,
-  initLogger,
-  setLogLevel,
-  type LogLevel,
-} from './logger'
+import { buildDataSources } from './dataSources'
+import log, { initLogger, setLogLevel } from './logger'
 import { installApplicationMenu } from './menu'
 import { denyWindowOpen } from './navigationSecurity'
 import { BROWSE_PARTITION, hardenSession } from './partitions'
 import { PlaylistScheduler } from './playlist'
-import { loadPresetPack } from './presets'
 import { flushStorage, loadStorage, safeUpdate } from './storage'
 import StreamdelayClient from './StreamdelayClient'
 import StreamWindow from './StreamWindow'
 import TwitchBot from './TwitchBot'
-import { checkUplinkCommandGate } from './uplinkCommandGate'
-import { UPLINK_ORIGIN, shouldForwardUpdateToUplink } from './uplinkEcho'
-import { routeUplinkWsMessage } from './uplinkMessageRouting'
+import { setupAppUpdater } from './updaterSetup'
+import { connectControlUplink } from './uplinkConnection'
 import { initializeViewsState } from './viewsStateInit'
+import { deriveWallViews } from './wallViews'
 import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
 } from './windowCloseBehavior'
-
-/**
- * Builds a WebSocket subclass for the control uplink.
- *
- * It enforces TLS certificate validation on wss:// connections: together with
- * the wss:// requirement on the control endpoint, this authenticates the
- * control server to the desktop and prevents a man-in-the-middle from
- * impersonating it. `rejectUnauthorized` defaults to true in `ws`, but we set
- * it explicitly so the guarantee cannot be silently lost to a future change.
- *
- * It also injects the uplink credential as an `Authorization` header rather
- * than a URL query parameter, keeping the secret out of server and proxy
- * access logs. `reconnecting-websocket` does not forward constructor options,
- * so the header is baked into the subclass here.
- */
-function makeControlWebSocket(authorization: string | null) {
-  return class ControlWebSocket extends WebSocket {
-    constructor(url: string, protocols?: string | string[]) {
-      super(url, protocols, {
-        rejectUnauthorized: true,
-        headers: authorization ? { authorization } : undefined,
-      })
-    }
-  }
-}
-
-export interface StreamwallConfig {
-  help: boolean
-  log: {
-    level: LogLevel
-  }
-  grid: {
-    cols: number
-    rows: number
-  }
-  window: {
-    x?: number
-    y?: number
-    width: number
-    height: number
-    frameless: boolean
-    fullscreen: boolean
-    display?: number
-    'background-color': string
-    'active-color': string
-  }
-  data: {
-    interval: number
-    'json-url': string[]
-    'toml-file': string[]
-  }
-  presets: string[]
-  streamdelay: {
-    endpoint: string
-    key: string | null
-  }
-  control: {
-    endpoint: string
-  }
-  retry: {
-    enabled: boolean
-    delay: number
-    'max-delay': number
-    'max-retries': number
-    'stalled-timeout': number
-  }
-  park: {
-    pause: boolean
-  }
-  twitch: {
-    channel: string | null
-    username: string | null
-    token: string | null
-    color: string
-    announce: {
-      template: string
-      interval: number
-      delay: number
-    }
-    vote: {
-      template: string
-      interval: number
-    }
-  }
-  telemetry: {
-    sentry: boolean
-  }
-  playlist: {
-    view: number
-    interval: number
-    urls: string[]
-  }[]
-}
-
-// Warns (does not throw) about keys in a raw parsed config file that the
-// schema doesn't recognize — typos and stale keys (e.g. the removed
-// `grid.count`) that would otherwise be silently dropped and fall back to
-// defaults with no indication anything was wrong.
-function warnUnknownConfigKeys(raw: unknown, source: string) {
-  for (const key of findUnknownConfigKeys(raw)) {
-    log.warn(`Unknown config key "${key}" in "${source}" is ignored.`)
-  }
-}
-
-function parseArgs(): StreamwallConfig {
-  // Load config from user data dir, if it exists
-  const configPath = join(app.getPath('userData'), 'config.toml')
-  log.debug('Reading config from ', configPath)
-
-  let configText: string | null = null
-  try {
-    configText = fs.readFileSync(configPath, 'utf-8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw err
-    }
-  }
-
-  const homeConfig = configText ? parseConfigToml(configText, configPath) : {}
-  if (configText) {
-    warnUnknownConfigKeys(homeConfig, configPath)
-  }
-
-  const argv = yargs()
-    .config(homeConfig)
-    .config('config', (configFilePath) => {
-      const config = parseConfigToml(
-        fs.readFileSync(configFilePath, 'utf-8'),
-        configFilePath,
-      )
-      warnUnknownConfigKeys(config, configFilePath)
-      return config
-    })
-    .group(['log.level'], 'Logging')
-    .option('log.level', {
-      describe:
-        'Verbosity of log output, written to both the console and the log file',
-      choices: LOG_LEVELS,
-      default: 'debug',
-    })
-    .group(['grid.cols', 'grid.rows'], 'Grid dimensions')
-    .option('grid.cols', {
-      number: true,
-      default: 3,
-    })
-    .option('grid.rows', {
-      number: true,
-      default: 3,
-    })
-    .group(
-      [
-        'window.width',
-        'window.height',
-        'window.x',
-        'window.y',
-        'window.frameless',
-        'window.fullscreen',
-        'window.display',
-        'window.background-color',
-        'window.active-color',
-      ],
-      'Window settings',
-    )
-    .option('window.x', {
-      number: true,
-    })
-    .option('window.y', {
-      number: true,
-    })
-    .option('window.width', {
-      number: true,
-      default: 1920,
-    })
-    .option('window.height', {
-      number: true,
-      default: 1080,
-    })
-    .option('window.frameless', {
-      boolean: true,
-      default: false,
-    })
-    .option('window.fullscreen', {
-      describe: 'Open the wall fullscreen (on the selected display, if any)',
-      boolean: true,
-      default: false,
-    })
-    .option('window.display', {
-      describe:
-        'Index of the display to open the wall on (0-based; see --window.fullscreen)',
-      number: true,
-    })
-    .option('window.background-color', {
-      describe: 'Background color of wall (useful for chroma-keying)',
-      default: '#000',
-    })
-    .option('window.active-color', {
-      describe: 'Active (highlight) color of wall',
-      default: '#fff',
-    })
-    .group(['data.interval', 'data.json-url', 'data.toml-file'], 'Datasources')
-    .option('data.interval', {
-      describe: 'Interval (in seconds) for refreshing polled data sources',
-      number: true,
-      default: 30,
-    })
-    .option('data.json-url', {
-      describe: 'Fetch streams from the specified URL(s)',
-      array: true,
-      string: true,
-      default: [],
-    })
-    .option('data.toml-file', {
-      describe: 'Fetch streams from the specified file(s)',
-      normalize: true,
-      array: true,
-      default: [],
-    })
-    .group(['presets'], 'Presets')
-    .option('presets', {
-      describe: 'Enabled built-in preset stream packs (e.g. "de-tv")',
-      array: true,
-      string: true,
-      default: ['de-tv'],
-    })
-    .group(['streamdelay.endpoint', 'streamdelay.key'], 'Streamdelay')
-    .option('streamdelay.endpoint', {
-      describe: 'URL of Streamdelay endpoint',
-      default: 'http://localhost:8404',
-    })
-    .option('streamdelay.key', {
-      describe: 'Streamdelay API key',
-      default: null,
-    })
-    .group(['control'], 'Remote Control')
-    .option('control.endpoint', {
-      describe: 'URL of control server endpoint',
-      default: null,
-    })
-    .group(
-      [
-        'retry.enabled',
-        'retry.delay',
-        'retry.max-delay',
-        'retry.max-retries',
-        'retry.stalled-timeout',
-      ],
-      'Auto-retry',
-    )
-    .option('retry.enabled', {
-      describe: 'Automatically reload views that error or stall',
-      boolean: true,
-      default: true,
-    })
-    .option('retry.delay', {
-      describe: 'Base backoff (in seconds) before the first reload',
-      number: true,
-      default: 5,
-    })
-    .option('retry.max-delay', {
-      describe: 'Maximum backoff (in seconds) between reloads',
-      number: true,
-      default: 60,
-    })
-    .option('retry.max-retries', {
-      describe: 'Maximum number of automatic reloads before giving up',
-      number: true,
-      default: 5,
-    })
-    .option('retry.stalled-timeout', {
-      describe: 'How long (in seconds) a view may stall before it is reloaded',
-      number: true,
-      default: 30,
-    })
-    .group(['park.pause'], 'Fullscreen Parking')
-    .option('park.pause', {
-      describe:
-        'Pause playback of parked (hidden) views instead of keeping them fully live while a stream is expanded to fullscreen',
-      boolean: true,
-      default: false,
-    })
-    .group(
-      [
-        'twitch.channel',
-        'twitch.username',
-        'twitch.token',
-        'twitch.color',
-        'twitch.announce.template',
-        'twitch.announce.interval',
-        'twitch.vote.template',
-        'twitch.vote.interval',
-      ],
-      'Twitch Chat',
-    )
-    .option('twitch.channel', {
-      describe: 'Name of Twitch channel',
-      default: null,
-    })
-    .option('twitch.username', {
-      describe: 'Username of Twitch bot account',
-      default: null,
-    })
-    .option('twitch.token', {
-      describe: 'Password of Twitch bot account',
-      default: null,
-    })
-    .option('twitch.color', {
-      describe: 'Color of Twitch bot username',
-      default: '#ff0000',
-    })
-    .option('twitch.announce.template', {
-      describe: 'Message template for stream announcements',
-      default:
-        'SingsMic <%- stream.source %> <%- stream.city && stream.state ? `(${stream.city} ${stream.state})` : `` %> <%- stream.link %>',
-    })
-    .option('twitch.announce.interval', {
-      describe:
-        'Minimum time interval (in seconds) between re-announcing the same stream',
-      number: true,
-      default: 60,
-    })
-    .option('twitch.announce.delay', {
-      describe: 'Time to dwell on a stream before its details are announced',
-      number: true,
-      default: 30,
-    })
-    .option('twitch.vote.template', {
-      describe: 'Message template for vote result announcements',
-      default: 'Switching to #<%- selectedIdx %> (with <%- voteCount %> votes)',
-    })
-    .option('twitch.vote.interval', {
-      describe: 'Time interval (in seconds) between votes (0 to disable)',
-      number: true,
-      default: 0,
-    })
-    .group(['telemetry.sentry'], 'Telemetry')
-    .option('telemetry.sentry', {
-      describe: 'Enable error reporting to Sentry',
-      boolean: true,
-      default: true,
-    })
-    // Configured only via `[[playlist]]` tables in config.toml (or --config);
-    // not exposed as an individual CLI flag since it's a list of tables.
-    .option('playlist', {
-      default: [],
-    })
-    .help()
-    // https://github.com/yargs/yargs/issues/2137
-    .parseSync(process.argv) as unknown as StreamwallConfig
-
-  // Skip validation when the user only asked for --help, so an invalid config
-  // can never block the help text from being shown.
-  if (!argv.help) {
-    validateConfig(argv)
-  }
-  return argv
-}
+import { buildRetryConfig, buildStreamWindowConfig } from './windowConfig'
 
 async function main(argv: ReturnType<typeof parseArgs>) {
   const db = await loadStorage(
@@ -469,28 +75,8 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   const overlayStreamData = new LocalStreamData()
 
-  const streamWindowConfig = {
-    cols: argv.grid.cols,
-    rows: argv.grid.rows,
-    width: argv.window.width,
-    height: argv.window.height,
-    x: argv.window.x,
-    y: argv.window.y,
-    frameless: argv.window.frameless,
-    fullscreen: argv.window.fullscreen,
-    display: argv.window.display,
-    activeColor: argv.window['active-color'],
-    backgroundColor: argv.window['background-color'],
-  }
-  // The state machine works in milliseconds; the config is in seconds for
-  // consistency with the other interval options.
-  const retryConfig = {
-    enabled: argv.retry.enabled,
-    delay: argv.retry.delay * 1000,
-    maxDelay: argv.retry['max-delay'] * 1000,
-    maxRetries: argv.retry['max-retries'],
-    stalledTimeout: argv.retry['stalled-timeout'] * 1000,
-  }
+  const streamWindowConfig = buildStreamWindowConfig(argv)
+  const retryConfig = buildRetryConfig(argv)
   const streamWindow = new StreamWindow(
     streamWindowConfig,
     retryConfig,
@@ -501,86 +87,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     hasUserConfig,
   })
 
-  // electron-updater has no self-update story for .deb/.rpm installs, so on
-  // Linux it never notifies users. LinuxUpdateChecker polls GitHub Releases
-  // directly instead, and only ever offers a link since those installs go
-  // through the OS package manager, not a self-updater (#433).
-  const repositorySlug = parseRepositorySlug(packageJson.repository)
-  if (process.platform === 'linux') {
-    const linuxUpdateChecker = new LinuxUpdateChecker({
-      currentVersion: app.getVersion(),
-      repository: repositorySlug,
-    })
-    linuxUpdateChecker.on('status', (status) => {
-      log.debug('Update status:', status.state)
-      controlWindow.onUpdateStatus(status)
-    })
-    controlWindow.setUpdateHandlers({
-      getAppVersion: () => app.getVersion(),
-      getStatus: () => linuxUpdateChecker.getStatus(),
-      download: () => {
-        // Never reachable from the banner (`available` carries
-        // `canDownload: false` on Linux), but the handler bundle requires one.
-      },
-      install: () => {
-        // Never reachable from the banner (no install action is offered for
-        // `available`), but the handler bundle requires one.
-      },
-      openReleaseNotes: () => {
-        const status = linuxUpdateChecker.getStatus()
-        if (status.state === 'available' && status.releaseUrl) {
-          shell.openExternal(status.releaseUrl)
-        }
-      },
-    })
-    linuxUpdateChecker.start()
-  } else {
-    // electron-updater instead of Electron's built-in Squirrel autoUpdater
-    // (#432): Squirrel starts downloading as soon as it finds an update and
-    // reports no byte-level progress, so it could neither ask for consent nor
-    // show how far along a download is. The release feed is GitHub Releases,
-    // with latest.yml/latest-mac.yml generated at publish time (see
-    // forge.updateMetadata.ts).
-    const backend =
-      process.platform === 'darwin' ? new MacUpdater() : new NsisUpdater()
-    backend.logger = log
-    if (repositorySlug) {
-      const [owner, repo] = repositorySlug.split('/')
-      backend.setFeedURL({ provider: 'github', owner, repo })
-    }
-    const appUpdater = new AppUpdater(backend, repositorySlug)
-    appUpdater.on('status', (status) => {
-      if (status.state === 'error') {
-        // Not surfaced in the UI: a failed update check is routine (offline,
-        // rate limit) and not actionable by the user.
-        log.warn('Update check failed:', status.message)
-      } else {
-        log.debug('Update status:', status.state)
-      }
-      controlWindow.onUpdateStatus(status)
-    })
-    controlWindow.setUpdateHandlers({
-      getAppVersion: () => app.getVersion(),
-      getStatus: () => appUpdater.getStatus(),
-      download: () => appUpdater.download(),
-      install: () => appUpdater.install(),
-      openReleaseNotes: () => {
-        const status = appUpdater.getStatus()
-        if (status.state === 'available' && status.releaseUrl) {
-          shell.openExternal(status.releaseUrl)
-        } else if (status.state === 'ready' && status.releaseNotesUrl) {
-          shell.openExternal(status.releaseNotesUrl)
-        }
-      },
-    })
-    // In development there is no packaged app to update against; electron-
-    // updater would just log a skip message every interval.
-    if (app.isPackaged && repositorySlug) {
-      appUpdater.start()
-    }
-  }
+  setupAppUpdater({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    currentVersion: app.getVersion(),
+    repositorySlug: parseRepositorySlug(packageJson.repository),
+    controlWindow,
+    openExternal: (url) => shell.openExternal(url),
+  })
 
-  let browseWindow: BrowserWindow | null = null
   let streamdelayClient: StreamdelayClient | null = null
 
   log.debug('Creating initial state...')
@@ -601,53 +116,26 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   function updateViewsFromStateDoc() {
     try {
-      // When a view is expanded to fullscreen (issue #362), override the
-      // derived layout so the expanded stream fills every grid cell -- one
-      // wall-spanning box, with the other views parked (hidden but kept
-      // alive, not torn down) behind it, so a later collapse can reposition
-      // them instead of reloading them from scratch (issue #369). This
-      // override is transient: it reads the expanded stream from
-      // `viewsState` but never writes back, so the persisted grid
-      // assignments are untouched and a later collapse restores the normal
-      // layout verbatim.
-      const { fullscreenViewIdx } = clientState
-      if (fullscreenViewIdx != null) {
-        const streamId = viewsState
-          .get(String(fullscreenViewIdx))
-          ?.get('streamId')
-        const stream = clientState.streams.find((s) => s._id === streamId)
-        if (stream) {
-          streamWindow.setViews(
-            fullscreenViewContentMap(
-              streamWindowConfig.cols,
-              streamWindowConfig.rows,
-              { url: stream.link, kind: stream.kind || 'video' },
-            ),
-            clientState.streams,
-            { parkUnused: true },
-          )
-          return
-        }
-        // The expanded stream is gone (its cell was cleared or it dropped out
-        // of the data source): fall back to the normal layout and clear the
-        // stale override so clients stop rendering a phantom expansion. The
-        // setViews() below emits a state update that broadcasts the cleared
-        // value.
+      const wallViews = deriveWallViews({
+        fullscreenViewIdx: clientState.fullscreenViewIdx,
+        streams: clientState.streams,
+        viewsState,
+        cols: streamWindowConfig.cols,
+        rows: streamWindowConfig.rows,
+      })
+      if (wallViews.mode === 'fullscreen') {
+        streamWindow.setViews(wallViews.contentMap, clientState.streams, {
+          parkUnused: true,
+        })
+        return
+      }
+      // The expanded stream is gone: clear the stale override so clients stop
+      // rendering a phantom expansion. The setViews() below emits a state
+      // update that broadcasts the cleared value.
+      if (wallViews.clearedFullscreen) {
         clientState = { ...clientState, fullscreenViewIdx: null }
       }
-      const viewContentMap = new Map()
-      for (const [key, viewData] of viewsState) {
-        const streamId = viewData.get('streamId')
-        const stream = clientState.streams.find((s) => s._id === streamId)
-        if (!stream) {
-          continue
-        }
-        viewContentMap.set(key, {
-          url: stream.link,
-          kind: stream.kind || 'video',
-        })
-      }
-      streamWindow.setViews(viewContentMap, clientState.streams)
+      streamWindow.setViews(wallViews.contentMap, clientState.streams)
     } catch (err) {
       log.error('Error updating views', err)
     }
@@ -698,197 +186,49 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
   playlistScheduler.start()
 
-  const onCommand = async (
-    msg: ControlCommand,
-    source: 'local' | 'uplink' = 'local',
-  ): Promise<{ error: string } | void> => {
-    log.debug('Received message:', msg)
-
-    // The remote control-server uplink is untrusted: re-validate every command
-    // against the uplink allowlist so a compromised or man-in-the-middled
-    // server cannot drive code execution (browse/dev-tools) on the desktop.
-    const uplinkGate = checkUplinkCommandGate(msg, source)
-    if (!uplinkGate.allowed) {
-      log.warn(
-        'Rejecting disallowed command from control uplink:',
-        uplinkGate.type,
-      )
-      return
-    }
-
-    if (msg.type === 'set-listening-view') {
-      log.debug('Setting listening view:', msg.viewId)
-      streamWindow.setListeningView(msg.viewId)
-    } else if (msg.type === 'set-view-background-listening') {
-      log.debug('Setting view background listening:', msg.viewId, msg.listening)
-      streamWindow.setViewBackgroundListening(msg.viewId, msg.listening)
-    } else if (msg.type === 'set-view-blurred') {
-      log.debug('Setting view blurred:', msg.viewId, msg.blurred)
-      streamWindow.setViewBlurred(msg.viewId, msg.blurred)
-    } else if (msg.type === 'set-view-volume') {
-      log.debug('Setting view volume:', msg.viewId, msg.volume)
-      streamWindow.setViewVolume(msg.viewId, msg.volume)
-    } else if (msg.type === 'rotate-stream') {
-      log.debug('Rotating stream:', msg.url, msg.rotation)
-      overlayStreamData.update(msg.url, {
-        rotation: msg.rotation,
-      })
-    } else if (msg.type === 'update-custom-stream') {
-      log.debug('Updating custom stream:', msg.url)
-      localStreamData.update(msg.url, msg.data)
-    } else if (msg.type === 'delete-custom-stream') {
-      log.debug('Deleting custom stream:', msg.url)
-      localStreamData.delete(msg.url)
-    } else if (msg.type === 'reload-view') {
-      log.debug('Reloading view:', msg.viewId)
-      streamWindow.reloadView(msg.viewId)
-    } else if (msg.type === 'set-view-fullscreen') {
-      // Runtime-only wall zoom (issue #362): remember which view fills the
-      // wall (or null) and re-derive the layout. Broadcast the new value first
-      // so clients render the expansion consistently, then re-lay-out the wall.
-      //
-      // The command carries a stable view id (issue #397); resolve it to the
-      // cell that view currently occupies so the cell-based `fullscreenViewIdx`
-      // (which the layout state and clients still key on) reflects the view the
-      // operator actually double-clicked, even if a resize just moved it. If
-      // the view has no placement, `getViewAnchorIdx` returns null and no
-      // expansion happens.
-      log.debug('Setting view fullscreen:', msg.viewId, msg.fullscreen)
-      updateState({
-        fullscreenViewIdx: msg.fullscreen
-          ? streamWindow.getViewAnchorIdx(msg.viewId)
-          : null,
-      })
-      updateViewsFromStateDoc()
-    } else if (msg.type === 'browse' || msg.type === 'dev-tools') {
-      if (browseWindow && !browseWindow.isDestroyed()) {
-        // DevTools needs a fresh webContents to work. Close any existing window.
-        browseWindow.destroy()
-        browseWindow = null
-      }
-      if (!browseWindow || browseWindow.isDestroyed()) {
-        browseWindow = new BrowserWindow({
-          webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            // Keep the operator's browsing isolated from the stream views and
-            // off disk by using a dedicated ephemeral partition.
-            partition: BROWSE_PARTITION,
-            sandbox: true,
-          },
-        })
-        hardenSession(browseWindow.webContents.session)
-        // Deny popups; the browse window is meant to show a single URL.
-        denyWindowOpen(browseWindow.webContents)
-      }
-      if (msg.type === 'browse') {
-        log.debug('Attempting to browse URL:', msg.url)
-        try {
-          await ensureValidURL(
-            msg.url,
-            createSessionHostResolver(browseWindow.webContents.session),
-          )
-          browseWindow.loadURL(msg.url)
-        } catch (error) {
-          log.error('Invalid URL:', msg.url)
-          log.error('Error:', error)
-          return { error: 'invalid url' }
-        }
-      } else if (msg.type === 'dev-tools') {
-        log.debug('Opening DevTools for view:', msg.viewId)
-        streamWindow.openDevTools(msg.viewId, browseWindow.webContents)
-      }
-    } else if (msg.type === 'set-stream-censored' && streamdelayClient) {
-      log.debug('Setting stream censored:', msg.isCensored)
-      streamdelayClient.setCensored(msg.isCensored)
-    } else if (msg.type === 'set-stream-running' && streamdelayClient) {
-      log.debug('Setting stream running:', msg.isStreamRunning)
-      streamdelayClient.setStreamRunning(msg.isStreamRunning)
-    } else if (msg.type === 'set-grid-size') {
-      applyGridResize(
-        {
-          viewsState,
-          transact: (fn) => stateDoc.transact(fn),
-          getCols: () => streamWindowConfig.cols,
-          getRows: () => streamWindowConfig.rows,
-          setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
-        },
-        msg.cols,
-        msg.rows,
-      )
-
-      // streamWindow.config, streamWindowConfig and clientState.config are the
-      // same shared object, and setGridSize mutates it in place. Broadcast that
-      // shared object via updateState({}) rather than detaching a copy, so a
-      // later window resize keeps the overlay/control grid in sync with the wall
-      // (issue #14). The wall itself was already re-laid-out by the stateDoc
-      // observer during applyGridResize's transact — now that the config holds
-      // the new dimensions (issue #15) — so no explicit updateViewsFromStateDoc()
-      // call is needed here.
-      updateState({})
-    } else if (msg.type === 'save-layout-preset') {
-      log.debug('Saving layout preset:', msg.name)
-      const preset = buildLayoutPreset(
-        {
-          viewsState,
-          cols: streamWindowConfig.cols,
-          rows: streamWindowConfig.rows,
-        },
-        randomUUID(),
-        msg.name,
-      )
-      const layoutPresets = addLayoutPreset(clientState.layoutPresets, preset)
+  const onCommand = createOnCommand({
+    streamWindow,
+    overlayStreamData,
+    localStreamData,
+    viewsState,
+    transact: (fn) => stateDoc.transact(fn),
+    streamWindowConfig,
+    getClientState: () => clientState,
+    getStreamdelayClient: () => streamdelayClient,
+    updateState,
+    updateViewsFromStateDoc,
+    persistLayoutPresets: (layoutPresets) => {
       safeUpdate(db, (data) => {
         data.layoutPresets = layoutPresets
       })
-      updateState({ layoutPresets })
-    } else if (msg.type === 'load-layout-preset') {
-      const preset = clientState.layoutPresets.find(
-        (p) => p.id === msg.presetId,
-      )
-      if (preset) {
-        log.debug('Loading layout preset:', preset.name)
-        applyLayoutPreset(
-          {
-            viewsState,
-            transact: (fn) => stateDoc.transact(fn),
-            setGridSize: (cols, rows) => streamWindow.setGridSize(cols, rows),
-          },
-          preset,
-        )
-        // See the set-grid-size branch above: broadcast the shared config
-        // object via updateState({}) rather than detaching a copy.
-        updateState({})
-      }
-    } else if (msg.type === 'delete-layout-preset') {
-      log.debug('Deleting layout preset:', msg.presetId)
-      const layoutPresets = clientState.layoutPresets.filter(
-        (p) => p.id !== msg.presetId,
-      )
+    },
+    persistFavorites: (favorites) => {
       safeUpdate(db, (data) => {
-        data.layoutPresets = layoutPresets
+        data.favorites = favorites
       })
-      updateState({ layoutPresets })
-    } else if (msg.type === 'add-favorite') {
-      const favorites = addFavorite(clientState.favorites, msg.url)
-      if (favorites !== clientState.favorites) {
-        log.debug('Adding favorite:', msg.url)
-        safeUpdate(db, (data) => {
-          data.favorites = favorites
-        })
-        updateState({ favorites })
-      }
-    } else if (msg.type === 'remove-favorite') {
-      const favorites = removeFavorite(clientState.favorites, msg.url)
-      if (favorites !== clientState.favorites) {
-        log.debug('Removing favorite:', msg.url)
-        safeUpdate(db, (data) => {
-          data.favorites = favorites
-        })
-        updateState({ favorites })
-      }
-    }
-  }
+    },
+    createBrowseWindow: () => {
+      const win = new BrowserWindow({
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          // Keep the operator's browsing isolated from the stream views and
+          // off disk by using a dedicated ephemeral partition.
+          partition: BROWSE_PARTITION,
+          sandbox: true,
+        },
+      })
+      hardenSession(win.webContents.session)
+      // Deny popups; the browse window is meant to show a single URL.
+      denyWindowOpen(win.webContents)
+      return win
+    },
+    validateBrowseURL: (url, browseWindow) =>
+      ensureValidURL(
+        url,
+        createSessionHostResolver(browseWindow.webContents.session),
+      ),
+  })
 
   const stateEmitter = new EventEmitter<{ state: [StreamwallState] }>()
 
@@ -997,77 +337,13 @@ async function main(argv: ReturnType<typeof parseArgs>) {
       })
   })
 
-  const controlConnection = decideControlEndpointConnection(
-    argv.control.endpoint,
-  )
-  if (
-    controlConnection.action === 'skip' &&
-    controlConnection.reason === 'insecure'
-  ) {
-    log.error(
-      `Refusing to connect to insecure control endpoint "${controlConnection.endpoint}". ` +
-        'The control connection must use wss:// (or ws:// to a loopback host).',
-    )
-  } else if (controlConnection.action === 'connect') {
-    log.debug('Connecting to control server...')
-    // Move the uplink secret out of the URL query string and into an
-    // Authorization header so it never reaches server or proxy access logs.
-    const { url: controlURL, authorization } = parseControlEndpoint(
-      controlConnection.endpoint,
-    )
-    const ws = new ReconnectingWebSocket(controlURL, [], {
-      WebSocket: makeControlWebSocket(authorization),
-      maxReconnectionDelay: 5000,
-      minReconnectionDelay: 100 + Math.random() * 500,
-      reconnectionDelayGrowFactor: 1.25,
-      // The 'open' handler below always re-sends the full client state and
-      // Yjs doc as soon as the connection (re)opens, so anything sent while
-      // disconnected is stale by the time it could be delivered. Disable the
-      // library's default unbounded queue rather than let it buffer full
-      // state snapshots for as long as the control server is unreachable.
-      maxEnqueuedMessages: 0,
-    })
-    ws.binaryType = 'arraybuffer'
-    ws.addEventListener('open', () => {
-      log.debug('Control WebSocket connected.')
-      ws.send(JSON.stringify({ type: 'state', state: clientState }))
-      ws.send(Y.encodeStateAsUpdate(stateDoc))
-    })
-    ws.addEventListener('close', () => {
-      log.debug('Control WebSocket disconnected.')
-    })
-    ws.addEventListener('message', (ev) => {
-      const route = routeUplinkWsMessage(ev.data)
-      switch (route.kind) {
-        case 'yjs-update':
-          Y.applyUpdate(stateDoc, route.update, UPLINK_ORIGIN)
-          return
-        case 'parse-error':
-          log.warn('Failed to parse control WebSocket message:', route.error)
-          return
-        case 'uplink-error':
-          log.warn(
-            'Control server refused the uplink connection:',
-            route.message,
-          )
-          return
-        case 'command':
-          dispatchCommand(onCommand, route.message as ControlCommand, 'uplink')
-      }
-    })
-    stateEmitter.on('state', () => {
-      if (!isSocketOpen(ws)) {
-        return
-      }
-      ws.send(JSON.stringify({ type: 'state', state: clientState }))
-    })
-    stateDoc.on('update', (update, origin) => {
-      if (!shouldForwardUpdateToUplink(origin) || !isSocketOpen(ws)) {
-        return
-      }
-      ws.send(update)
-    })
-  }
+  connectControlUplink({
+    endpoint: argv.control.endpoint,
+    stateDoc,
+    stateEmitter,
+    getClientState: () => clientState,
+    onCommand,
+  })
 
   if (argv.streamdelay.key) {
     log.debug('Setting up Streamdelay client...')
@@ -1110,37 +386,15 @@ async function main(argv: ReturnType<typeof parseArgs>) {
     }
   }
 
-  const dataSources = [
-    ...argv.data['json-url'].map((url) => {
-      log.debug('Setting data source from json-url:', url)
-      return markDataSource(
-        pollDataURL(
-          url,
-          argv.data.interval,
-          trackDataSourceHealth(url, 'json-url'),
-        ),
-        'json-url',
-      )
-    }),
-    ...argv.data['toml-file'].map((path) => {
-      log.debug('Setting data source from toml-file:', path)
-      return markDataSource(
-        watchDataFile(path, trackDataSourceHealth(path, 'toml-file')),
-        'toml-file',
-      )
-    }),
-    ...argv.presets.flatMap((packId) => {
-      const pack = loadPresetPack(packId)
-      if (!pack) {
-        log.warn(`Unknown preset pack "${packId}", skipping`)
-        return []
-      }
-      log.debug('Loading preset pack:', pack.id)
-      return [markDataSource(presetDataSource(pack), `preset:${pack.id}`)]
-    }),
-    markDataSource(localStreamData.gen(), 'custom'),
-    markDataSource(overlayStreamData.gen(), OVERLAY_DATA_SOURCE_NAME),
-  ]
+  const dataSources = buildDataSources({
+    jsonUrls: argv.data['json-url'],
+    tomlFiles: argv.data['toml-file'],
+    presets: argv.presets,
+    interval: argv.data.interval,
+    localStreamData,
+    overlayStreamData,
+    trackDataSourceHealth,
+  })
 
   for await (const streams of combineDataSources(dataSources, idGen)) {
     updateState({ streams })
@@ -1155,9 +409,12 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 function init() {
   initLogger()
   log.debug('Parsing command line arguments...')
-  let argv: ReturnType<typeof parseArgs>
+  let argv: StreamwallConfig
   try {
-    argv = parseArgs()
+    argv = parseArgs({
+      configDir: app.getPath('userData'),
+      argv: process.argv,
+    })
   } catch (err) {
     const outcome = resolveConfigInitError(err)
     if (outcome.action === 'exit') {

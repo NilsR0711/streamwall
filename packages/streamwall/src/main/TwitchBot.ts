@@ -9,7 +9,7 @@ import * as ejs from 'ejs'
 import EventEmitter from 'events'
 import { StreamList, StreamwallState } from 'streamwall-shared'
 import { matchesState } from 'xstate'
-import { StreamwallConfig } from '.'
+import { StreamwallConfig } from './cliArgs'
 import log from './logger'
 
 const VOTE_RE = /^!(\d+)$/
