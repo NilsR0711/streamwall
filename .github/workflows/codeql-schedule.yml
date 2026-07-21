@@ -1,0 +1,44 @@
+name: CodeQL (weekly)
+
+# The periodic CodeQL scan, catching patterns that were only disclosed after
+# the code was last touched. The analysis itself lives in codeql.yml, which
+# ci.yml calls for pushes and pull requests.
+#
+# It is a workflow of its own rather than a second trigger on codeql.yml so
+# that the reporting job below can hold `issues: write`: a called workflow is
+# capped at the permissions of its caller, and ci.yml — the other caller —
+# neither has nor should have that scope (#514).
+on:
+  schedule:
+    # Mondays, 03:30 UTC.
+    - cron: '30 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-schedule-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    uses: ./.github/workflows/codeql.yml
+
+  # A failing weekly run is invisible without this: nobody is emailed about a
+  # scheduled run, so the report goes into the issue tracker instead (#514).
+  report:
+    needs: [analyze]
+    if: always()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/scheduled-report.yml
+    with:
+      result: >-
+        ${{ contains(needs.*.result, 'failure') && 'failure'
+         || contains(needs.*.result, 'success') && 'success'
+         || 'none' }}

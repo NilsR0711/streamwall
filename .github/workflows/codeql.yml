@@ -1,13 +1,13 @@
 name: CodeQL
 
-# Push and pull-request analysis is driven by ci.yml, which calls this
-# workflow as a job of the `CI OK` gate — that is what makes a CodeQL failure
-# block a merge. Only the periodic scan is triggered here.
+# The analysis itself, with no trigger of its own. ci.yml calls it as a job of
+# the `CI OK` gate — that is what makes a CodeQL failure block a merge — and
+# codeql-schedule.yml calls it for the weekly scan. The schedule lives there
+# rather than here because a caller can never grant a called workflow more
+# permissions than it holds itself, so the weekly run's `issues: write`
+# reporting job would otherwise have to be granted by ci.yml as well.
 on:
   workflow_call:
-  schedule:
-    # Weekly scan (Mondays 03:30 UTC) to catch newly disclosed patterns.
-    - cron: '30 3 * * 1'
 
 permissions:
   contents: read

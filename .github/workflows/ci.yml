@@ -271,7 +271,7 @@ jobs:
 
   # Static security analysis. Runs here — instead of standing alone — so that
   # a CodeQL failure fails the single `CI OK` check branch protection requires.
-  # The same analysis runs weekly from codeql.yml's schedule.
+  # The same analysis runs weekly from codeql-schedule.yml.
   codeql:
     name: CodeQL
     needs: changes
