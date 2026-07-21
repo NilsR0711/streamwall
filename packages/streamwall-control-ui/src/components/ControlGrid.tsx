@@ -15,6 +15,13 @@ import { ResizeHandles } from '../ResizeHandles.tsx'
 import { type ViewInfo } from '../streamwallState.tsx'
 import { type useTileDrag } from '../useTileDrag.ts'
 import { type useTileResize } from '../useTileResize.ts'
+import {
+  asCellIdx,
+  asCellIdxs,
+  asViewId,
+  type CellIdx,
+  type ViewId,
+} from '../viewAddressing.ts'
 import { resolveAnchorIdx } from '../viewPlacement.ts'
 
 /**
@@ -59,23 +66,23 @@ export function ControlGrid({
   showDebug: boolean
   sharedState: CollabData | undefined
   views: ViewInfo[]
-  stateIdxMap: Map<number, ViewInfo>
+  stateIdxMap: Map<CellIdx, ViewInfo>
   streams: StreamData[]
-  fullscreenViewIdx: number | null
+  fullscreenViewIdx: CellIdx | null
   tileDrag: ReturnType<typeof useTileDrag>
   tileResize: ReturnType<typeof useTileResize>
-  onSetView: (idx: number, streamId: string) => void
-  onFocusInput: (idx: number) => void
+  onSetView: (idx: CellIdx, streamId: string) => void
+  onFocusInput: (idx: CellIdx) => void
   onBlurInput: () => void
-  onToggleFullscreen: (viewId: number) => void
-  onSetListening: (viewId: number, listening: boolean) => void
-  onSetBackgroundListening: (viewId: number, listening: boolean) => void
-  onSetBlurred: (viewId: number, blurred: boolean) => void
-  onSetVolume: (viewId: number, volume: number) => void
-  onReloadView: (viewId: number) => void
+  onToggleFullscreen: (viewId: ViewId) => void
+  onSetListening: (viewId: ViewId, listening: boolean) => void
+  onSetBackgroundListening: (viewId: ViewId, listening: boolean) => void
+  onSetBlurred: (viewId: ViewId, blurred: boolean) => void
+  onSetVolume: (viewId: ViewId, volume: number) => void
+  onReloadView: (viewId: ViewId) => void
   onRotateView: (streamId: string) => void
   onBrowse: (streamId: string) => void
-  onDevTools: (viewId: number) => void
+  onDevTools: (viewId: ViewId) => void
 }) {
   const {
     hoveringIdx,
@@ -101,7 +108,7 @@ export function ControlGrid({
       <StyledGridInputs>
         {range(0, rows).map((y) =>
           range(0, cols).map((x) => {
-            const idx = cols * y + x
+            const idx = asCellIdx(cols * y + x)
             const { streamId } = sharedState?.views?.[idx] ?? {}
             const isMoveHighlight =
               moveStart != null &&
@@ -228,7 +235,7 @@ export function ControlGrid({
       </StyledGridPreview>
       {views.map(
         ({ state, isListening, isBackgroundListening, isBlurred, volume }) => {
-          const { id: viewId, pos } = state.context
+          const { pos } = state.context
           if (!pos) {
             return null
           }
@@ -239,11 +246,14 @@ export function ControlGrid({
           if (!streamId) {
             return null
           }
+          // The overlay addresses its view by id for the control commands and
+          // by anchor cell for the swap gesture — two distinct axes (#507).
+          const [anchorIdx] = asCellIdxs(pos.spaces)
           return (
             <GridControls
               key={pos.spaces[0]}
-              idx={pos.spaces[0]}
-              viewId={viewId}
+              idx={anchorIdx}
+              viewId={asViewId(state.context.id)}
               streamId={streamId}
               onToggleFullscreen={onToggleFullscreen}
               style={{

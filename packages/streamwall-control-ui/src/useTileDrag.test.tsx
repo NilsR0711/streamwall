@@ -4,6 +4,7 @@ import { type StreamwallRole } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import { useTileDrag } from './useTileDrag.ts'
+import { asCellIdx, type CellIdx } from './viewAddressing.ts'
 
 // react-hotkeys-hook resolves the real `react` package internally, which
 // crashes under this package's preact/happy-dom test environment (unrelated
@@ -80,12 +81,9 @@ function Harness({
   doc: Y.Doc
   role?: StreamwallRole | null
 }) {
-  const stateIdxMap = new Map([
-    [0, { spaces: [0] }],
-    [1, { spaces: [1] }],
-    [2, { spaces: [2] }],
-    [3, { spaces: [3] }],
-  ])
+  const stateIdxMap = new Map<CellIdx, { spaces: number[] }>(
+    [0, 1, 2, 3].map((idx) => [asCellIdx(idx), { spaces: [idx] }]),
+  )
   const {
     hoveringIdx,
     swapStartIdx,
@@ -108,7 +106,7 @@ function Harness({
       <div data-swap-start={swapStartIdx ?? ''} />
       <div data-move-start={moveStart?.idx ?? ''} />
       <div data-move-target={moveTargetIdx ?? ''} />
-      <button type="button" onClick={() => handleSwapView(0)}>
+      <button type="button" onClick={() => handleSwapView(asCellIdx(0))}>
         start-swap-from-0
       </button>
     </div>

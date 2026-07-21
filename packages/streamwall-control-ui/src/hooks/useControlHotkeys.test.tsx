@@ -4,6 +4,12 @@ import type { ViewState } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { hotkeyTriggers } from '../hotkeyLabel.ts'
 import type { ViewInfo } from '../streamwallState.tsx'
+import {
+  asCellIdx,
+  asCellIdxs,
+  type CellIdx,
+  type ViewId,
+} from '../viewAddressing.ts'
 import { useControlHotkeys } from './useControlHotkeys.ts'
 
 const useHotkeysMock = vi.hoisted(() => vi.fn())
@@ -55,14 +61,14 @@ function makeViewInfo(
     isBlurred: false,
     isPaused: false,
     volume: 1,
-    spaces,
+    spaces: asCellIdxs(spaces),
     ...overrides,
   }
 }
 
-function renderHotkeys(stateIdxMap: Map<number, ViewInfo>) {
-  const handleSetListening = vi.fn<(viewId: number, on: boolean) => void>()
-  const handleSetBlurred = vi.fn<(viewId: number, on: boolean) => void>()
+function renderHotkeys(stateIdxMap: Map<CellIdx, ViewInfo>) {
+  const handleSetListening = vi.fn<(viewId: ViewId, on: boolean) => void>()
+  const handleSetBlurred = vi.fn<(viewId: ViewId, on: boolean) => void>()
   function Probe() {
     useControlHotkeys({
       stateIdxMap,
@@ -108,9 +114,9 @@ describe('useControlHotkeys view addressing (#470)', () => {
   // cell, while `viewId` is the Electron `webContents.id`. The fixtures below
   // deliberately keep the two apart so a regression cannot pass by coincidence.
   test('audio-listen hotkey dispatches the view id, not the cell index', () => {
-    const stateIdxMap = new Map<number, ViewInfo>([
-      [0, makeViewInfo(42, [0])],
-      [1, makeViewInfo(43, [1])],
+    const stateIdxMap = new Map<CellIdx, ViewInfo>([
+      [asCellIdx(0), makeViewInfo(42, [0])],
+      [asCellIdx(1), makeViewInfo(43, [1])],
     ])
     const { handleSetListening } = renderHotkeys(stateIdxMap)
 
@@ -120,8 +126,8 @@ describe('useControlHotkeys view addressing (#470)', () => {
   })
 
   test('audio-listen hotkey toggles off using the view id', () => {
-    const stateIdxMap = new Map<number, ViewInfo>([
-      [0, makeViewInfo(42, [0], { isListening: true })],
+    const stateIdxMap = new Map<CellIdx, ViewInfo>([
+      [asCellIdx(0), makeViewInfo(42, [0], { isListening: true })],
     ])
     const { handleSetListening } = renderHotkeys(stateIdxMap)
 
@@ -131,8 +137,11 @@ describe('useControlHotkeys view addressing (#470)', () => {
   })
 
   test('second audio layer offsets by 20 cells and still sends the view id', () => {
-    const stateIdxMap = new Map<number, ViewInfo>([
-      [hotkeyTriggers.length, makeViewInfo(77, [hotkeyTriggers.length])],
+    const stateIdxMap = new Map<CellIdx, ViewInfo>([
+      [
+        asCellIdx(hotkeyTriggers.length),
+        makeViewInfo(77, [hotkeyTriggers.length]),
+      ],
     ])
     const { handleSetListening } = renderHotkeys(stateIdxMap)
 
@@ -142,9 +151,9 @@ describe('useControlHotkeys view addressing (#470)', () => {
   })
 
   test('blur hotkey dispatches the view id, not the cell index', () => {
-    const stateIdxMap = new Map<number, ViewInfo>([
-      [0, makeViewInfo(42, [0])],
-      [1, makeViewInfo(43, [1], { isBlurred: true })],
+    const stateIdxMap = new Map<CellIdx, ViewInfo>([
+      [asCellIdx(0), makeViewInfo(42, [0])],
+      [asCellIdx(1), makeViewInfo(43, [1], { isBlurred: true })],
     ])
     const { handleSetBlurred } = renderHotkeys(stateIdxMap)
 
@@ -154,9 +163,9 @@ describe('useControlHotkeys view addressing (#470)', () => {
   })
 
   test('second blur layer offsets by 20 cells and still sends the view id', () => {
-    const stateIdxMap = new Map<number, ViewInfo>([
+    const stateIdxMap = new Map<CellIdx, ViewInfo>([
       [
-        hotkeyTriggers.length + 2,
+        asCellIdx(hotkeyTriggers.length + 2),
         makeViewInfo(88, [hotkeyTriggers.length + 2]),
       ],
     ])

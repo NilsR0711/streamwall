@@ -12,6 +12,7 @@ import {
   type StreamwallConnection,
   type ViewInfo,
 } from './index.tsx'
+import { asCellIdx, asCellIdxs } from './viewAddressing.ts'
 
 vi.mock('react-icons/fa', () => ({
   FaExchangeAlt: () => null,
@@ -87,7 +88,7 @@ function makeView(streamId: string, spaces: number[]): ViewInfo {
     isBlurred: false,
     isPaused: false,
     volume: 1,
-    spaces,
+    spaces: asCellIdxs(spaces),
   }
 }
 
@@ -175,7 +176,7 @@ describe('ControlUI double-click fullscreen', () => {
       baseConnection({
         send: (msg) => sent.push(msg),
         views: [makeView('s1', [0, 1])],
-        fullscreenViewIdx: 1,
+        fullscreenViewIdx: asCellIdx(1),
       }),
     )
 
@@ -199,7 +200,7 @@ describe('ControlUI double-click fullscreen', () => {
     const root = renderControlUI(
       baseConnection({
         views: [makeView('s1', [0, 1])],
-        fullscreenViewIdx: 1,
+        fullscreenViewIdx: asCellIdx(1),
       }),
     )
 

@@ -13,6 +13,7 @@ import {
   type StreamwallConnection,
   type ViewInfo,
 } from './index.tsx'
+import { asCellIdx, asCellIdxs, type CellIdx } from './viewAddressing.ts'
 
 // react-icons renders through preact/compat's Context.Consumer, which
 // currently crashes under this package's happy-dom test environment
@@ -95,9 +96,9 @@ function renderControlUI(role: StreamwallRole | null): {
     state: 'idle',
   }
 
-  const stateIdxMap = new Map<number, ViewInfo>([
-    [0, { spaces: [0] } as ViewInfo],
-    [1, { spaces: [1] } as ViewInfo],
+  const stateIdxMap = new Map<CellIdx, ViewInfo>([
+    [asCellIdx(0), { spaces: asCellIdxs([0]) } as ViewInfo],
+    [asCellIdx(1), { spaces: asCellIdxs([1]) } as ViewInfo],
   ])
 
   const connection: StreamwallConnection = {

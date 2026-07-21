@@ -27,6 +27,7 @@ import { StyledDataContainer } from './StyledButton.tsx'
 import { useServerStatus } from './useServerStatus.ts'
 import { useTileDrag } from './useTileDrag.ts'
 import { useTileResize } from './useTileResize.ts'
+import { type CellIdx } from './viewAddressing.ts'
 
 // Re-exported for `streamwall-control-client` and `streamwall`'s renderer,
 // which mount it alongside `<ControlUI>` — its implementation now lives in
@@ -106,7 +107,7 @@ export function ControlUI({
     role,
   })
 
-  const [focusedInputIdx, setFocusedInputIdx] = useState<number | undefined>()
+  const [focusedInputIdx, setFocusedInputIdx] = useState<CellIdx | undefined>()
   const handleBlurInput = useCallback(() => setFocusedInputIdx(undefined), [])
 
   const {

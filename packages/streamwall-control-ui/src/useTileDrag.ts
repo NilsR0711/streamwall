@@ -8,6 +8,7 @@ import {
   resolveMoveTarget,
 } from './gestures'
 import { computeSwap, type SwapBox } from './gridInteractions'
+import { asCellIdx, type CellIdx } from './viewAddressing.ts'
 
 interface TileInfo {
   spaces: number[]
@@ -30,12 +31,12 @@ export function useTileDrag({
   cols: number | null | undefined
   rows: number | null | undefined
   stateDoc: Y.Doc
-  stateIdxMap: Map<number, TileInfo>
+  stateIdxMap: Map<CellIdx, TileInfo>
   role: StreamwallRole | null
 }) {
-  const [swapStartIdx, setSwapStartIdx] = useState<number | undefined>()
+  const [swapStartIdx, setSwapStartIdx] = useState<CellIdx | undefined>()
   const handleSwapView = useCallback(
-    (idx: number) => {
+    (idx: CellIdx) => {
       if (!stateIdxMap.has(idx)) {
         return
       }
@@ -63,7 +64,7 @@ export function useTileDrag({
   // swap whose read boxes changed since it started). Low impact in practice
   // since concurrent operators rarely target the same cells simultaneously.
   const swapBoxes = useCallback(
-    (fromIdx: number, toIdx: number) => {
+    (fromIdx: CellIdx, toIdx: CellIdx) => {
       if (cols == null || rows == null || !roleCan(role, 'mutate-state-doc')) {
         return
       }
@@ -94,7 +95,7 @@ export function useTileDrag({
   )
 
   const handleSwap = useCallback(
-    (toIdx: number) => {
+    (toIdx: CellIdx) => {
       if (swapStartIdx === undefined) {
         return
       }
@@ -104,7 +105,7 @@ export function useTileDrag({
     [swapBoxes, swapStartIdx],
   )
 
-  const [hoveringIdx, setHoveringIdx] = useState<number>()
+  const [hoveringIdx, setHoveringIdx] = useState<CellIdx>()
   const updateHoveringIdx = useCallback(
     (ev: PointerEvent) => {
       if (
@@ -116,16 +117,15 @@ export function useTileDrag({
       }
       const { width, height, left, top } =
         ev.currentTarget.getBoundingClientRect()
-      setHoveringIdx(
-        computeHoveringIdx(
-          cols,
-          rows,
-          width,
-          height,
-          ev.clientX - left,
-          ev.clientY - top,
-        ),
+      const idx = computeHoveringIdx(
+        cols,
+        rows,
+        width,
+        height,
+        ev.clientX - left,
+        ev.clientY - top,
       )
+      setHoveringIdx(idx === undefined ? undefined : asCellIdx(idx))
     },
     [setHoveringIdx, cols, rows],
   )
@@ -136,9 +136,9 @@ export function useTileDrag({
   // dragging, so `updateHoveringIdx`'s own bounds check covers that case.
   const clearHoveringIdx = useCallback(() => setHoveringIdx(undefined), [])
   const [moveStart, setMoveStart] = useState<
-    { idx: number; x: number; y: number } | undefined
+    { idx: CellIdx; x: number; y: number } | undefined
   >()
-  const [moveTargetIdx, setMoveTargetIdx] = useState<number | undefined>()
+  const [moveTargetIdx, setMoveTargetIdx] = useState<CellIdx | undefined>()
 
   const handleGridPointerDown = useCallback(
     (ev: PointerEvent) => {
@@ -181,7 +181,7 @@ export function useTileDrag({
           ev.clientY,
         )
         if (targetIdx != null) {
-          swapBoxes(moveStart.idx, targetIdx)
+          swapBoxes(moveStart.idx, asCellIdx(targetIdx))
         }
       }
       setMoveStart(undefined)

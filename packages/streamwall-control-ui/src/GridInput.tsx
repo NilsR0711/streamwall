@@ -4,6 +4,7 @@ import { Color, idColor, roleCan, type StreamwallRole } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { type ColorInstance } from './colorTypes.ts'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
+import { type CellIdx } from './viewAddressing.ts'
 
 const StyledGridInputContainer = styled.div`
   position: absolute;
@@ -46,13 +47,13 @@ export function GridInput({
 }: {
   style: JSX.HTMLAttributes['style']
   onPointerDown: JSX.PointerEventHandler<HTMLInputElement>
-  idx: number
-  onChangeSpace: (idx: number, value: string) => void
+  idx: CellIdx
+  onChangeSpace: (idx: CellIdx, value: string) => void
   spaceValue: string
   isHighlighted: boolean
   role: StreamwallRole | null
-  onFocus: (idx: number) => void
-  onBlur: (idx: number) => void
+  onFocus: (idx: CellIdx) => void
+  onBlur: (idx: CellIdx) => void
 }) {
   const handleFocus = useCallback(() => {
     onFocus(idx)

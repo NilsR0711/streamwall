@@ -15,6 +15,7 @@ import {
 import { matchesState } from 'xstate'
 import * as Y from 'yjs'
 import { type CollabData } from './collabData.ts'
+import { asCellIdx, asCellIdxs, type CellIdx } from './viewAddressing.ts'
 
 export interface ViewInfo {
   state: ViewState
@@ -28,7 +29,8 @@ export interface ViewInfo {
    */
   isPaused: boolean
   volume: number
-  spaces: number[]
+  /** The grid cells this view occupies — never view ids (issue #507). */
+  spaces: CellIdx[]
 }
 
 /**
@@ -59,8 +61,8 @@ export interface StreamwallConnection {
    * Anchor cell index of the view currently expanded to fill the whole wall,
    * or `null` for the normal grid layout (issue #362).
    */
-  fullscreenViewIdx: number | null
-  stateIdxMap: Map<number, ViewInfo>
+  fullscreenViewIdx: CellIdx | null
+  stateIdxMap: Map<CellIdx, ViewInfo>
   delayState: StreamDelayStatus | null | undefined
   authState?: StreamwallState['auth']
   layoutPresets: LayoutPreset[]
@@ -78,7 +80,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         customStreams: [],
         views: [],
         fullscreenViewIdx: null,
-        stateIdxMap: new Map(),
+        stateIdxMap: new Map<CellIdx, ViewInfo>(),
         delayState: undefined,
         authState: undefined,
         layoutPresets: [],
@@ -99,8 +101,8 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       favorites,
       dataSourceHealth,
     } = state
-    const stateIdxMap = new Map()
-    const views = []
+    const stateIdxMap = new Map<CellIdx, ViewInfo>()
+    const views: ViewInfo[] = []
     for (const viewState of stateViews) {
       const { pos } = viewState.context
       const isListening = matchesState(
@@ -119,8 +121,8 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         'displaying.running.pause.paused',
         viewState.state,
       )
-      const spaces = pos?.spaces ?? []
-      const viewInfo = {
+      const spaces = asCellIdxs(pos?.spaces ?? [])
+      const viewInfo: ViewInfo = {
         state: viewState,
         isListening,
         isBackgroundListening,
@@ -130,11 +132,11 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         spaces,
       }
       views.push(viewInfo)
+      // Every occupied cell points at the view itself. Two views can only
+      // claim the same cell while the wall is mid-relayout; the later one wins,
+      // as it did when this merged onto a placeholder object (issue #507).
       for (const space of spaces) {
-        if (!stateIdxMap.has(space)) {
-          stateIdxMap.set(space, {})
-        }
-        Object.assign(stateIdxMap.get(space), viewInfo)
+        stateIdxMap.set(space, viewInfo)
       }
     }
 
@@ -146,7 +148,10 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       authState: auth,
       delayState: streamdelay,
       views,
-      fullscreenViewIdx,
+      // Despite its name this is the anchor *cell* of the expanded view, not a
+      // view id (issue #362).
+      fullscreenViewIdx:
+        fullscreenViewIdx == null ? null : asCellIdx(fullscreenViewIdx),
       config,
       streams,
       customStreams,

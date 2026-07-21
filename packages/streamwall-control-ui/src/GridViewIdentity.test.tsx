@@ -12,6 +12,7 @@ import {
   type StreamwallConnection,
   type ViewInfo,
 } from './index.tsx'
+import { asCellIdx, asCellIdxs, type CellIdx } from './viewAddressing.ts'
 
 vi.mock('react-icons/fa', () => ({
   FaExchangeAlt: () => null,
@@ -78,7 +79,7 @@ function makeView(streamIdx: number, spaces: number[]): ViewInfo {
     isBlurred: false,
     isPaused: false,
     volume: 1,
-    spaces,
+    spaces: asCellIdxs(spaces),
   }
 }
 
@@ -107,8 +108,8 @@ function makeConnection(viewCount: number): StreamwallConnection {
     makeStream(`s${i}`),
   )
   const views = Array.from({ length: viewCount }, (_, i) => makeView(i, [i]))
-  const stateIdxMap = new Map<number, ViewInfo>()
-  views.forEach((v, i) => stateIdxMap.set(i, v))
+  const stateIdxMap = new Map<CellIdx, ViewInfo>()
+  views.forEach((v, i) => stateIdxMap.set(asCellIdx(i), v))
 
   return {
     isConnected: true,
@@ -173,7 +174,7 @@ describe('grid view identity across a shrinking view list', () => {
       // Simulate the first cell's view disappearing (e.g. it's stream
       // stopped): only the second view remains, now at array position 0.
       connection.views = [connection.views[1]]
-      connection.stateIdxMap = new Map([[1, connection.views[0]]])
+      connection.stateIdxMap = new Map([[asCellIdx(1), connection.views[0]]])
       render(<ControlUI connection={connection} />, root)
     })
 

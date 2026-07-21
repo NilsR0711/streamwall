@@ -12,6 +12,7 @@ import * as Y from 'yjs'
 import { copyTextToClipboard } from '../clipboard.ts'
 import { type CollabData } from '../collabData.ts'
 import { type Invite, parseInviteResponse } from '../invite.ts'
+import { asCellIdx, type CellIdx, type ViewId } from '../viewAddressing.ts'
 import {
   resolveEagerWriteStreamId,
   resolveTargetViewIdx,
@@ -47,14 +48,14 @@ export function useGridCommands({
   stateDoc: Y.Doc
   cols: number | null
   rows: number | null
-  fullscreenViewIdx: number | null
-  focusedInputIdx: number | undefined
+  fullscreenViewIdx: CellIdx | null
+  focusedInputIdx: CellIdx | undefined
   favoritesSet: ReadonlySet<string>
   onInvite: (invite: Invite) => void
   onError: (message: string) => void
 }) {
   const handleSetView = useCallback(
-    (idx: number, streamId: string) => {
+    (idx: CellIdx, streamId: string) => {
       const resolved = resolveEagerWriteStreamId(streams, streamId)
       if (resolved === undefined) {
         return
@@ -68,7 +69,7 @@ export function useGridCommands({
   )
 
   const handleSetListening = useCallback(
-    (viewId: number, listening: boolean) => {
+    (viewId: ViewId, listening: boolean) => {
       send({
         type: 'set-listening-view',
         viewId: listening ? viewId : null,
@@ -82,7 +83,7 @@ export function useGridCommands({
   // back to the grid. Purely runtime state -- the persisted layout is untouched
   // (issue #362).
   const handleToggleFullscreen = useCallback(
-    (viewId: number) => {
+    (viewId: ViewId) => {
       send({
         type: 'set-view-fullscreen',
         viewId,
@@ -122,7 +123,7 @@ export function useGridCommands({
   )
 
   const handleSetBackgroundListening = useCallback(
-    (viewId: number, listening: boolean) => {
+    (viewId: ViewId, listening: boolean) => {
       send({
         type: 'set-view-background-listening',
         viewId,
@@ -133,7 +134,7 @@ export function useGridCommands({
   )
 
   const handleSetBlurred = useCallback(
-    (viewId: number, blurred: boolean) => {
+    (viewId: ViewId, blurred: boolean) => {
       send({
         type: 'set-view-blurred',
         viewId,
@@ -144,7 +145,7 @@ export function useGridCommands({
   )
 
   const handleSetVolume = useCallback(
-    (viewId: number, volume: number) => {
+    (viewId: ViewId, volume: number) => {
       send({
         type: 'set-view-volume',
         viewId,
@@ -155,7 +156,7 @@ export function useGridCommands({
   )
 
   const handleReloadView = useCallback(
-    (viewId: number) => {
+    (viewId: ViewId) => {
       send({
         type: 'reload-view',
         viewId,
@@ -194,7 +195,7 @@ export function useGridCommands({
   )
 
   const handleDevTools = useCallback(
-    (viewId: number) => {
+    (viewId: ViewId) => {
       send({
         type: 'dev-tools',
         viewId,
@@ -219,7 +220,7 @@ export function useGridCommands({
       if (targetIdx === undefined) {
         return
       }
-      handleSetView(targetIdx, streamId)
+      handleSetView(asCellIdx(targetIdx), streamId)
     },
     [cols, rows, sharedState, focusedInputIdx, handleSetView],
   )
