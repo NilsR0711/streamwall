@@ -120,6 +120,17 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: npm -w streamwall-control-client run build
+      # Hand the assets to the E2E job, whose control server serves the same
+      # `dist/`. Without this it runs `vite build` a second time in its own
+      # Playwright globalSetup. Kept for a day only — this is a CI handoff,
+      # not a release artifact.
+      - name: Upload control-client dist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: control-client-dist
+          path: packages/streamwall-control-client/dist
+          if-no-files-found: error
+          retention-days: 1
 
   # Packaging smoke test for the Electron desktop app. Catches Vite/Forge
   # misconfiguration, native module unpacking (bufferutil, utf-8-validate)
@@ -150,9 +161,13 @@ jobs:
   # against a real control server + fake Streamwall uplink. Linux-only (the
   # Playwright browser install with system deps is Linux-only), so this stays
   # out of the cross-OS `test` matrix above.
+  #
+  # The client build comes from the `build` job as an artifact; the suite's
+  # globalSetup then skips its own `vite build` (see the env flag below), so
+  # a CI run builds the control client exactly once.
   e2e:
     name: E2E smoke (control client)
-    needs: changes
+    needs: [changes, build]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -161,9 +176,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      - name: Download control-client dist
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: control-client-dist
+          path: packages/streamwall-control-client/dist
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run E2E smoke tests
+        env:
+          STREAMWALL_E2E_SKIP_CLIENT_BUILD: '1'
         run: npm run test:e2e
 
   # Self-hosting smoke test: builds the control-server image the way

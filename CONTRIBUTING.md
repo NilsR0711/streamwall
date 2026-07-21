@@ -102,7 +102,10 @@ npm run test:e2e                             # from the repo root
 
 The suite builds `streamwall-control-client` itself before the first test (a
 Playwright `globalSetup` hook, not the npm script), so the server has real
-`dist/` assets to serve — no separate build step is needed.
+`dist/` assets to serve — no separate build step is needed. Set
+`STREAMWALL_E2E_SKIP_CLIENT_BUILD=1` to reuse an existing `dist/` instead; CI
+does this and downloads the assets from the build job so a run builds the
+control client only once.
 
 ### Self-hosting image
 

@@ -54,6 +54,64 @@ test('codeql.yml is reusable and does not run standalone on pull requests', () =
   )
 })
 
+// The control client is expensive to build, and the E2E job needs exactly the
+// artifact the build job already produced. Handing it over keeps CI down to a
+// single `vite build` per run (issue #489).
+test('the E2E job reuses the build job artifact instead of rebuilding', () => {
+  const ci = readWorkflow('ci.yml')
+  const distPath = 'packages/streamwall-control-client/dist'
+
+  const upload = ci.jobs.build.steps.find((step) =>
+    step.uses?.startsWith('actions/upload-artifact@'),
+  )
+  assert.ok(upload, 'the build job must upload the control-client dist')
+  assert.equal(upload.with.path, distPath)
+  assert.equal(
+    upload.with['if-no-files-found'],
+    'error',
+    'an empty upload would hand the E2E job nothing to serve',
+  )
+
+  assert.ok(
+    ci.jobs.e2e.needs.includes('build'),
+    'the E2E job must wait for the build job that produces its assets',
+  )
+
+  const download = ci.jobs.e2e.steps.find((step) =>
+    step.uses?.startsWith('actions/download-artifact@'),
+  )
+  assert.ok(download, 'the E2E job must download the control-client dist')
+  assert.equal(download.with.name, upload.with.name)
+  assert.equal(download.with.path, distPath)
+})
+
+// The E2E job only gets to skip its own build because the downloaded artifact
+// is already in place; the opt-out is an env var so local runs keep building.
+test('the E2E global setup honors the skip flag the E2E job sets', () => {
+  const ci = readWorkflow('ci.yml')
+  const runStep = ci.jobs.e2e.steps.find((step) =>
+    step.run?.includes('npm run test:e2e'),
+  )
+
+  assert.ok(runStep, 'the E2E job must run the E2E suite')
+  const flags = Object.keys(runStep.env ?? {})
+  assert.equal(
+    flags.length,
+    1,
+    'expected exactly one env flag on the E2E run step',
+  )
+  const [flag] = flags
+  assert.equal(runStep.env[flag], '1')
+
+  const globalSetup = readDoc(
+    'packages/streamwall-control-e2e/tests/global-setup.ts',
+  )
+  assert.ok(
+    globalSetup.includes(flag),
+    `global-setup.ts must read the ${flag} flag the workflow sets`,
+  )
+})
+
 // The documented list is what contributors and maintainers configure branch
 // protection from, so it has to name the checks the workflows actually report.
 test('CONTRIBUTING documents exactly the required status checks', () => {
