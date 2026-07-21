@@ -11,6 +11,7 @@ import {
 import { uniqueRand62 } from '../auth.ts'
 import { SESSION_COOKIE_NAME } from '../config.ts'
 import { type AppContext, type Client } from '../context.ts'
+import { identityDebugFields, identityFields } from '../logger.ts'
 import { applyValidatedDocUpdate } from '../stateDocGuard.ts'
 import { createWsMessageGuard, queueWebSocketMessages } from '../wsSupport.ts'
 
@@ -88,6 +89,13 @@ export function registerClientRoutes(
       }
       ctx.clients.set(clientId, client)
 
+      // Child logger so every entry from this connection carries the same
+      // correlation ids, and only non-identifying identity fields.
+      const log = request.log.child({
+        clientId,
+        ...identityFields(identity),
+      })
+
       const pingInterval = setInterval(() => {
         ws.ping()
       }, 20 * 1000)
@@ -96,27 +104,17 @@ export function registerClientRoutes(
         ctx.clients.delete(clientId)
         clearInterval(pingInterval)
 
-        console.log(
-          'Client',
-          clientId,
-          'disconnected from',
-          request.ip,
-          client.identity,
-        )
+        log.info('Client disconnected')
       })
 
-      console.log(
-        'Client',
-        clientId,
-        'connected from',
-        request.ip,
-        client.identity,
-      )
+      log.info('Client connected')
+      log.debug(identityDebugFields(identity), 'Client session authorized')
 
       const allowMessage = createWsMessageGuard(
         ws,
         ctx.wsMessageLimitConfig,
         `client ${clientId} from ${request.ip}`,
+        log,
       )
 
       handleMessage(async (rawData) => {
@@ -144,9 +142,7 @@ export function registerClientRoutes(
 
         if (rawData instanceof ArrayBuffer) {
           if (!roleCan(identity.role, 'mutate-state-doc')) {
-            console.warn(
-              `Unauthorized attempt to edit state doc by "${identity.name}"`,
-            )
+            log.warn('Unauthorized attempt to edit the state doc')
             respond({ error: 'unauthorized' })
             return
           }
@@ -162,8 +158,8 @@ export function registerClientRoutes(
             // it server-side would leave the operator UI out of sync with the
             // shared doc, so close the socket (like a rate-limit violation) to
             // force a clean reconnect and resync.
-            console.warn(
-              `Rejected invalid state doc update from client ${clientId}, closing to force resync`,
+            log.warn(
+              'Rejected invalid state doc update, closing to force resync',
             )
             ws.close(1008, 'invalid state update')
           }
@@ -174,7 +170,7 @@ export function registerClientRoutes(
         try {
           raw = JSON.parse(rawData.toString())
         } catch (err) {
-          console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
+          log.warn({ bytes: rawData.length }, 'Received unexpected ws data')
           return
         }
 
@@ -194,9 +190,9 @@ export function registerClientRoutes(
         // from being forwarded to — and executed on — the desktop.
         const parsed = controlCommandMessageSchema.safeParse(raw)
         if (!parsed.success) {
-          console.warn(
-            `Rejected invalid control message from client ${clientId}:`,
-            parsed.error.issues[0]?.message,
+          log.warn(
+            { issue: parsed.error.issues[0]?.message },
+            'Rejected invalid control message',
           )
           respond({ error: 'invalid message' })
           return
@@ -205,15 +201,13 @@ export function registerClientRoutes(
 
         try {
           if (!roleCan(identity.role, msg.type)) {
-            console.warn(
-              `Unauthorized attempt to "${msg.type}" by "${identity.name}"`,
-            )
+            log.warn(`Unauthorized attempt to "${msg.type}"`)
             respond({ error: 'unauthorized' })
             return
           }
 
           if (msg.type === 'create-invite') {
-            console.debug('Creating invite for role:', msg.role)
+            log.debug({ inviteRole: msg.role }, 'Creating invite')
             const { tokenId, secret } = await ctx.auth.createToken({
               kind: 'invite',
               role: msg.role as StreamwallRole,
@@ -221,7 +215,7 @@ export function registerClientRoutes(
             })
             respond({ name: msg.name, secret, tokenId })
           } else if (msg.type === 'delete-token') {
-            console.debug('Deleting token:', msg.tokenId)
+            log.debug('Deleting token')
             ctx.auth.deleteToken(msg.tokenId)
           } else {
             streamwallConn.ws.send(
@@ -229,7 +223,7 @@ export function registerClientRoutes(
             )
           }
         } catch (err) {
-          console.error('Failed to handle ws message:', rawData, err)
+          log.error({ err }, 'Failed to handle ws message')
           ctx.reportCaughtError(err)
         }
       })

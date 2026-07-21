@@ -90,6 +90,36 @@ host, rate limit, malformed response) is non-fatal and simply leaves the last
 known result in place. See
 [`docs/self-hosting.md`](../../docs/self-hosting.md) for the update procedure.
 
+### Logging
+
+The server logs through Fastify's built-in [pino](https://getpino.io) logger:
+one structured JSON object per line on stdout, each carrying a severity level
+and the request correlation id (`reqId`) of the connection it belongs to.
+Client WebSocket entries additionally carry the per-connection `clientId`, so a
+whole session can be filtered out of an aggregated log store.
+
+| Variable    | Default | Description                                                                                                 |
+| ----------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `LOG_LEVEL` | `info`  | One of `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent`. An unknown value falls back to `info`. |
+
+**Redaction policy.** Logs are assumed to end up somewhere less trusted than
+the server itself (shared hosting, a log aggregator, a support ticket), so
+identifiable session metadata never reaches them:
+
+- The operator-supplied token **name** is never logged, at any level.
+- **Token ids** are never logged at `info` and above — neither as a field nor
+  inside a request path: the ids embedded in `/streamwall/:id/ws` and
+  `/invite/:id` are replaced with `[redacted]` in request log lines.
+- At `debug`, a four-character `tokenIdPrefix` is logged instead, which is
+  enough to correlate entries within one process but useless as a credential.
+- The `role` is logged, since authorization decisions are unreadable without
+  it and a role is not identifying on its own.
+
+The startup banner (server version, uplink endpoint, admin invite link) is
+written directly to stdout rather than through the logger, so it stays visible
+regardless of `LOG_LEVEL`. It is the one place credentials are printed on
+purpose — see [Running](#running).
+
 ### Telemetry
 
 Crash reporting to [Sentry](https://sentry.io) (via `@sentry/node`) is

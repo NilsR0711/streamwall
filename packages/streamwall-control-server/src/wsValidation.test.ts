@@ -12,6 +12,7 @@ import type {
 import * as Y from 'yjs'
 import {
   buildTestApp,
+  captureLogs,
   connectStreamwallUplink,
   listenTestApp,
   redeemInviteAndConnectClient,
@@ -36,21 +37,6 @@ function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
 /** Narrows to a bare connection-level rejection (never has `response`). */
 const isBareError = (m: ServerToClientMessage): m is ClientErrorMessage =>
   !('response' in m) && 'error' in m
-
-/** Temporarily replaces `console.warn`, capturing every call made while active. */
-function spyOnConsoleWarn() {
-  const calls: unknown[][] = []
-  const original = console.warn
-  console.warn = (...args: unknown[]) => {
-    calls.push(args)
-  }
-  return {
-    calls,
-    restore: () => {
-      console.warn = original
-    },
-  }
-}
 
 // A per-test override of the update cap must not leak into other test files.
 after(() => {
@@ -82,7 +68,8 @@ async function connectStreamwallAndClient({
     delete process.env.STREAMWALL_WS_UPDATE_MAX_BYTES
   }
 
-  const { app, auth } = await buildTestApp({ baseURL: BASE_URL })
+  const logs = captureLogs()
+  const { app, auth } = await buildTestApp({ baseURL: BASE_URL, logs })
   after(() => app.close())
   const port = await listenTestApp(app)
 
@@ -101,7 +88,7 @@ async function connectStreamwallAndClient({
     role,
   )
 
-  return { app, auth, streamwallWs, clientWs, streamwall, client }
+  return { app, auth, streamwallWs, clientWs, streamwall, client, logs }
 }
 
 test('does not forward an out-of-bounds command to the Streamwall uplink', async () => {
@@ -163,24 +150,17 @@ test('rejects an initial state payload missing a required field (issue #387)', a
   // rejected by the full streamwallStateSchema check before a StateWrapper is
   // ever built, exactly like a payload with no `state` key at all.
   const { streams: _streams, ...withoutStreams } = VALID_STATE
-  const warn = spyOnConsoleWarn()
 
-  try {
-    const { client } = await connectStreamwallAndClient({
-      stateMessage: { type: 'state', state: withoutStreams },
-    })
+  const { client, logs } = await connectStreamwallAndClient({
+    stateMessage: { type: 'state', state: withoutStreams },
+  })
 
-    const response = await client.waitFor(isBareError)
-    assert.equal(response.error, 'streamwall disconnected')
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Rejected invalid Streamwall state payload'),
-      ),
-      'a structured warning must be logged for the rejected payload',
-    )
-  } finally {
-    warn.restore()
-  }
+  const response = await client.waitFor(isBareError)
+  assert.equal(response.error, 'streamwall disconnected')
+  assert.ok(
+    logs.hasMessage('Rejected invalid Streamwall state payload'),
+    'a structured warning must be logged for the rejected payload',
+  )
 })
 
 test('rejects an initial state payload with a malformed view state machine snapshot (issue #387)', async () => {
@@ -225,26 +205,19 @@ test('accepts an initial state payload with legitimately empty views', async () 
 })
 
 test('drops a malformed state update on an already-connected uplink without crashing the session (issue #387)', async () => {
-  const { streamwallWs, clientWs, streamwall } =
+  const { streamwallWs, clientWs, streamwall, logs } =
     await connectStreamwallAndClient()
 
-  const warn = spyOnConsoleWarn()
-  try {
-    // Malicious/buggy follow-up update: `streams` is not an array at all.
-    streamwallWs.send(
-      JSON.stringify({ type: 'state', state: { ...VALID_STATE, streams: {} } }),
-    )
-    await delay(150)
+  // Malicious/buggy follow-up update: `streams` is not an array at all.
+  streamwallWs.send(
+    JSON.stringify({ type: 'state', state: { ...VALID_STATE, streams: {} } }),
+  )
+  await delay(150)
 
-    assert.ok(
-      warn.calls.some((args) =>
-        String(args[0]).includes('Rejected invalid Streamwall state payload'),
-      ),
-      'the malformed update must be rejected with a structured warning',
-    )
-  } finally {
-    warn.restore()
-  }
+  assert.ok(
+    logs.hasMessage('Rejected invalid Streamwall state payload'),
+    'the malformed update must be rejected with a structured warning',
+  )
 
   // The session must still be alive and functional: a subsequent valid
   // command from the client is still forwarded to the (still-connected)

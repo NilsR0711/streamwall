@@ -98,6 +98,10 @@ export async function initialInviteCodes({
  * Logs the bootstrap credentials to stdout. The uplink secret is printed only
  * when it was just minted (shown once); on subsequent starts we print the
  * endpoint without it and point the operator at how to rotate.
+ *
+ * Deliberately written to `console` rather than the structured logger: this
+ * banner is the operator's only chance to copy these credentials, so it must
+ * stay visible whatever `LOG_LEVEL` is set to (issue #410).
  */
 export function logBootstrap({
   uplinkSecret,

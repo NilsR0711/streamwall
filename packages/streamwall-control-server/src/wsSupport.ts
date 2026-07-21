@@ -1,6 +1,7 @@
 import WebSocket from 'ws'
 
 import type { WsMessageLimitConfig } from './config.ts'
+import type { Logger } from './logger.ts'
 import { TokenBucket } from './rateLimiter.ts'
 
 /**
@@ -63,6 +64,7 @@ export function createWsMessageGuard(
   ws: WebSocket,
   config: WsMessageLimitConfig,
   label: string,
+  log: Logger,
 ): () => boolean {
   const bucket = new TokenBucket({
     capacity: config.capacity,
@@ -77,7 +79,7 @@ export function createWsMessageGuard(
       return true
     }
     closed = true
-    console.warn(`WebSocket message rate limit exceeded, closing ${label}`)
+    log.warn(`WebSocket message rate limit exceeded, closing ${label}`)
     try {
       ws.send(JSON.stringify({ error: 'rate limit exceeded' }))
     } catch {

@@ -6,8 +6,10 @@ import type WebSocket from 'ws'
 import * as Y from 'yjs'
 
 import type { SentryCaptureClient } from './sentry.ts'
+import type { LogCapture } from './testHelpers.ts'
 import {
   buildTestApp,
+  captureLogs,
   connectStreamwallUplink,
   listenTestApp,
   redeemInviteAndConnectClient,
@@ -22,6 +24,16 @@ function updateFrom(mutate: (doc: Y.Doc) => void): Uint8Array {
 }
 
 const BASE_URL = 'http://localhost:3000'
+
+/** Finds the captured log entry with exactly this message. */
+function findLogged(logs: LogCapture, msg: string) {
+  return logs.entries.find((entry) => entry.msg === msg)
+}
+
+/** Reads the message off pino's serialized `err` field of a log entry. */
+function loggedErrorMessage(entry: Record<string, unknown>) {
+  return (entry.err as { message?: string } | undefined)?.message
+}
 
 /**
  * `@fastify/websocket` bundles its own nested `ws` install
@@ -56,10 +68,12 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
   process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
 
   const sentryClient = fakeSentryClient()
+  const logs = captureLogs()
   const { app, auth } = await buildTestApp({
     baseURL: BASE_URL,
     sentryEnabled: true,
     sentryClient,
+    logs,
   })
   t.after(() => app.close())
   const port = await listenTestApp(app)
@@ -95,8 +109,6 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
     },
   )
 
-  const errorMock = t.mock.method(console, 'error')
-
   streamwallWs.send(
     JSON.stringify({
       type: 'state',
@@ -108,13 +120,11 @@ test('a synchronous ws.send() failure while broadcasting a state delta is report
   assert.equal(sentryClient.calls.length, 1)
   assert.equal(sentryClient.calls[0], sendError)
 
-  const loggedCall = errorMock.mock.calls.find(
-    (call) => call.arguments[0] === 'failed to send client state delta',
-  )
-  assert.ok(loggedCall, 'expected the send failure to be logged locally too')
+  const logged = findLogged(logs, 'Failed to send client state delta')
+  assert.ok(logged, 'expected the send failure to be logged locally too')
   assert.equal(
-    loggedCall?.arguments.at(-1),
-    sendError,
+    loggedErrorMessage(logged),
+    sendError.message,
     'the local log should include the caught error, not just the client',
   )
 })
@@ -124,10 +134,12 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
   process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX = '10000'
 
   const sentryClient = fakeSentryClient()
+  const logs = captureLogs()
   const { app, auth } = await buildTestApp({
     baseURL: BASE_URL,
     sentryEnabled: true,
     sentryClient,
+    logs,
   })
   t.after(() => app.close())
   const port = await listenTestApp(app)
@@ -161,8 +173,6 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
     },
   )
 
-  const errorMock = t.mock.method(console, 'error')
-
   streamwallWs.send(updateFrom((d) => d.getMap('test').set('a', 'b')))
   await delay(150)
 
@@ -170,23 +180,19 @@ test('a synchronous ws.send() failure while relaying a doc update is reported to
   assert.equal(sentryClient.calls[0], sendError)
   assert.equal(sentryClient.calls[1], sendError)
 
-  const uplinkCall = errorMock.mock.calls.find(
-    (call) => call.arguments[0] === 'Failed to send Streamwall doc update',
-  )
-  assert.ok(uplinkCall, 'expected the uplink send failure to be logged')
+  const uplinkEntry = findLogged(logs, 'Failed to send Streamwall doc update')
+  assert.ok(uplinkEntry, 'expected the uplink send failure to be logged')
   assert.equal(
-    uplinkCall?.arguments.at(-1),
-    sendError,
+    loggedErrorMessage(uplinkEntry),
+    sendError.message,
     'the local log should include the caught error',
   )
 
-  const clientCall = errorMock.mock.calls.find(
-    (call) => call.arguments[0] === 'Failed to send client doc update:',
-  )
-  assert.ok(clientCall, 'expected the client send failure to be logged')
+  const clientEntry = findLogged(logs, 'Failed to send client doc update')
+  assert.ok(clientEntry, 'expected the client send failure to be logged')
   assert.equal(
-    clientCall?.arguments.at(-1),
-    sendError,
+    loggedErrorMessage(clientEntry),
+    sendError.message,
     'the local log should include the caught error, not just the client',
   )
 })

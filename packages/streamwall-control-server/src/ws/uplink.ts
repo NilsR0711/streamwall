@@ -8,6 +8,7 @@ import {
 import { StateWrapper } from '../auth.ts'
 import { STREAMWALL_PING_TIMEOUT_MS } from '../config.ts'
 import type { AppContext } from '../context.ts'
+import { identityDebugFields, identityFields } from '../logger.ts'
 import {
   bearerToken,
   createWsMessageGuard,
@@ -47,12 +48,10 @@ export function registerUplinkRoute(
         return
       }
 
+      const log = request.log.child(identityFields(tokenInfo))
+
       if (ctx.currentStreamwallWs != null) {
-        console.warn(
-          'Rejecting Streamwall connection (already connected) from',
-          request.ip,
-          tokenInfo,
-        )
+        log.warn('Rejecting Streamwall connection (already connected)')
         ws.send(JSON.stringify({ error: 'streamwall already connected' }))
         ws.close()
         return
@@ -64,7 +63,7 @@ export function registerUplinkRoute(
         ws.ping()
         const pongTimeout = setTimeout(() => {
           if (ws.readyState === ws.OPEN) {
-            console.warn(
+            log.warn(
               `Streamwall timeout: no pong within ${STREAMWALL_PING_TIMEOUT_MS}ms. Closing connection.`,
             )
             ws.terminate()
@@ -76,7 +75,7 @@ export function registerUplinkRoute(
       }, STREAMWALL_PING_TIMEOUT_MS)
 
       ws.on('close', () => {
-        console.log('Streamwall disconnected')
+        log.info('Streamwall disconnected')
         ctx.currentStreamwallWs = null
         ctx.currentStreamwallConn = null
         clearInterval(pingInterval)
@@ -89,12 +88,14 @@ export function registerUplinkRoute(
       let clientState: StateWrapper | null = null
       const stateDoc = new Y.Doc()
 
-      console.log('Streamwall connecting from', request.ip, tokenInfo)
+      log.info('Streamwall connecting')
+      log.debug(identityDebugFields(tokenInfo), 'Streamwall uplink authorized')
 
       const allowMessage = createWsMessageGuard(
         ws,
         ctx.wsMessageLimitConfig,
         `streamwall connection from ${request.ip}`,
+        log,
       )
 
       handleMessage((rawData) => {
@@ -114,7 +115,7 @@ export function registerUplinkRoute(
         try {
           raw = JSON.parse(rawData.toString())
         } catch (err) {
-          console.warn('Received unexpected ws data: ', rawData.length, 'bytes')
+          log.warn({ bytes: rawData.length }, 'Received unexpected ws data')
           return
         }
 
@@ -123,9 +124,9 @@ export function registerUplinkRoute(
         // shared StateWrapper around garbage (which crashed clients on view()).
         const parsed = controlStateMessageSchema.safeParse(raw)
         if (!parsed.success) {
-          console.warn(
-            'Rejected invalid Streamwall state message:',
-            parsed.error.issues[0]?.message,
+          log.warn(
+            { issue: parsed.error.issues[0]?.message },
+            'Rejected invalid Streamwall state message',
           )
           return
         }
@@ -136,9 +137,9 @@ export function registerUplinkRoute(
         // view() or corrupts the role-scoped projection (issue #387).
         const stateResult = streamwallStateSchema.safeParse(parsed.data.state)
         if (!stateResult.success) {
-          console.warn(
-            'Rejected invalid Streamwall state payload:',
-            stateResult.error.issues[0]?.message,
+          log.warn(
+            { issue: stateResult.error.issues[0]?.message },
+            'Rejected invalid Streamwall state payload',
           )
           return
         }
@@ -162,12 +163,12 @@ export function registerUplinkRoute(
               stateDoc,
             }
 
-            console.log('Streamwall connected from', request.ip, tokenInfo)
+            log.info('Streamwall connected')
           } else {
             clientState.update(state)
           }
         } catch (err) {
-          console.error('Failed to handle ws message:', rawData, err)
+          log.error({ err }, 'Failed to handle ws message')
           ctx.reportCaughtError(err)
         }
       })
@@ -176,7 +177,7 @@ export function registerUplinkRoute(
         try {
           ws.send(update)
         } catch (err) {
-          console.error('Failed to send Streamwall doc update', err)
+          log.error({ err }, 'Failed to send Streamwall doc update')
           ctx.reportCaughtError(err)
         }
         for (const client of ctx.clients.values()) {
@@ -186,7 +187,10 @@ export function registerUplinkRoute(
           try {
             client.ws.send(update)
           } catch (err) {
-            console.error('Failed to send client doc update:', client, err)
+            log.error(
+              { err, clientId: client.clientId },
+              'Failed to send client doc update',
+            )
             ctx.reportCaughtError(err)
           }
         }

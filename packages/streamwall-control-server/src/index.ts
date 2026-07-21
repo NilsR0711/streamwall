@@ -22,6 +22,7 @@ import {
   createBroadcastStateDeltas,
 } from './context.ts'
 import { registerInviteRoutes } from './inviteExchange/invite.ts'
+import { getLoggerOptions, type LogLevel } from './logger.ts'
 import {
   captureException,
   initSentry,
@@ -51,12 +52,18 @@ export async function initApp({
   baseURL,
   clientStaticPath,
   db: injectedDb,
+  logLevel,
+  logStream,
   sentryEnabled: injectedSentryEnabled,
   sentryClient,
   trustProxy: injectedTrustProxy,
   updateChecker: injectedUpdateChecker,
 }: AppOptions & {
   db?: StorageDB
+  /** Overrides the level from `LOG_LEVEL` (used by tests to silence or widen output). */
+  logLevel?: LogLevel
+  /** Test-only sink for log output; defaults to pino's stdout destination. */
+  logStream?: { write(line: string): void }
   /** Test-only override so specs can exercise Sentry-enabled paths without a real DSN. */
   sentryEnabled?: boolean
   /** Test-only override for the client `captureException(...)` reports to. */
@@ -69,13 +76,19 @@ export async function initApp({
   const expectedOrigin = new URL(baseURL).origin
   const isSecure = baseURL.startsWith('https')
 
-  const db = injectedDb ?? (await loadStorage())
-  const auth = new Auth(db.data.auth)
-  const updateChecker = injectedUpdateChecker ?? createUpdateChecker()
-
   const trustProxy =
     injectedTrustProxy ?? parseTrustProxy(process.env.STREAMWALL_TRUST_PROXY)
-  const app = Fastify({ trustProxy })
+  const app = Fastify({
+    trustProxy,
+    logger: {
+      ...getLoggerOptions(logLevel),
+      ...(logStream && { stream: logStream }),
+    },
+  })
+
+  const db = injectedDb ?? (await loadStorage())
+  const auth = new Auth(db.data.auth, app.log)
+  const updateChecker = injectedUpdateChecker ?? createUpdateChecker()
 
   // Opt-in crash reporting (see sentry.ts for why there is no default DSN).
   // Must be wired up before routes are registered so their errors are covered.
@@ -98,11 +111,13 @@ export async function initApp({
   const broadcastStateDeltas = createBroadcastStateDeltas(
     clients,
     reportCaughtError,
+    app.log,
   )
 
   const rateLimitConfig = getRateLimitConfig()
 
   const ctx: AppContext = {
+    log: app.log,
     auth,
     updateChecker,
     expectedOrigin,
@@ -148,7 +163,7 @@ export async function initApp({
 
   await app.register(fastifyWebsocket, {
     errorHandler: (err) => {
-      console.warn('Error handling socket request', err)
+      app.log.warn({ err }, 'Error handling socket request')
     },
   })
 
