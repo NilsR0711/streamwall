@@ -39,9 +39,10 @@ test('selectReleaseTag picks the tag of the version main is on', () => {
   )
 })
 
-// The repository carries tags inherited from the project it started as
-// (`v2.0.0-pre3`), which sort above the current release line but never had a
-// GitHub Release here. Anchoring on the version `main` claims skips them.
+// A tag that sorts above the release line is not automatically the release
+// this repository stands on: a prerelease tag, or a tag inherited from another
+// project and left behind in a clone (#554), has no release here. Anchoring on
+// the version `main` claims skips them.
 test('selectReleaseTag ignores tags outside the current release line', () => {
   assert.deepEqual(
     selectReleaseTag({ version: '1.0.0', tags: ['v1.0.0', 'v2.0.0-pre3'] }),

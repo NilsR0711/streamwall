@@ -430,6 +430,22 @@ are skipped.
 node scripts/check-release-assets.mjs
 ```
 
+Both checks anchor on the version the manifest claims rather than on the
+highest `vX.Y.Z` tag they can find. A higher tag is not proof of a newer
+release: clones made while `origin` still pointed at the project this one
+started from picked up its `v2.0.0-pre1`…`pre3` tags, which sort above the
+whole `v0.9.x` line and never had a release here (#554). They were never
+pushed to this repository, so CI and the GitHub API never saw them — but
+`git describe` and `git tag --list` in such a clone still do. Remove them by
+name:
+
+```sh
+git tag -d v2.0.0-pre1 v2.0.0-pre2 v2.0.0-pre3
+```
+
+Not with `git fetch --prune-tags`: that deletes every local tag missing from
+the remote, including deliberately local-only ones such as rollback tags.
+
 `test/changelog.test.mjs` and `test/release-please.test.mjs` run as part of
 `npm test` and fail if `CHANGELOG.md` is missing a heading for the version
 currently in `packages/streamwall/package.json`, if a hand-maintained
