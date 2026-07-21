@@ -241,8 +241,12 @@ update notification and compares it against release tags, so that manifest
 must always match. `packages/streamwall-control-server/src/version.test.ts`
 enforces this as a regression backstop, not as the bump mechanism itself.
 
-To bump both release-tracking manifests (and `package-lock.json`) together in
-one step:
+Releases are normally cut from the release pull request that
+[release-please](https://github.com/googleapis/release-please) keeps open (see
+[Changelog](#changelog) below); the command below is the manual fallback.
+
+To bump the root manifest, both release-tracking manifests, the release-please
+manifest and `package-lock.json` together in one step:
 
 ```sh
 npm run release:version -- <x.y.z>
@@ -291,23 +295,47 @@ entries that no longer apply are reported as warnings and should be dropped.
 
 ### Changelog
 
-Notable changes are tracked in [`CHANGELOG.md`](CHANGELOG.md), in
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Because PRs are
-squash-merged with a Conventional Commits title, each merged PR should add a
-line to the `## [Unreleased]` section (grouped under `Added`, `Changed`,
-`Fixed`, etc.).
+[`CHANGELOG.md`](CHANGELOG.md) is generated, not hand-edited. Because PRs are
+squash-merged and their titles are enforced as Conventional Commits, every
+commit subject on `main` is machine-readable, and
+[`.github/workflows/release-please.yml`](.github/workflows/release-please.yml)
+turns them into changelog entries. Write the PR title for the changelog — it is
+what readers of the release notes will see.
 
-When cutting a release, alongside the `release:version` bump:
+`release-please-config.json` decides which commit types are surfaced: `feat`,
+`fix`, `perf`, `refactor`, `docs` and `revert` show up; `build`, `chore`, `ci`,
+`style` and `test` stay hidden. Pre-1.0 a `feat:` bumps the patch version and a
+breaking change bumps the minor version.
 
-1. Rename `## [Unreleased]` to `## [x.y.z] - YYYY-MM-DD` and start a fresh empty
-   `## [Unreleased]` section above it.
-2. Update the compare links at the bottom of the file so `[Unreleased]` points
-   at `vx.y.z...HEAD` and a new `[x.y.z]` link is added.
+#### Releasing
 
-`test/changelog.test.mjs` runs as part of `npm test` and fails if `CHANGELOG.md`
-is missing an `## [Unreleased]` section or a heading for the version currently
-in `packages/streamwall/package.json`, so a version bump without a matching
-changelog entry is caught before release.
+1. release-please keeps a release PR open (title: `chore(main): release x.y.z`)
+   containing the version bump for the root manifest, both release-tracking
+   manifests and the `CHANGELOG.md` section for the pending release. Its
+   description previews the release notes; anything merged afterwards updates
+   the PR.
+2. Merge the release PR when you want to cut the release.
+3. Tag the merge commit and push the tag:
+
+   ```sh
+   git checkout main && git pull
+   git tag v<x.y.z> && git push origin v<x.y.z>
+   ```
+
+   The tag is deliberately manual: a tag pushed by a workflow's `GITHUB_TOKEN`
+   does not trigger other workflows, so a release-please-created tag would never
+   start [`release.yml`](.github/workflows/release.yml) and no installers would
+   be built. That is also why release-please runs with `skip-github-release`.
+
+4. `release.yml` runs the full quality gate, publishes the installers via
+   electron-forge, and then copies the `CHANGELOG.md` section for that version
+   into the GitHub Release body (`scripts/changelog-section.mjs`).
+
+`test/changelog.test.mjs` and `test/release-please.test.mjs` run as part of
+`npm test` and fail if `CHANGELOG.md` is missing a heading for the version
+currently in `packages/streamwall/package.json`, if a hand-maintained
+`## [Unreleased]` section reappears, or if the release-please configuration
+drifts from the release-tracking manifests.
 
 ### Release notes: the Windows upgrade notice
 
@@ -317,8 +345,10 @@ Squirrel.Windows artifacts (`RELEASES`, `.nupkg`) that v0.9.x installs poll for
 they stay on their version until their owner reinstalls by hand, and only a
 release note tells them to.
 
-Until v0.9.x is safely out of circulation, paste this block near the top of
-every release's notes:
+Until v0.9.x is safely out of circulation, paste this block at the top of the
+release's `CHANGELOG.md` section **in the release PR, before merging it** —
+`release.yml` overwrites the GitHub Release body with that section, so anything
+added to the release by hand afterwards would be lost:
 
 ```markdown
 **Windows: upgrading from v0.9.1 or older requires a manual reinstall.** Those
