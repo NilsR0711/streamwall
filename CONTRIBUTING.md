@@ -200,6 +200,12 @@ a PR (which only runs the `ci.yml` one) would be blocked waiting for the other
 forever. `codeql.yml` pins one explicit category for all callers instead;
 `test/ci-gate.test.mjs` guards that.
 
+If the category ever has to change, the old configuration keeps being expected
+on every pull request until it has gone unused for two weeks. Deleting its
+analyses (`DELETE /repos/{owner}/{repo}/code-scanning/analyses/{id}`, newest
+first) retires it immediately; the next run on `main` re-establishes the
+baseline under the new category.
+
 CodeQL does produce false positives here — see the `HTMLMediaElement.src` sink
 overmatch in [#301](https://github.com/NilsR0711/streamwall/issues/301). Resolve
 them per alert rather than by weakening the queries repo-wide: dismiss the alert
