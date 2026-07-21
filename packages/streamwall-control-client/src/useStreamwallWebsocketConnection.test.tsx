@@ -452,6 +452,44 @@ describe('useStreamwallWebsocketConnection', () => {
       expect(socket.reconnectCount).toBe(1)
     })
 
+    // A string where a nested delta belongs makes jsondiffpatch allocate
+    // until the heap dies, so the payload has to be rejected before `patch`
+    // ever sees it (issue #539). These deltas are written out literally: a
+    // rejected one must never reach the patcher, not even in a test.
+    it('drops a string-valued delta property before the patcher hangs on it', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage({ config: 'not-a-delta' }))
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+      expect(socket.reconnectCount).toBe(1)
+      expect(warn).toHaveBeenCalled()
+    })
+
+    it('drops a number-valued delta property', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage({ config: 42 }))
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+      expect(socket.reconnectCount).toBe(1)
+    })
+
+    it('drops a delta that is not an object at all', () => {
+      const { getConnection, socket } = connectedSocket()
+
+      act(() => {
+        socket.dispatch('message', deltaMessage('nope'))
+      })
+
+      expect(getConnection().config).toEqual(minimalState.config)
+      expect(socket.reconnectCount).toBe(1)
+    })
+
     it('drops a delta that arrives before any full state, since there is no base to patch', () => {
       const { getConnection } = mount()
       const socket = instances[0]!
