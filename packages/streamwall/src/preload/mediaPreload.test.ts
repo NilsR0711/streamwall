@@ -314,6 +314,25 @@ describe('mediaPreload pause/resume handling (issue #374)', () => {
     expect(video.paused).toBe(false)
   })
 
+  it('logs a warning when resuming playback rejects (e.g. autoplay policy)', async () => {
+    // A play() rejection (autoplay policy, media detached) previously vanished
+    // with an empty catch, hiding it during debugging (issue #392).
+    const video = await loadAcquiredVideo()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const playErr = new Error('NotAllowedError')
+    video.play = vi.fn().mockRejectedValue(playErr)
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'error resuming media playback',
+      playErr,
+    )
+
+    warnSpy.mockRestore()
+  })
+
   // The bundled HLS player page (renderer/playHLS.ts) keeps its hls.js
   // instance in a closure the preload cannot reach, so pausing the <video>
   // alone leaves segment fetching to taper off on its own. These events are
