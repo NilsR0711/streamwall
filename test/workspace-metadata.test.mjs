@@ -50,3 +50,32 @@ test('every workspace that builds typechecks first', () => {
     )
   }
 })
+
+// The E2E suite deliberately has no `test` script (it needs a browser, so it
+// stays out of the `npm test` workspace fan-out), which means the only way to
+// discover it is a root-level entry point. Issue #411.
+test('the root package exposes the E2E suite as `test:e2e`', () => {
+  const { scripts } = readPackageJson('package.json')
+
+  assert.equal(
+    scripts['test:e2e'],
+    'npm -w streamwall-control-e2e run test:e2e',
+    'root package.json is missing a `test:e2e` script delegating to the E2E workspace',
+  )
+})
+
+test('the E2E workspace defines the delegated `test:e2e` script', () => {
+  const { scripts } = readPackageJson(
+    'packages/streamwall-control-e2e/package.json',
+  )
+
+  assert.ok(
+    scripts?.['test:e2e'],
+    'streamwall-control-e2e must define the `test:e2e` script the root delegates to',
+  )
+  assert.equal(
+    scripts.test,
+    undefined,
+    'streamwall-control-e2e must not define `test`: it would join the `npm test` fan-out',
+  )
+})

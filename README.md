@@ -301,7 +301,15 @@ Run the checks CI runs before pushing:
 npm run lint          # ESLint
 npm run format:check  # Prettier (also checks Markdown and YAML)
 npm run typecheck     # tsc --noEmit across all workspaces
-npm test              # full test suite
+npm test              # full test suite (unit tests, all workspaces)
+```
+
+The Playwright end-to-end smoke tests are not part of `npm test` — they need a
+browser that `npm ci` does not install:
+
+```sh
+npx playwright install --with-deps chromium  # once; drop --with-deps on macOS
+npm run test:e2e
 ```
 
 The six workspaces under `packages/` are: `streamwall` (the Electron app),
@@ -313,8 +321,7 @@ The six workspaces under `packages/` are: `streamwall` (the Electron app),
 `npm run start:server`.
 
 Test runners differ per package — most use Vitest, while
-`streamwall-control-server` uses the native Node test runner. The Playwright
-E2E tests are not part of `npm test` and need a one-time browser install. See
+`streamwall-control-server` uses the native Node test runner. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup, per-package test
 details, and commit/PR conventions, and [SECURITY.md](SECURITY.md) for how to
 report vulnerabilities.
