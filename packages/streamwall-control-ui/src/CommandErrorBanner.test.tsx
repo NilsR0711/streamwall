@@ -67,4 +67,13 @@ describe('CommandErrorBanner', () => {
     })
     expect(onDismiss).toHaveBeenCalledOnce()
   })
+
+  // A command failure is an urgent, user-triggered outcome, so it is
+  // announced assertively to assistive technology (WCAG 4.1.3, issue #398).
+  test('announces the failure assertively to assistive technology', () => {
+    const el = renderBanner('unauthorized')
+    const banner = el.querySelector('.command-error-banner')
+    expect(banner?.getAttribute('role')).toBe('alert')
+    expect(banner?.getAttribute('aria-live')).toBe('assertive')
+  })
 })

@@ -36,7 +36,11 @@ export function CommandErrorBanner({
   }
 
   return (
-    <StyledCommandErrorBanner className="command-error-banner">
+    <StyledCommandErrorBanner
+      className="command-error-banner"
+      role="alert"
+      aria-live="assertive"
+    >
       <FaExclamationTriangle />
       <span>Action failed: {error}</span>
       <button type="button" onClick={onDismiss}>

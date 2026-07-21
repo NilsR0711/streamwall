@@ -38,7 +38,7 @@ export function DataSourceHealthBanner({
   }
 
   return (
-    <StyledDataSourceHealthBanner>
+    <StyledDataSourceHealthBanner role="status" aria-live="polite">
       {failing.map((health) => (
         <span
           className="data-source-health-warning"
