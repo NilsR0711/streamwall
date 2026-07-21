@@ -323,4 +323,13 @@ const StyledGridContainer = styled.div<{
   &:hover ${StyledGridInputs} {
     opacity: 0.35;
   }
+
+  /* Keyboard focus has to reveal the layer too, or tabbing into a cell focuses
+     a fully transparent control and neither its value nor its focus ring is
+     painted (#551). Full opacity rather than the hover value: at 35% the ring's
+     contrast would be diluted along with everything else, undoing #531. Placed
+     after the hover rule so it wins on equal specificity. */
+  &:focus-within ${StyledGridInputs} {
+    opacity: 1;
+  }
 `
