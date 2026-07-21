@@ -9,7 +9,13 @@ const StyledConnectionStatusBanner = styled.div`
   font-size: 12px;
   color: #e0a800;
 
-  &.unauthorized {
+  .connection-status-message {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .unauthorized {
     color: #dc3545;
   }
 `
@@ -29,6 +35,13 @@ const GENERIC_MESSAGE = 'Connection lost - reconnecting...'
  * banner is the explicit "why" that previously only a small header dot
  * hinted at - and it distinguishes an invalid session from the Streamwall
  * app itself being unreachable, rather than a single generic message.
+ *
+ * The live region itself stays mounted while connected and only its contents
+ * are swapped: `aria-live` announcements are only reliable for changes inside
+ * a region that already exists in the accessibility tree, so mounting the
+ * region together with its first message risks losing exactly that first
+ * announcement (WCAG 4.1.3, issue #463). The `data-testid` therefore sits on
+ * the message, which is still present only while disconnected.
  */
 export function ConnectionStatusBanner({
   isConnected,
@@ -37,18 +50,17 @@ export function ConnectionStatusBanner({
   isConnected: boolean
   reason: DisconnectReason | null | undefined
 }) {
-  if (isConnected) {
-    return null
-  }
-
   return (
-    <StyledConnectionStatusBanner
-      className={reason ?? undefined}
-      role="status"
-      data-testid="connection-status-banner"
-    >
-      <FaExclamationTriangle />
-      {reason ? MESSAGE_BY_REASON[reason] : GENERIC_MESSAGE}
+    <StyledConnectionStatusBanner role="status" aria-live="polite">
+      {!isConnected && (
+        <span
+          className={`connection-status-message ${reason ?? ''}`.trim()}
+          data-testid="connection-status-banner"
+        >
+          <FaExclamationTriangle />
+          {reason ? MESSAGE_BY_REASON[reason] : GENERIC_MESSAGE}
+        </span>
+      )}
     </StyledConnectionStatusBanner>
   )
 }

@@ -30,6 +30,51 @@ describe('DataSourceHealthBanner', () => {
   test('renders nothing when there is no data source health yet', () => {
     const el = renderBanner([])
     expect(el.querySelector('.data-source-health-warning')).toBeNull()
+    expect(el.textContent).toBe('')
+  })
+
+  // `aria-live` only guarantees an announcement for content that changes
+  // inside an already-present region, so the region stays mounted (empty)
+  // while every source is healthy - otherwise the first outage can go
+  // unannounced (WCAG 4.1.3, issue #463).
+  test('keeps the live region mounted while every source is healthy', () => {
+    const el = renderBanner([
+      {
+        id: 'https://a.example/streams.json',
+        type: 'json-url',
+        status: 'ok',
+        message: null,
+        updatedAt: 1000,
+      },
+    ])
+    const region = el.querySelector('[role="status"]')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('aria-live')).toBe('polite')
+  })
+
+  test('reuses the same live region element when a source starts failing', () => {
+    const el = renderBanner([])
+    const regionWhileHealthy = el.querySelector('[role="status"]')
+    act(() => {
+      render(
+        <DataSourceHealthBanner
+          dataSourceHealth={[
+            {
+              id: 'https://dead.example/streams.json',
+              type: 'json-url',
+              status: 'error',
+              message: 'fetch failed',
+              updatedAt: 1000,
+            },
+          ]}
+        />,
+        container!,
+      )
+    })
+    expect(el.querySelector('[role="status"]')).toBe(regionWhileHealthy)
+    expect(regionWhileHealthy?.textContent).toContain(
+      'https://dead.example/streams.json',
+    )
   })
 
   test('renders nothing when every data source is healthy', () => {
