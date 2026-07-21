@@ -93,9 +93,9 @@ function renderControlUI(streams: StreamData[]): HTMLDivElement {
 }
 
 function findIdNode(root: HTMLDivElement, id: string): Element | undefined {
-  return [...root.querySelectorAll('.stream-list div')].find(
-    (el) => el.children.length === 0 && el.textContent === id,
-  )
+  return [
+    ...root.querySelectorAll('.stream-list div, .stream-list button'),
+  ].find((el) => el.children.length === 0 && el.textContent === id)
 }
 
 // The app re-renders <ControlUI connection={...} /> with a fresh `connection`

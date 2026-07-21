@@ -13,8 +13,9 @@ import { type ColorInstance } from './colorTypes.ts'
 import { LazyChangeInput } from './LazyChangeInput.tsx'
 import { OrientationIndicator } from './OrientationIndicator.tsx'
 
-const StyledId = styled.div<{ $color: ColorInstance; $disabled?: boolean }>`
+const StyledId = styled.button<{ $color: ColorInstance }>`
   flex-shrink: 0;
+  border: none;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 11px;
@@ -26,7 +27,14 @@ const StyledId = styled.div<{ $color: ColorInstance; $disabled?: boolean }>`
   border-radius: var(--r-sm);
   width: 2.6em;
   text-align: center;
-  cursor: ${({ $disabled }) => ($disabled ? 'normal' : 'grab')};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: grab;
+
+  &:disabled {
+    cursor: default;
+  }
 `
 
 const StyledStreamLine = styled.div`
@@ -84,9 +92,30 @@ function StreamLine({
   onToggleFavorite?: (link: string) => void
 }) {
   // Use mousedown instead of click event so a potential destination grid input stays focused.
-  const handleMouseDownId = useCallback(() => {
-    onClickId(id)
-  }, [onClickId, id])
+  // preventDefault keeps the browser from moving focus to the button on press.
+  const handleMouseDownId = useCallback<
+    JSX.MouseEventHandler<HTMLButtonElement>
+  >(
+    (ev) => {
+      ev.preventDefault()
+      onClickId(id)
+    },
+    [onClickId, id],
+  )
+  // Keyboard users get the same action via Enter/Space. preventDefault suppresses
+  // the synthetic click the browser would otherwise fire, so activation happens once.
+  const handleKeyDownId = useCallback<
+    JSX.KeyboardEventHandler<HTMLButtonElement>
+  >(
+    (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') {
+        return
+      }
+      ev.preventDefault()
+      onClickId(id)
+    },
+    [onClickId, id],
+  )
   const handleToggleFavoriteClick = useCallback<
     JSX.MouseEventHandler<HTMLButtonElement>
   >(
@@ -99,8 +128,10 @@ function StreamLine({
   return (
     <StyledStreamLine>
       <StyledId
-        $disabled={disabled}
+        type="button"
+        disabled={disabled}
         onMouseDown={disabled ? undefined : handleMouseDownId}
+        onKeyDown={disabled ? undefined : handleKeyDownId}
         $color={idColor(id)}
         aria-label={`Add stream ${id} to the wall`}
       >
