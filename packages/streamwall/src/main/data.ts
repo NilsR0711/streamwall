@@ -113,17 +113,18 @@ export function watchDataFile(
         const eventP = once(watcher, 'all')
         // Pure unhandled-rejection guard for the race loser. `once(watcher,
         // 'all')` rejects on a watcher 'error', which is already logged by the
-        // persistent 'error' listener above (and, when this promise wins the
-        // race, by the catch below) -- so re-logging here would just duplicate
-        // an already-surfaced breadcrumb (issue #392).
+        // persistent 'error' listener above -- so re-logging here would just
+        // duplicate an already-surfaced breadcrumb (issue #392).
         eventP.catch(() => {})
         try {
           const result = await Promise.race([eventP, stop])
           if (result === undefined) {
             return
           }
-        } catch (err) {
-          log.warn('error watching data file', path, err)
+        } catch {
+          // A watcher 'error' rejected the race; the persistent 'error'
+          // listener above is the single source of truth for logging it
+          // (issue #464). Swallow it here and keep watching.
         }
       }
     } finally {
