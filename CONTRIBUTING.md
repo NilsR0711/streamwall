@@ -56,3 +56,23 @@ No other workspace tracks the release line:
 
 None of the workspaces are published to the npm registry — only the Electron
 app itself is distributed, via GitHub Releases.
+
+### Changelog
+
+Notable changes are tracked in [`CHANGELOG.md`](CHANGELOG.md), in
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Because PRs are
+squash-merged with a Conventional Commits title, each merged PR should add a
+line to the `## [Unreleased]` section (grouped under `Added`, `Changed`,
+`Fixed`, etc.).
+
+When cutting a release, alongside the `release:version` bump:
+
+1. Rename `## [Unreleased]` to `## [x.y.z] - YYYY-MM-DD` and start a fresh empty
+   `## [Unreleased]` section above it.
+2. Update the compare links at the bottom of the file so `[Unreleased]` points
+   at `vx.y.z...HEAD` and a new `[x.y.z]` link is added.
+
+`test/changelog.test.mjs` runs as part of `npm test` and fails if `CHANGELOG.md`
+is missing an `## [Unreleased]` section or a heading for the version currently
+in `packages/streamwall/package.json`, so a version bump without a matching
+changelog entry is caught before release.
