@@ -84,6 +84,38 @@ test('every workspace that packages with electron-forge typechecks first', () =>
   }
 })
 
+// `--test-timeout` bounds *every* node:test test — including the implicit
+// file-level test the runner wraps each file in. A file of live-server
+// WebSocket integration tests therefore races the same budget as a single
+// test: `wsValidation.test.ts` alone needs 6-13s locally, so the former 20s
+// value cancelled the whole file on a loaded machine. A cancelled file reports
+// `# fail 0` with a non-zero exit, which reads as an unexplained flake. The
+// floor keeps the timeout a hang detector rather than a per-file budget.
+// Issue #492.
+const NODE_TEST_TIMEOUT_FLOOR_MS = 60_000
+
+test('node:test workspaces leave room for whole-file runtime in --test-timeout', () => {
+  for (const relativePath of workspacePackageJsonPaths()) {
+    const { scripts = {} } = readPackageJson(relativePath)
+    const testScript = scripts.test
+    if (!testScript?.includes('--test')) {
+      continue
+    }
+
+    const configured = testScript.match(/--test-timeout=(\d+)/)
+    assert.ok(
+      configured,
+      `${relativePath} runs node:test without an explicit --test-timeout`,
+    )
+    assert.ok(
+      Number(configured[1]) >= NODE_TEST_TIMEOUT_FLOOR_MS,
+      `${relativePath} sets --test-timeout=${configured[1]}, below the ` +
+        `${NODE_TEST_TIMEOUT_FLOOR_MS}ms floor that keeps whole test files ` +
+        'from being cancelled under load',
+    )
+  }
+})
+
 // The E2E suite deliberately has no `test` script (it needs a browser, so it
 // stays out of the `npm test` workspace fan-out), which means the only way to
 // discover it is a root-level entry point. Issue #411.
