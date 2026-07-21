@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import log from './logger'
 
 // viewStateMachine imports electron (directly and via ./loadHTML). Stub the
 // module so the machine can be exercised without an Electron runtime; the
@@ -748,6 +749,29 @@ describe('viewStateMachine loadPage navigation', () => {
     // (see #25). It now lives in mediaPreload.ts instead, so navigate
     // should not touch executeJavaScript at all.
     expect(executeJavaScript).not.toHaveBeenCalled()
+  })
+
+  it('logs a warning when the navigation load rejects', async () => {
+    // loadURL is intentionally not awaited (see loadPage), so a rejection --
+    // e.g. a blocked navigation or network error -- would otherwise vanish
+    // with no log breadcrumb (issue #392).
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const { actor, loadURL } = makeActorWithRealLoadPage(makeRetry())
+    const loadErr = new Error('net::ERR_CONNECTION_REFUSED')
+    loadURL.mockRejectedValue(loadErr)
+
+    actor.start()
+    display(actor)
+
+    await vi.waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith(
+        'error loading view URL',
+        CONTENT.url,
+        loadErr,
+      ),
+    )
+
+    warnSpy.mockRestore()
   })
 })
 

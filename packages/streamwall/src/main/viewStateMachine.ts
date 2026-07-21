@@ -390,9 +390,13 @@ const viewStateMachine = setup({
           // Do NOT await: the preload sends VIEW_INIT before loadURL resolves
           // (did-finish-load), so awaiting here would strand that event and hang
           // the view in waitForInit. Load failures are surfaced via the
-          // webContents 'did-fail-load' listener in StreamWindow; swallow the
-          // rejection so it isn't an unhandled promise rejection.
-          wc.loadURL(content.url).catch(() => {})
+          // webContents 'did-fail-load' listener in StreamWindow; log the
+          // rejection reason (invisible to that listener) so a blocked
+          // navigation or network error leaves a breadcrumb instead of an
+          // unhandled promise rejection (issue #392).
+          wc.loadURL(content.url).catch((err) => {
+            log.warn('error loading view URL', content.url, err)
+          })
         }
       },
     ),

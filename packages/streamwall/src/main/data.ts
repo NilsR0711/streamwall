@@ -111,6 +111,11 @@ export function watchDataFile(
         // Raced against `stop` so an early return() settles immediately
         // instead of queuing behind an event that may never fire.
         const eventP = once(watcher, 'all')
+        // Pure unhandled-rejection guard for the race loser. `once(watcher,
+        // 'all')` rejects on a watcher 'error', which is already logged by the
+        // persistent 'error' listener above (and, when this promise wins the
+        // race, by the catch below) -- so re-logging here would just duplicate
+        // an already-surfaced breadcrumb (issue #392).
         eventP.catch(() => {})
         try {
           const result = await Promise.race([eventP, stop])
@@ -158,7 +163,15 @@ export function markDataSource(
     try {
       while (true) {
         const nextP = dataSource.next()
-        nextP.catch(() => {})
+        // Guard the race loser against an unhandled rejection, and log the
+        // reason: a rejecting source (a failed watcher/generator) otherwise
+        // propagates up through combineDataSources with no breadcrumb naming
+        // which source stopped updating (issue #392). The rejection still
+        // surfaces to the awaited race below, so error propagation is
+        // unchanged.
+        nextP.catch((err) => {
+          log.warn('error advancing data source', name, err)
+        })
         const iteration = await Promise.race([nextP, stop])
         if (iteration === undefined || iteration.done) {
           return iteration?.value

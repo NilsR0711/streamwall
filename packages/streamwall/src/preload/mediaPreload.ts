@@ -472,8 +472,11 @@ async function main() {
     // Live streams are typically not seekable on-demand video, so resuming
     // after a pause may briefly re-buffer or land slightly behind the live
     // edge -- both cheaper than a full reload and expected to self-correct
-    // as playback continues.
-    currentMedia?.play().catch(() => {})
+    // as playback continues. A play() rejection (e.g. autoplay policy) is
+    // otherwise invisible, so log it as a breadcrumb (issue #392).
+    currentMedia?.play().catch((err) => {
+      console.warn('error resuming media playback', err)
+    })
   })
 }
 

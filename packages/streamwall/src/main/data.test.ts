@@ -15,6 +15,7 @@ import {
   StreamIDGenerator,
   watchDataFile,
 } from './data'
+import log from './logger'
 import type { PresetPack } from './presets'
 
 class FakeWatcher extends EventEmitter {
@@ -663,6 +664,30 @@ describe('markDataSource', () => {
     } finally {
       await marked.return?.(undefined)
     }
+  })
+
+  test('logs a warning naming the source and propagates when it rejects', async () => {
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const failure = new Error('source exploded')
+    const source = {
+      next: () => Promise.reject(failure),
+      return: async () => ({ done: true as const, value: undefined }),
+      [Symbol.asyncIterator]() {
+        return this
+      },
+    } as unknown as AsyncIterableIterator<StreamDataContent[]>
+
+    const marked = markDataSource(source, 'boom')
+    // The rejection must still surface to the consumer, not be silently
+    // swallowed by the logging catch.
+    await expect(marked.next()).rejects.toThrow('source exploded')
+    expect(warnSpy).toHaveBeenCalledWith(
+      'error advancing data source',
+      'boom',
+      failure,
+    )
+
+    warnSpy.mockRestore()
   })
 })
 
