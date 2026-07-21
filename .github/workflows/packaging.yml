@@ -84,3 +84,19 @@ jobs:
             exit 1
           fi
           find "$make_dir" -type f -print | sort
+
+  # A failing weekly run is invisible without this: nobody is emailed about a
+  # scheduled run, so the report goes into the issue tracker instead (#514).
+  # `fail-fast: false` above means one red leg still leaves the others' verdict
+  # intact, and `needs.*.result` aggregates the matrix into a single one.
+  report:
+    needs: [make]
+    if: always()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/scheduled-report.yml
+    with:
+      result: >-
+        ${{ contains(needs.*.result, 'failure') && 'failure'
+         || contains(needs.*.result, 'success') && 'success'
+         || 'none' }}

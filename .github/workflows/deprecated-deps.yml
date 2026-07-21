@@ -46,3 +46,17 @@ jobs:
 
       - name: Check for deprecated direct dependencies
         run: node scripts/check-deprecated-deps.mjs
+
+  # A failing weekly run is invisible without this: nobody is emailed about a
+  # scheduled run, so the report goes into the issue tracker instead (#514).
+  report:
+    needs: [check]
+    if: always()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/scheduled-report.yml
+    with:
+      result: >-
+        ${{ contains(needs.*.result, 'failure') && 'failure'
+         || contains(needs.*.result, 'success') && 'success'
+         || 'none' }}
