@@ -1,5 +1,5 @@
 import { type JSX } from 'preact'
-import { FaExclamationTriangle } from 'react-icons/fa'
+import { FaExclamationTriangle, FaPause } from 'react-icons/fa'
 import { Color, type ViewPos } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { type ColorInstance } from './colorTypes.ts'
@@ -106,6 +106,31 @@ const StyledGridError = styled.div`
   }
 `
 
+const StyledGridPaused = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  background: ${Color('black').alpha(0.55).string()};
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  ${StyledGridInfo}.small & {
+    span {
+      display: none;
+    }
+  }
+`
+
 // Extracted from the ControlUI grid preview loop so the error badge markup
 // can be rendered and tested in isolation.
 export function GridPreviewBox({
@@ -118,6 +143,7 @@ export function GridPreviewBox({
   isSmall,
   isError,
   errorReason,
+  isPaused,
   orientation,
   source,
   city,
@@ -133,6 +159,7 @@ export function GridPreviewBox({
   isSmall: boolean
   isError: boolean
   errorReason: string | null | undefined
+  isPaused: boolean
   orientation: 'V' | 'H' | null | undefined
   source: string | undefined
   city: string | undefined
@@ -170,6 +197,15 @@ export function GridPreviewBox({
             <FaExclamationTriangle />
             <span>{errorReason ?? 'Stream error'}</span>
           </StyledGridError>
+        )}
+        {isPaused && (
+          <StyledGridPaused
+            data-testid="grid-paused-badge"
+            title="Playback paused while this view is parked"
+          >
+            <FaPause />
+            <span>Paused</span>
+          </StyledGridPaused>
         )}
       </StyledGridInfo>
     </StyledGridPreviewBox>

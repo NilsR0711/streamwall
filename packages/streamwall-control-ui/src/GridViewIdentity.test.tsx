@@ -76,6 +76,7 @@ function makeView(streamIdx: number, spaces: number[]): ViewInfo {
     isListening: false,
     isBackgroundListening: false,
     isBlurred: false,
+    isPaused: false,
     volume: 1,
     spaces,
   }

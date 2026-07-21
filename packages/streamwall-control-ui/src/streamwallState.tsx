@@ -21,6 +21,12 @@ export interface ViewInfo {
   isListening: boolean
   isBackgroundListening: boolean
   isBlurred: boolean
+  /**
+   * Media playback is paused because the view is parked behind a fullscreen
+   * expansion and the wall runs with `--park.pause` (issue #374). Purely
+   * informational here: there is no control command to toggle it.
+   */
+  isPaused: boolean
   volume: number
   spaces: number[]
 }
@@ -109,12 +115,17 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         'displaying.running.video.blurred',
         viewState.state,
       )
+      const isPaused = matchesState(
+        'displaying.running.pause.paused',
+        viewState.state,
+      )
       const spaces = pos?.spaces ?? []
       const viewInfo = {
         state: viewState,
         isListening,
         isBackgroundListening,
         isBlurred,
+        isPaused,
         volume: viewState.context.volume,
         spaces,
       }

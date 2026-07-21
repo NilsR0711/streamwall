@@ -53,6 +53,7 @@ function makeViewInfo(
     isListening: false,
     isBackgroundListening: false,
     isBlurred: false,
+    isPaused: false,
     volume: 1,
     spaces,
     ...overrides,

@@ -31,6 +31,7 @@ function renderBox(
         isSmall={false}
         isError={false}
         errorReason={null}
+        isPaused={false}
         orientation={null}
         source="Example Source"
         city={undefined}
@@ -73,6 +74,21 @@ describe('GridPreviewBox', () => {
     expect(box.querySelector('svg')).toBeNull()
   })
 
+  test('renders the paused badge for a parked view whose playback is paused (#490)', () => {
+    const box = renderBox({ isPaused: true })
+
+    const badge = box.querySelector('[data-testid="grid-paused-badge"]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toContain('Paused')
+    expect(badge!.querySelector('svg')).not.toBeNull()
+  })
+
+  test('does not render the paused badge for a playing view (#490)', () => {
+    const box = renderBox({ isPaused: false })
+
+    expect(box.querySelector('[data-testid="grid-paused-badge"]')).toBeNull()
+  })
+
   test('marks the info panel as small so the reason text collapses on small cells', () => {
     const box = renderBox({ isSmall: true })
 
@@ -80,7 +96,7 @@ describe('GridPreviewBox', () => {
   })
 
   test('does not leak custom styled-component props onto the DOM node (#152)', () => {
-    const box = renderBox({ isError: true, isListening: true })
+    const box = renderBox({ isError: true, isListening: true, isPaused: true })
 
     for (const el of box.querySelectorAll('*')) {
       for (const propName of [
@@ -90,6 +106,7 @@ describe('GridPreviewBox', () => {
         'windowheight',
         'islistening',
         'iserror',
+        'ispaused',
       ]) {
         expect(
           el.hasAttribute(propName),
