@@ -3,6 +3,7 @@ import { useCallback } from 'preact/hooks'
 import {
   type CellIdx,
   Color,
+  focusRingColors,
   idColor,
   roleCan,
   type StreamwallRole,
@@ -16,6 +17,15 @@ const StyledGridInputContainer = styled.div`
   touch-action: none;
 `
 
+/**
+ * The colour a cell is actually painted with: the id-derived hue lightened to
+ * the grid's tile lightness. Shared by the background and the focus ring, so
+ * the ring is derived from what the eye sees rather than the raw id colour.
+ */
+export function cellColor(color: ColorInstance, isHighlighted?: boolean) {
+  return Color(color).lightness(isHighlighted ? 90 : 75)
+}
+
 const StyledGridInput = styled(LazyChangeInput)<{
   $color: ColorInstance
   $isHighlighted?: boolean
@@ -25,9 +35,7 @@ const StyledGridInput = styled(LazyChangeInput)<{
   border: none;
   padding: 0;
   background: ${({ $color, $isHighlighted }) =>
-    $isHighlighted
-      ? Color($color).lightness(90).hsl().string()
-      : Color($color).lightness(75).hsl().string()};
+    cellColor($color, $isHighlighted).hsl().string()};
   font-size: 20px;
   text-align: center;
 
@@ -42,10 +50,21 @@ const StyledGridInput = styled(LazyChangeInput)<{
   /* The shared ring is drawn outside the cell (outline-offset plus a halo), so
      the focused cell has to rise above its neighbours or the ring gets clipped
      by them. z-index only applies to positioned elements, hence the
-     position. */
+     position.
+
+     Being drawn outside also means the ring lands on the neighbouring tiles,
+     whose colour is whatever their stream id hashes to - so the accent token
+     can drop to ~2:1 against a red-ish neighbour. Only the colours are
+     overridden here; width, offset and halo size stay with the shared rule in
+     globalStyle.tsx so the grid keeps the same affordance (see #557). */
   &:focus-visible {
     position: relative;
     z-index: 100;
+    outline-color: ${({ $color, $isHighlighted }) =>
+      focusRingColors(cellColor($color, $isHighlighted)).ring};
+    box-shadow: 0 0 0 4px
+      ${({ $color, $isHighlighted }) =>
+        focusRingColors(cellColor($color, $isHighlighted)).halo};
   }
 `
 
