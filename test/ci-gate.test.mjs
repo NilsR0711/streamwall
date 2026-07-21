@@ -193,32 +193,38 @@ test('the release quality gate makes installers before publishing', () => {
   }
 
   // The NSIS maker and the latest.yml postMake hook only run for win32, and
-  // electron-builder bundles makensis for every host OS, so the gate
-  // cross-builds that target instead of trusting the Windows publish leg.
+  // electron-builder drives makensis through Wine when it is not on Windows —
+  // which the Ubuntu runner image no longer ships (#579). So the gate needs a
+  // Windows runner of its own rather than a cross-build.
   assert.ok(
-    makeJobs.some(([, job]) => /--platform=win32/.test(runScripts(job))),
-    'release.yml must cross-build the win32 target so the NSIS maker and ' +
-      'the update-metadata hook are exercised before publishing',
+    makeJobs.some(([, job]) =>
+      (job.strategy?.matrix?.leg ?? []).some(
+        (leg) => leg.os === 'windows-latest',
+      ),
+    ),
+    'release.yml must make the win32 target on a Windows runner so the NSIS ' +
+      'maker and the update-metadata hook are exercised before publishing',
   )
 })
 
-// MakerZIP is darwin-only and cannot be cross-built from Linux, so a
-// Linux-only gate leaves the macOS zip and the latest-mac.yml half of the
-// postMake hook to run for the first time inside the publish matrix — the
-// exact half-published release the gate exists to prevent (#517).
-test('the release quality gate makes the darwin artifacts on a macOS leg', () => {
+// MakerZIP is darwin-only and the NSIS maker needs a Windows host, so a
+// Linux-only gate leaves the macOS zip, the Windows installer and both halves
+// of the postMake hook to run for the first time inside the publish matrix —
+// the exact half-published release the gate exists to prevent (#517, #579).
+test('the release quality gate makes each platform on its own runner', () => {
   const make = readWorkflow('release.yml').jobs.make
   const legs = make.strategy?.matrix?.leg
 
   assert.ok(
     Array.isArray(legs),
-    'the make gate must fan out over a `leg` matrix so the darwin makers ' +
-      'get a macOS runner of their own',
+    'the make gate must fan out over a `leg` matrix so the darwin and win32 ' +
+      'makers get a runner of their own',
   )
 
   const legsByOs = new Map(legs.map((leg) => [leg.os, leg]))
   const expectedArtifacts = {
-    'ubuntu-latest': ['*.deb', '*.rpm', '*-setup-*.exe', 'latest.yml'],
+    'ubuntu-latest': ['*.deb', '*.rpm'],
+    'windows-latest': ['*-setup-*.exe', 'latest.yml'],
     'macos-latest': ['*.zip', 'latest-mac.yml'],
   }
 
@@ -244,18 +250,18 @@ test('the release quality gate makes the darwin artifacts on a macOS leg', () =>
     'the verification step must iterate the leg-specific pattern list',
   )
 
-  // The rpm/fakeroot install and the NSIS cross-build only make sense on the
-  // Linux leg; unguarded they would fail the macOS one.
-  for (const stepName of [
-    'Install Linux maker tooling',
-    'Make (windows NSIS, cross-built)',
-  ]) {
-    const step = make.steps.find(({ name }) => name === stepName)
-    assert.ok(step, `the make gate is missing the "${stepName}" step`)
-    assert.match(
-      step.if ?? '',
-      /ubuntu-latest/,
-      `"${stepName}" must be restricted to the Linux leg`,
-    )
-  }
+  // The rpm/fakeroot install only makes sense on the Linux leg; unguarded it
+  // would fail the Windows and macOS ones.
+  const linuxTooling = make.steps.find(
+    ({ name }) => name === 'Install Linux maker tooling',
+  )
+  assert.ok(
+    linuxTooling,
+    'the make gate is missing the "Install Linux maker tooling" step',
+  )
+  assert.match(
+    linuxTooling.if ?? '',
+    /ubuntu-latest/,
+    '"Install Linux maker tooling" must be restricted to the Linux leg',
+  )
 })
