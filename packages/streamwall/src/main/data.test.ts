@@ -174,6 +174,36 @@ link = "https://b.example/s"
     }
   })
 
+  test('logs a watcher error exactly once', async () => {
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const file = writeTomlFile(`
+[[streams]]
+link = "https://a.example/s"
+`)
+    const gen = watchDataFile(file)
+    try {
+      await gen.next()
+      const watcher = fakeWatcher!
+
+      const next = gen.next()
+      await waitForListener(watcher, 'all')
+      // Both the permanent 'error' listener and the `once(watcher, 'all')`
+      // race promise observe this emission; only one of them may log it.
+      watcher.emit('error', new Error('EPERM'))
+      watcher.emit('all', 'change', file)
+      await next
+
+      expect(
+        warnSpy.mock.calls.filter(
+          ([message]) => message === 'error watching data file',
+        ),
+      ).toHaveLength(1)
+    } finally {
+      await gen.return(undefined)
+      warnSpy.mockRestore()
+    }
+  })
+
   test('keeps the last known-good streams when a read fails after a successful read', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'sw-data-'))
     const file = path.join(dir, 'streams.toml')
