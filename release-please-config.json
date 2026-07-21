@@ -32,6 +32,16 @@
           "type": "json",
           "path": "packages/streamwall-control-server/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "package-lock.json",
+          "jsonpath": "$.packages['packages/streamwall'].version"
+        },
+        {
+          "type": "json",
+          "path": "package-lock.json",
+          "jsonpath": "$.packages['packages/streamwall-control-server'].version"
         }
       ]
     }

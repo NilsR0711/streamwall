@@ -321,9 +321,9 @@ breaking change bumps the minor version.
 
 1. release-please keeps a release PR open (title: `chore(main): release x.y.z`)
    containing the version bump for the root manifest, both release-tracking
-   manifests and the `CHANGELOG.md` section for the pending release. Its
-   description previews the release notes; anything merged afterwards updates
-   the PR.
+   manifests, their `package-lock.json` entries and the `CHANGELOG.md` section
+   for the pending release. Its description previews the release notes;
+   anything merged afterwards updates the PR.
 2. Merge the release PR when you want to cut the release. It arrives without
    status checks: a pull request opened by a workflow's `GITHUB_TOKEN` does not
    trigger other workflows, so neither `CI OK` nor `Conventional Commits title`
