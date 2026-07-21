@@ -5,11 +5,7 @@ import { throttle } from 'lodash-es'
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
 import 'source-map-support/register'
-import {
-  DataSourceType,
-  StreamwallState,
-  fullscreenViewContentMap,
-} from 'streamwall-shared'
+import { DataSourceType, StreamwallState } from 'streamwall-shared'
 import * as Y from 'yjs'
 import packageJson from '../../package.json'
 import {
@@ -52,6 +48,7 @@ import TwitchBot from './TwitchBot'
 import { setupAppUpdater } from './updaterSetup'
 import { connectControlUplink } from './uplinkConnection'
 import { initializeViewsState } from './viewsStateInit'
+import { deriveWallViews } from './wallViews'
 import {
   shouldHideInsteadOfQuit,
   shouldQuitOnAllWindowsClosed,
@@ -147,53 +144,26 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   function updateViewsFromStateDoc() {
     try {
-      // When a view is expanded to fullscreen (issue #362), override the
-      // derived layout so the expanded stream fills every grid cell -- one
-      // wall-spanning box, with the other views parked (hidden but kept
-      // alive, not torn down) behind it, so a later collapse can reposition
-      // them instead of reloading them from scratch (issue #369). This
-      // override is transient: it reads the expanded stream from
-      // `viewsState` but never writes back, so the persisted grid
-      // assignments are untouched and a later collapse restores the normal
-      // layout verbatim.
-      const { fullscreenViewIdx } = clientState
-      if (fullscreenViewIdx != null) {
-        const streamId = viewsState
-          .get(String(fullscreenViewIdx))
-          ?.get('streamId')
-        const stream = clientState.streams.find((s) => s._id === streamId)
-        if (stream) {
-          streamWindow.setViews(
-            fullscreenViewContentMap(
-              streamWindowConfig.cols,
-              streamWindowConfig.rows,
-              { url: stream.link, kind: stream.kind || 'video' },
-            ),
-            clientState.streams,
-            { parkUnused: true },
-          )
-          return
-        }
-        // The expanded stream is gone (its cell was cleared or it dropped out
-        // of the data source): fall back to the normal layout and clear the
-        // stale override so clients stop rendering a phantom expansion. The
-        // setViews() below emits a state update that broadcasts the cleared
-        // value.
+      const wallViews = deriveWallViews({
+        fullscreenViewIdx: clientState.fullscreenViewIdx,
+        streams: clientState.streams,
+        viewsState,
+        cols: streamWindowConfig.cols,
+        rows: streamWindowConfig.rows,
+      })
+      if (wallViews.mode === 'fullscreen') {
+        streamWindow.setViews(wallViews.contentMap, clientState.streams, {
+          parkUnused: true,
+        })
+        return
+      }
+      // The expanded stream is gone: clear the stale override so clients stop
+      // rendering a phantom expansion. The setViews() below emits a state
+      // update that broadcasts the cleared value.
+      if (wallViews.clearedFullscreen) {
         clientState = { ...clientState, fullscreenViewIdx: null }
       }
-      const viewContentMap = new Map()
-      for (const [key, viewData] of viewsState) {
-        const streamId = viewData.get('streamId')
-        const stream = clientState.streams.find((s) => s._id === streamId)
-        if (!stream) {
-          continue
-        }
-        viewContentMap.set(key, {
-          url: stream.link,
-          kind: stream.kind || 'video',
-        })
-      }
-      streamWindow.setViews(viewContentMap, clientState.streams)
+      streamWindow.setViews(wallViews.contentMap, clientState.streams)
     } catch (err) {
       log.error('Error updating views', err)
     }
