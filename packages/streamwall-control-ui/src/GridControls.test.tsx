@@ -8,15 +8,10 @@ import { GridControls } from './GridControls.tsx'
 // currently crashes under this package's happy-dom test environment
 // (unrelated to the controls under test here) - stub the icons out so the
 // component can render.
-vi.mock('react-icons/fa', () => ({
-  FaExchangeAlt: () => null,
-  FaRedoAlt: () => null,
-  FaRegLifeRing: () => null,
-  FaRegWindowMaximize: () => null,
-  FaSyncAlt: () => null,
-  FaVideoSlash: () => null,
-  FaVolumeUp: () => null,
-}))
+vi.mock(
+  'react-icons/fa',
+  async () => (await import('./testIconStubs.tsx')).faIconStubs,
+)
 
 let container: HTMLDivElement | undefined
 

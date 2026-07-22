@@ -3,9 +3,10 @@ import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx'
 
-vi.mock('react-icons/fa', () => ({
-  FaExclamationTriangle: () => null,
-}))
+vi.mock(
+  'react-icons/fa',
+  async () => (await import('./testIconStubs.tsx')).faIconStubs,
+)
 
 let container: HTMLDivElement | undefined
 

@@ -124,15 +124,17 @@ export function makeConnection(
   }
 }
 
-let container: HTMLDivElement | undefined
+const containers: HTMLDivElement[] = []
 
 // Importing this module registers the teardown on the importing spec file's
 // root suite, so every mounted ControlUI is unmounted and detached again.
+// Tracked as an array (not a single slot) because a test that calls
+// `renderControlUI` more than once must not leak the earlier containers and
+// their Preact roots - every mount collected here gets unmounted.
 afterEach(() => {
-  if (container) {
-    act(() => render(null, container!))
+  for (const container of containers.splice(0)) {
+    act(() => render(null, container))
     container.remove()
-    container = undefined
   }
 })
 
@@ -140,10 +142,11 @@ afterEach(() => {
 export function renderControlUI(
   connection: StreamwallConnection,
 ): HTMLDivElement {
-  container = document.createElement('div')
+  const container = document.createElement('div')
   document.body.appendChild(container)
+  containers.push(container)
   act(() => {
-    render(<ControlUI connection={connection} />, container!)
+    render(<ControlUI connection={connection} />, container)
   })
   return container
 }
