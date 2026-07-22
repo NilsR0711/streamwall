@@ -381,14 +381,28 @@ breaking change bumps the minor version.
    manifests, their `package-lock.json` entries and the `CHANGELOG.md` section
    for the pending release. Its description previews the release notes;
    anything merged afterwards updates the PR.
-2. Merge the release PR when you want to cut the release. A pull request opened
-   by a workflow's `GITHUB_TOKEN` raises no `pull_request` events, so neither
-   `CI OK` nor `Conventional Commits title` would start on its own. Instead,
-   `release-please.yml` dispatches both workflows against the release branch
-   after every update — `workflow_dispatch` is the one event GitHub still
-   delivers for that token. Wait for the two checks to pass before merging.
-   Because a dispatched run has nothing to diff against, it always runs the
-   full gate rather than the change-scaled subset.
+2. Close and reopen the release PR, then merge it when the checks have passed.
+
+   The close/reopen step is not optional. A pull request opened by a workflow's
+   `GITHUB_TOKEN` raises no `pull_request` events, so neither `CI OK` nor
+   `Conventional Commits title` starts on its own, and branch protection blocks
+   the merge with `2 of 2 required status checks are expected`. Reopening the PR
+   by hand raises a real `pull_request` (reopened) event — both workflows listen
+   for it — so the checks attach to the PR itself and `mergeStateStatus` becomes
+   `CLEAN`.
+
+   `release-please.yml` also dispatches both workflows against the release
+   branch after every update, `workflow_dispatch` being the one event GitHub
+   still delivers for that token. Treat those runs as a smoke signal only: they
+   report on the branch head, **not** on the pull request, so they never enter
+   its status check rollup and cannot satisfy branch protection (#578). Because
+   a dispatched run has nothing to diff against, it always runs the full gate
+   rather than the change-scaled subset.
+
+   Both workarounds exist only because release-please runs with `GITHUB_TOKEN`.
+   Switching it to a PAT or GitHub App token (#549) would let the release PR
+   start its own required checks and make this step unnecessary.
+
 3. Tag the merge commit and push the tag:
 
    ```sh

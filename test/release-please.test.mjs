@@ -231,13 +231,26 @@ test('the PR title check resolves the title of a dispatched release PR', () => {
   assert.equal(step.env.PR_NUMBER, '${{ inputs.pr-number }}')
 })
 
-test('the release documentation drops the close/reopen workaround', () => {
+// This guard used to assert the opposite: that the close/reopen workaround was
+// gone, because the dispatch shim added in #547 was expected to make it
+// unnecessary. It does not. A workflow_dispatch run reports against the branch
+// head rather than the pull request, so its checks never enter the PR's status
+// check rollup and branch protection still blocks the merge (#578). Cutting
+// v0.10.0 hit exactly that. Until release-please runs with a token that raises
+// real pull_request events (#549), close/reopen is the step that works, and the
+// documentation has to say so.
+test('the release documentation keeps the close/reopen step', () => {
   const contributing = readFileSync(join(rootDir, 'CONTRIBUTING.md'), 'utf8')
 
-  assert.doesNotMatch(
+  assert.match(
     contributing,
     /reopen the release PR/i,
-    'release-please.yml starts the checks itself now (#521)',
+    'the release PR only gets its required checks from a real pull_request event (#578)',
+  )
+  assert.match(
+    contributing,
+    /smoke signal/i,
+    'the dispatched runs must not be presented as satisfying branch protection (#578)',
   )
 })
 
