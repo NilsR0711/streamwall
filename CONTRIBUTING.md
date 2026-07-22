@@ -419,6 +419,15 @@ breaking change bumps the minor version.
    electron-forge, and then copies the `CHANGELOG.md` section for that version
    into the GitHub Release body (`scripts/changelog-section.mjs`).
 
+   Its `release-pr-label` job also moves the merged release PR from
+   `autorelease: pending` to `autorelease: tagged`. release-please normally
+   clears that label when it creates the GitHub release, which it does not do
+   here (`skip-github-release`), and while the label is still `pending` it
+   refuses to build the next release PR at all — logging "There are untagged,
+   merged release PRs outstanding - aborting" and finishing green, so nothing
+   reports the blockage. That is how thirteen commits sat on `main` without a
+   release PR after v0.10.0 (#611).
+
 Because that tag is the one manual step,
 [`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) checks
 every morning that the version on `main` has a matching `vX.Y.Z` tag and fails

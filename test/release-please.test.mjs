@@ -269,3 +269,40 @@ test('release.yml turns the changelog section into the release notes', () => {
     /scripts\/changelog-section\.mjs/,
   )
 })
+
+// release-please refuses to build the next release PR while a merged one still
+// carries `autorelease: pending`: it reports "There are untagged, merged
+// release PRs outstanding - aborting" and exits successfully, so the workflow
+// stays green while every commit on `main` piles up unreleased. The label is
+// normally cleared by the GitHub-release step, which this repository skips
+// because the tag is pushed by hand — so the tag run has to clear it instead
+// (#611).
+test('release.yml clears the release PR label that blocks the next release', () => {
+  const release = readWorkflow('release.yml')
+  const job = release.jobs['release-pr-label']
+
+  assert.ok(job, 'release.yml is missing a release-pr-label job')
+  assert.equal(
+    job.permissions['pull-requests'],
+    'write',
+    'relabelling the release PR needs the pull-requests: write scope',
+  )
+  assert.match(
+    job.if ?? '',
+    /refs\/tags\/v/,
+    'only a tag run knows which release version to relabel',
+  )
+  assert.ok(
+    job.needs.includes('publish'),
+    'the label must only move once the tag actually produced a release',
+  )
+
+  const run = job.steps.map((step) => step.run ?? '').join('\n')
+  assert.match(run, /--add-label\s+'autorelease: tagged'/)
+  assert.match(run, /--remove-label\s+'autorelease: pending'/)
+  assert.match(
+    run,
+    /autorelease: pending/,
+    'the merged release PR is found by the label release-please left on it',
+  )
+})
