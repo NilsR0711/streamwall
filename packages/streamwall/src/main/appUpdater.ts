@@ -235,16 +235,27 @@ function extractProgress(info: unknown): DownloadProgress | null {
     return null
   }
   const { percent, transferred, total } = info as Record<string, unknown>
-  if (
-    typeof percent !== 'number' ||
-    typeof transferred !== 'number' ||
-    typeof total !== 'number' ||
-    !Number.isFinite(percent) ||
-    !Number.isFinite(transferred) ||
-    !Number.isFinite(total) ||
-    total <= 0
-  ) {
+
+  // A NaN/Infinity (or entirely absent) field means the backend cannot measure
+  // this download - e.g. a server that omits Content-Length.
+  const allFieldsMeasured =
+    isFiniteNumber(percent) &&
+    isFiniteNumber(transferred) &&
+    isFiniteNumber(total)
+  if (!allFieldsMeasured) {
     return null
   }
+
+  // A zero or negative total would make the banner's percentage meaningless.
+  const hasKnownTotal = total > 0
+  if (!hasKnownTotal) {
+    return null
+  }
+
   return { percent, transferred, total }
+}
+
+/** Guards against both non-numeric fields and the NaN/Infinity a stalled or unmeasurable download reports. */
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }

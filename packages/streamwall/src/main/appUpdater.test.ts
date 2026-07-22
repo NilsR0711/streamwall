@@ -125,6 +125,85 @@ describe('AppUpdater status', () => {
     })
   })
 
+  // One case per branch of the progress guard, so the named predicates it was
+  // split into keep rejecting exactly what the original condition rejected.
+  it.each([
+    ['a non-object payload', 'not-an-object'],
+    ['a null payload', null],
+    ['an undefined payload', undefined],
+    ['no fields at all', {}],
+    ['a non-numeric percent', { percent: '40', transferred: 400, total: 1000 }],
+    [
+      'a non-numeric transferred',
+      { percent: 40, transferred: '400', total: 1000 },
+    ],
+    ['a non-numeric total', { percent: 40, transferred: 400, total: '1000' }],
+    ['a NaN percent', { percent: Number.NaN, transferred: 400, total: 1000 }],
+    [
+      'a NaN transferred',
+      { percent: 40, transferred: Number.NaN, total: 1000 },
+    ],
+    ['a NaN total', { percent: 40, transferred: 400, total: Number.NaN }],
+    [
+      'an infinite percent',
+      { percent: Number.POSITIVE_INFINITY, transferred: 400, total: 1000 },
+    ],
+    [
+      'an infinite transferred',
+      { percent: 40, transferred: Number.POSITIVE_INFINITY, total: 1000 },
+    ],
+    [
+      'an infinite total',
+      { percent: 40, transferred: 400, total: Number.POSITIVE_INFINITY },
+    ],
+    ['a zero total', { percent: 0, transferred: 0, total: 0 }],
+    ['a negative total', { percent: 0, transferred: 0, total: -1 }],
+  ])('keeps the progress indeterminate for %s', (_label, payload) => {
+    const { backend, updater } = createUpdater()
+    backend.emit('update-available', { version: '0.9.2' })
+    updater.download()
+
+    backend.emit('download-progress', payload)
+
+    expect(updater.getStatus()).toEqual({
+      state: 'downloading',
+      version: '0.9.2',
+      progress: null,
+    })
+  })
+
+  it('accepts a fully measured payload down to a single-byte total', () => {
+    const { backend, updater } = createUpdater()
+    backend.emit('update-available', { version: '0.9.2' })
+    updater.download()
+
+    backend.emit('download-progress', { percent: 0, transferred: 0, total: 1 })
+
+    expect(updater.getStatus()).toEqual({
+      state: 'downloading',
+      version: '0.9.2',
+      progress: { percent: 0, transferred: 0, total: 1 },
+    })
+  })
+
+  it('ignores progress events outside the downloading state', () => {
+    const { backend, updater } = createUpdater()
+    backend.emit('update-available', { version: '0.9.2' })
+
+    backend.emit('download-progress', {
+      percent: 40,
+      transferred: 400,
+      total: 1000,
+    })
+
+    expect(updater.getStatus()).toEqual({
+      state: 'available',
+      version: '0.9.2',
+      releaseUrl,
+      canDownload: true,
+    })
+  })
+
   it('reports the downloaded version and a release notes link once install is possible', () => {
     const { backend, updater } = createUpdater()
     backend.emit('update-available', { version: '0.9.2' })
