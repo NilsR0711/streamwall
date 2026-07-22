@@ -8,7 +8,6 @@ import {
   WebContentsView,
 } from 'electron'
 import EventEmitter from 'events'
-import { intersection, isEqual } from 'lodash-es'
 import path from 'path'
 import {
   asViewId,
@@ -20,7 +19,6 @@ import {
   StreamList,
   StreamwallState,
   StreamWindowConfig,
-  ViewContent,
   ViewContentMap,
   ViewId,
   ViewState,
@@ -29,6 +27,7 @@ import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { devServerOrigin, loadHTML } from './loadHTML'
 import { secureStreamView } from './navigationSecurity'
 import { allocateViewPartition, hardenSession } from './partitions'
+import { planViewLayout, type ViewCandidate } from './viewLayoutPlan'
 import viewStateMachine, {
   DEFAULT_RETRY_CONFIG,
   RetryConfig,
@@ -43,6 +42,13 @@ function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   const { rotation } = stream
   return { rotation }
 }
+
+/**
+ * One box of the requested wall layout, as produced by
+ * `boxesFromViewContentMap`: its grid geometry, the cells it covers and the
+ * content it asks for.
+ */
+type LayoutBox = ReturnType<typeof boxesFromViewContentMap>[number]
 
 export interface StreamWindowEventMap {
   load: []
@@ -91,6 +97,25 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.parkedViews = new Map()
     this.viewsByWebContentsId = new Map()
 
+    // Sequenced setup: the window must exist before the layer views can be
+    // added to it, and both layers must exist before the IPC handlers that
+    // reference them are registered.
+    this.win = this.createWallWindow()
+    this.backgroundView = this.createLayerView('background', {
+      preload: path.join(__dirname, 'layerPreload.js'),
+    })
+    this.overlayView = this.createLayerView('overlay', {
+      contextIsolation: true,
+      preload: path.join(__dirname, 'layerPreload.js'),
+    })
+    this.setupIpcHandlers()
+  }
+
+  /**
+   * Creates the wall's BrowserWindow on the configured display and wires its
+   * lifecycle events (close, first show, resize) to this StreamWindow.
+   */
+  private createWallWindow(): BrowserWindow {
     const {
       width,
       height,
@@ -135,41 +160,38 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     // the new content area.
     win.on('resize', () => this.handleResize())
 
-    this.win = win
+    return win
+  }
 
-    const backgroundView = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, 'layerPreload.js'),
-      },
-    })
-    backgroundView.setBackgroundColor('#0000')
-    win.contentView.addChildView(backgroundView)
-    backgroundView.setBounds({
+  /**
+   * Creates one of the two transparent full-window chrome layers (the
+   * background and the overlay), sizes it to the configured wall dimensions
+   * and loads its HTML entry point.
+   */
+  private createLayerView(
+    page: 'background' | 'overlay',
+    webPreferences: Electron.WebPreferences,
+  ): WebContentsView {
+    const { width, height } = this.config
+    const layerView = new WebContentsView({ webPreferences })
+    layerView.setBackgroundColor('#0000')
+    this.win.contentView.addChildView(layerView)
+    layerView.setBounds({
       x: 0,
       y: 0,
       width,
       height,
     })
-    loadHTML(backgroundView.webContents, 'background')
-    this.backgroundView = backgroundView
+    loadHTML(layerView.webContents, page)
+    return layerView
+  }
 
-    const overlayView = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        preload: path.join(__dirname, 'layerPreload.js'),
-      },
-    })
-    overlayView.setBackgroundColor('#0000')
-    win.contentView.addChildView(overlayView)
-    overlayView.setBounds({
-      x: 0,
-      y: 0,
-      width,
-      height,
-    })
-    loadHTML(overlayView.webContents, 'overlay')
-    this.overlayView = overlayView
-
+  /**
+   * Registers the main-process IPC handlers: the chrome layers' load
+   * notification, and the per-view messages routed back to the owning actor
+   * via `viewsByWebContentsId`.
+   */
+  private setupIpcHandlers() {
     ipcMain.handle('layer:load', (ev) => {
       if (
         ev.sender !== this.backgroundView.webContents &&
@@ -235,7 +257,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       })
     })
     ipcMain.on('devtools-overlay', () => {
-      overlayView.webContents.openDevTools()
+      this.overlayView.webContents.openDevTools()
     })
   }
 
@@ -451,102 +473,52 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.config.rows = rows
   }
 
-  setViews(
-    viewContentMap: ViewContentMap,
+  /**
+   * Describes every actor eligible for reuse by the next `setViews` call, in
+   * the priority order `planViewLayout` resolves ties by: live views first,
+   * then views parked by a previous `parkUnused` call -- which are reuse
+   * candidates too, so a fullscreen collapse can find and reposition them
+   * instead of creating new ones (issue #369).
+   */
+  private reuseCandidates(): Array<ViewCandidate<ViewActor>> {
+    return [...this.views.values(), ...this.parkedViews.values()].map(
+      (view) => {
+        const snapshot = view.getSnapshot()
+        return {
+          view,
+          content: snapshot.context.content,
+          spaces: snapshot.context.pos?.spaces,
+          isRunning: snapshot.matches({ displaying: 'running' }),
+        }
+      },
+    )
+  }
+
+  /**
+   * Applies the reuse/creation half of a layout plan: positions each assigned
+   * actor in its box and returns the new `views` map. Any actor whose box
+   * turns out to be unusable (no content, or a URL missing from `streams`) is
+   * added to `unusedViews` so the caller's teardown pass reclaims it --
+   * dropping the reference outright would leak the actor, its
+   * WebContentsView and its offscreen BrowserWindow permanently.
+   */
+  private displayPlannedViews(
+    viewsToDisplay: Array<{ box: LayoutBox; view: ViewActor }>,
     streams: StreamList,
-    { parkUnused = false }: { parkUnused?: boolean } = {},
-  ) {
+    previouslyParkedIds: Set<ViewId>,
+    unusedViews: Set<ViewActor>,
+  ): Map<ViewId, ViewActor> {
     const { width, height, cols, rows } = this.config
-    const { views } = this
-    const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
-    const remainingBoxes = new Set(boxes)
-    // Views parked by a previous `parkUnused` call are reuse candidates too,
-    // so a fullscreen collapse can find and reposition them via the matchers
-    // below instead of creating new ones (issue #369).
-    const unusedViews = new Set([
-      ...views.values(),
-      ...this.parkedViews.values(),
-    ])
-    // Snapshot which actor ids were parked coming into this call, so a view
-    // matched back into a box below can be told to resume playback (issue
-    // #374) -- `this.parkedViews` itself is cleared right after and
-    // repopulated with whatever is still unused once this call is done.
-    const previouslyParkedIds = new Set(this.parkedViews.keys())
-    this.parkedViews.clear()
-    const viewsToDisplay = []
-
-    // We try to find the best match for moving / reusing existing views to match the new positions.
-    const matchers: Array<
-      (
-        v: SnapshotFrom<typeof viewStateMachine>,
-        content: ViewContent | undefined,
-        spaces?: number[],
-      ) => boolean
-    > = [
-      // First try to find a loaded view of the same URL in the same space...
-      (v, content, spaces) =>
-        isEqual(v.context.content, content) &&
-        v.matches({ displaying: 'running' }) &&
-        intersection(v.context.pos?.spaces, spaces).length > 0,
-      // Then try to find a loaded view of the same URL...
-      (v, content) =>
-        isEqual(v.context.content, content) &&
-        v.matches({ displaying: 'running' }),
-      // Then try view with the same URL that is still loading...
-      (v, content) => isEqual(v.context.content, content),
-      // Finally, if no view already shows this content, reuse whichever
-      // running view already occupies the box's space regardless of its
-      // content, so a genuine content change (a playlist advance, a
-      // drag-to-place reassignment) reuses the actor already there via a
-      // DISPLAY event -- letting `running`'s own swap handling take over --
-      // instead of always tearing it down and creating a brand-new one.
-      // Scoped to `running` only: `loading`/`error` have no DISPLAY handler
-      // of their own for changed content, so the event would bubble up to
-      // `displaying`'s handler, whose `contentUnchanged` guard would then
-      // silently drop it and strand the actor on its old content.
-      (v, _content, spaces) =>
-        v.matches({ displaying: 'running' }) &&
-        intersection(v.context.pos?.spaces, spaces).length > 0,
-    ]
-
-    for (const matcher of matchers) {
-      for (const box of remainingBoxes) {
-        const { content, spaces } = box
-        let foundView
-        for (const view of unusedViews) {
-          const snapshot = view.getSnapshot()
-          if (matcher(snapshot, content, spaces)) {
-            foundView = view
-            break
-          }
-        }
-        if (foundView) {
-          viewsToDisplay.push({ box, view: foundView })
-          unusedViews.delete(foundView)
-          remainingBoxes.delete(box)
-        }
-      }
-    }
-
-    for (const box of remainingBoxes) {
-      const view = this.createView()
-      viewsToDisplay.push({ box, view })
-    }
-
-    const newViews = new Map()
+    const newViews = new Map<ViewId, ViewActor>()
     for (const { box, view } of viewsToDisplay) {
       const { content, spaces } = box
       if (!content) {
-        // Route through the teardown path below instead of dropping the
-        // reference outright, or the actor/WebContentsView/offscreen
-        // BrowserWindow behind it leaks permanently.
         unusedViews.add(view)
         continue
       }
 
       const stream = streams.byURL?.get(content.url)
       if (!stream) {
-        // Same leak risk as above, for a box whose URL isn't in `streams.byURL`.
         unusedViews.add(view)
         continue
       }
@@ -564,10 +536,17 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       }
       newViews.set(viewId, view)
     }
+    return newViews
+  }
+
+  /**
+   * Applies the leftover half of a layout plan: every actor no box claimed is
+   * either parked (kept alive but hidden, see `hideView` and the
+   * `parkedViews` field) or stopped and fully disposed.
+   */
+  private retireUnusedViews(unusedViews: Set<ViewActor>, parkUnused: boolean) {
     for (const view of unusedViews) {
       if (parkUnused) {
-        // Keep the actor alive, just hidden -- see `hideView` and the
-        // `parkedViews` field.
         this.hideView(view)
         this.parkedViews.set(view.getSnapshot().context.id, view)
         continue
@@ -588,6 +567,39 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         disposeView(next.view, next.offscreenWin)
       }
     }
+  }
+
+  setViews(
+    viewContentMap: ViewContentMap,
+    streams: StreamList,
+    { parkUnused = false }: { parkUnused?: boolean } = {},
+  ) {
+    const { cols, rows } = this.config
+    const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
+
+    // Snapshot which actor ids were parked coming into this call, so a view
+    // matched back into a box below can be told to resume playback (issue
+    // #374) -- `this.parkedViews` itself is cleared right after and
+    // repopulated with whatever is still unused once this call is done.
+    const previouslyParkedIds = new Set(this.parkedViews.keys())
+
+    // Decide reuse vs. teardown vs. creation up front, then just execute it.
+    const plan = planViewLayout(boxes, this.reuseCandidates())
+    this.parkedViews.clear()
+
+    const unusedViews = new Set(plan.unusedViews)
+    const viewsToDisplay = [
+      ...plan.reused,
+      ...plan.unmatchedBoxes.map((box) => ({ box, view: this.createView() })),
+    ]
+
+    const newViews = this.displayPlannedViews(
+      viewsToDisplay,
+      streams,
+      previouslyParkedIds,
+      unusedViews,
+    )
+    this.retireUnusedViews(unusedViews, parkUnused)
     this.views = newViews
     this.emitState()
   }

@@ -559,6 +559,132 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
   })
 })
 
+describe('StreamWindow.setViews matcher precedence', () => {
+  const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+
+  it('prefers the same-content view already sitting in the box space over an equally-matching one elsewhere', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const inPlace = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    const elsewhere = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [1],
+      running: true,
+    })
+    // `elsewhere` is registered first, so only the space-overlap tie-break in
+    // the first matcher can make `inPlace` win.
+    sw.views = new Map([
+      [2, elsewhere.actor],
+      [1, inPlace.actor],
+    ])
+    sw.createView = vi.fn()
+
+    sw.setViews(new Map([['0', streamA]]), {
+      byURL: new Map([[streamA.url, {}]]),
+    })
+
+    expect(sw.createView).not.toHaveBeenCalled()
+    expect(inPlace.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamA }),
+    )
+    expect(sw.views.get(1)).toBe(inPlace.actor)
+    // The redundant copy is torn down rather than left dangling.
+    expect(elsewhere.stop).toHaveBeenCalled()
+    expect(sw.views.has(2)).toBe(false)
+  })
+
+  it('reuses a still-loading view that already has the requested content instead of creating a new one', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const loading = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: false,
+    })
+    sw.views = new Map([[1, loading.actor]])
+    sw.createView = vi.fn()
+
+    sw.setViews(new Map([['0', streamA]]), {
+      byURL: new Map([[streamA.url, {}]]),
+    })
+
+    expect(sw.createView).not.toHaveBeenCalled()
+    expect(loading.stop).not.toHaveBeenCalled()
+    expect(loading.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISPLAY', content: streamA }),
+    )
+    expect(sw.views.get(1)).toBe(loading.actor)
+  })
+
+  it('prefers a live view over an equally-matching parked one', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const live = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    const parked = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([[1, live.actor]])
+    sw.parkedViews = new Map([[2, parked.actor]])
+    sw.createView = vi.fn()
+
+    sw.setViews(new Map([['0', streamA]]), {
+      byURL: new Map([[streamA.url, {}]]),
+    })
+
+    expect(sw.views.get(1)).toBe(live.actor)
+    expect(live.stop).not.toHaveBeenCalled()
+    expect(parked.stop).toHaveBeenCalled()
+    // The parking bookkeeping is reset by every setViews call.
+    expect(sw.parkedViews.size).toBe(0)
+  })
+
+  it('tears down a view that no box wants and that is not parked', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const orphan = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([[1, orphan.actor]])
+    sw.createView = vi.fn()
+
+    sw.setViews(new Map(), { byURL: new Map() })
+
+    expect(orphan.stop).toHaveBeenCalled()
+    expect(orphan.disposeView).toHaveBeenCalledTimes(1)
+    expect(sw.views.size).toBe(0)
+  })
+})
+
 describe('StreamWindow.setViews expanding a view to fill the wall (issue #362)', () => {
   it('reuses the running actor and spans it across every grid cell', () => {
     const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
