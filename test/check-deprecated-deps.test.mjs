@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   ALLOWLIST_PATH,
+  buildNpmExecOptions,
   collectDirectDependencies,
   evaluateDeprecations,
   fetchDeprecations,
@@ -316,6 +317,18 @@ test('fetchDeprecations omits dependencies whose lookup failed', async () => {
   })
 
   assert.deepEqual([...deprecations.keys()], ['abandoned@1.0.0'])
+})
+
+// On Windows npm is only reachable as the `npm.cmd` shim, which Node refuses
+// to spawn without a shell since the CVE-2024-27980 fix (#586).
+test('buildNpmExecOptions spawns through a shell on Windows', () => {
+  const options = buildNpmExecOptions('win32')
+  assert.equal(options.shell, true)
+})
+
+test('buildNpmExecOptions does not need a shell elsewhere', () => {
+  assert.equal(buildNpmExecOptions('linux').shell, false)
+  assert.equal(buildNpmExecOptions('darwin').shell, false)
 })
 
 test('the committed allowlist is valid', () => {

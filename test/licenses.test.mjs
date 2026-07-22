@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
   ALLOWED_LICENSES,
+  buildNpmExecOptions,
   collectProductionPackages,
   findLicenseViolations,
   formatViolations,
@@ -198,6 +199,18 @@ test('violations name every offending package and its license', () => {
   assert.match(report, /GPL-3\.0-only/)
   assert.match(report, /nameless@0\.1\.0/)
   assert.match(report, /no license field/)
+})
+
+// On Windows npm is only reachable as the `npm.cmd` shim, which Node refuses
+// to spawn without a shell since the CVE-2024-27980 fix (#586).
+test('buildNpmExecOptions spawns through a shell on Windows', () => {
+  const options = buildNpmExecOptions('win32')
+  assert.equal(options.shell, true)
+})
+
+test('buildNpmExecOptions does not need a shell elsewhere', () => {
+  assert.equal(buildNpmExecOptions('linux').shell, false)
+  assert.equal(buildNpmExecOptions('darwin').shell, false)
 })
 
 // The check only gates merges while it hangs off the aggregate `CI OK` job,

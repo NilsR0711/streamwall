@@ -188,6 +188,19 @@ export function formatViolations(violations) {
     .join('\n')
 }
 
+// On Windows npm is only reachable as the `npm.cmd` shim, and since the
+// CVE-2024-27980 fix Node refuses to spawn a `.cmd` file without a shell
+// (bare `npm` fails with ENOENT, `npm.cmd` fails with EINVAL) - so a
+// maintainer running this check locally on Windows needs the shell branch
+// (#586). CI only runs this on Linux, where the extra option is a no-op.
+export function buildNpmExecOptions(platform = process.platform) {
+  return {
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    shell: platform === 'win32',
+  }
+}
+
 function readProductionTree() {
   // `npm ls` exits non-zero whenever the tree has any problem (an unmet
   // optional dependency is enough), so the exit code is not a useful signal
@@ -195,7 +208,7 @@ function readProductionTree() {
   const output = execFileSync(
     'npm',
     ['ls', '--omit=dev', '--all', '--long', '--json'],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+    buildNpmExecOptions(),
   )
   return JSON.parse(output)
 }
