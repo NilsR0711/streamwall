@@ -6,6 +6,7 @@ import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
 import {
   captureLogs,
   setEnvForTest,
+  startTestServer,
   TEST_SCRYPT_PARAMS,
 } from './testHelpers.ts'
 
@@ -96,4 +97,38 @@ test('setEnvForTest restores the previous values after the test that set them', 
   // Guards the whole point of the helper: the override above must not have
   // leaked into this test, nor into any later file.
   assert.equal(process.env.STREAMWALL_RATE_LIMIT_MAX, RATE_LIMIT_MAX_AT_LOAD)
+})
+
+test('startTestServer merges a partial rateLimit override with the wide test defaults', async () => {
+  // Only authMax is overridden; globalMax must still come from
+  // WIDE_RATE_LIMITS rather than silently falling back to the production
+  // default merely because the caller set an unrelated field.
+  const { app } = await startTestServer({ rateLimit: { authMax: 2 } })
+
+  const globalCodes: number[] = []
+  for (let i = 0; i < 150; i++) {
+    const res = await app.inject({ method: 'GET', url: '/' })
+    globalCodes.push(res.statusCode)
+  }
+  assert.ok(
+    !globalCodes.includes(429),
+    `expected no 429s under the wide global budget (150 < 10000), got: ${globalCodes.join(',')}`,
+  )
+
+  // The override itself must still take effect.
+  const authCodes: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invite/x',
+      headers: { 'content-type': 'application/json' },
+      payload: { token: 'y' },
+    })
+    authCodes.push(res.statusCode)
+  }
+  assert.equal(
+    authCodes[2],
+    429,
+    `expected the overridden authMax of 2 to apply, got: ${authCodes.join(',')}`,
+  )
 })

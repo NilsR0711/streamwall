@@ -19,14 +19,19 @@ import {
 async function connectStreamwallAndClient({
   role = 'admin' as StreamwallRole,
   wsUpdateMaxBytes,
+  stateMessage,
+  expectRejected,
   ...overrides
 }: {
   stateMessage?: Record<string, unknown>
+  expectRejected?: boolean
   role?: StreamwallRole
   wsUpdateMaxBytes?: number
 } = {}) {
   const booted = await bootServerWithUplink({
     ...overrides,
+    ...(stateMessage !== undefined && { stateMessage }),
+    ...(expectRejected !== undefined && { expectRejected }),
     // Injected rather than set in the environment: the cap belongs to this one
     // server instance and never leaks into whichever file runs next.
     ...(wsUpdateMaxBytes !== undefined && {
@@ -84,6 +89,7 @@ test('rejects a state message with no payload instead of wiring a broken connect
   // the connection is never established and the client is told cleanly.
   const { client } = await connectStreamwallAndClient({
     stateMessage: { type: 'state' },
+    expectRejected: true,
   })
 
   const response = await client.waitFor(isBareError)
@@ -99,6 +105,7 @@ test('rejects an initial state payload missing a required field (issue #387)', a
 
   const { client, logs } = await connectStreamwallAndClient({
     stateMessage: { type: 'state', state: withoutStreams },
+    expectRejected: true,
   })
 
   const response = await client.waitFor(isBareError)
@@ -129,6 +136,7 @@ test('rejects an initial state payload with a malformed view state machine snaps
 
   const { client } = await connectStreamwallAndClient({
     stateMessage: { type: 'state', state: malformed },
+    expectRejected: true,
   })
 
   const response = await client.waitFor(isBareError)
