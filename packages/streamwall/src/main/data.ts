@@ -31,7 +31,7 @@ export type DataSourceHealthCallback = (ok: boolean, message?: string) => void
 // request flood against the operator's endpoint. Concurrency across data
 // sources already exists one level up: `buildDataSources` creates one
 // generator per URL and `combineDataSources` advances all of them at once via
-// `Repeater.latest`, so N URLs are polled in parallel with each other while
+// `latestPerSource`, so N URLs are polled in parallel with each other while
 // each individual URL stays strictly serial (see #582).
 export async function* pollDataURL(
   url: string,
@@ -165,10 +165,10 @@ export function presetDataSource(
   })
 }
 
-// Built as a Repeater rather than a plain `async function*`: Repeater.latest()
-// (used by combineDataSources) always keeps one speculative `.next()` call
-// in flight per contender, which can be left permanently pending when a
-// source has no further data. A native async generator queues `.return()`
+// Built as a Repeater rather than a plain `async function*`: the combining
+// layer (`latestPerSource`, previously `Repeater.latest`) always keeps one
+// speculative `.next()` call in flight per source, which can be left
+// permanently pending when a source has no further data. A native async generator queues `.return()`
 // calls behind any in-flight `.next()` per the spec, so that dangling call
 // would block teardown forever; Repeater.return() instead settles pending
 // `.next()` calls immediately, which is what makes combineDataSources()'s
@@ -208,11 +208,76 @@ export function markDataSource(
 /** Name passed to `markDataSource` for the overlay (rotate-stream) source. */
 export const OVERLAY_DATA_SOURCE_NAME = 'overlay'
 
+// Combines the sources into a stream of "latest value per source" snapshots.
+//
+// This is deliberately *not* `Repeater.latest`: that combinator withholds
+// every value until each contender has produced a first one, so a single slow
+// or black-holed source (e.g. a `--data.json-url` pointing at a host that
+// accepts the connection and never answers - `fetch` has no client-side
+// timeout) keeps the entire wall empty for as long as it hangs, even though
+// every other source has already delivered (issue #596).
+//
+// Here each source is advanced independently and a snapshot is emitted as soon
+// as *any* source yields; sources that have not spoken yet contribute an empty
+// batch and are filled in when they do. No value is dropped or duplicated: a
+// snapshot is pushed per received batch, and each snapshot carries the latest
+// batch of every source at push time. Slot order matches `dataSources` order,
+// which is what gives later sources precedence in the merge below.
+function latestPerSource(
+  dataSources: DataSource[],
+): Repeater<StreamDataContent[][]> {
+  return new Repeater(async (push, stop) => {
+    const latest: StreamDataContent[][] = dataSources.map(() => [])
+    let stopped = false
+    void stop.then(() => {
+      stopped = true
+    })
+    try {
+      await Promise.all(
+        dataSources.map(async (dataSource, index) => {
+          while (!stopped) {
+            const nextP = dataSource.next()
+            // Guard the race loser against an unhandled rejection. The
+            // rejection still surfaces to the awaited race (and is logged,
+            // named, by markDataSource), so error propagation is unchanged.
+            nextP.catch(() => {})
+            const iteration = await Promise.race([nextP, stop])
+            if (stopped || iteration === undefined || iteration.done) {
+              return
+            }
+            latest[index] = iteration.value
+            // Raced against `stop` so a teardown while the consumer is not
+            // pulling settles immediately instead of waiting for a pull that
+            // will never come.
+            const pushP = push([...latest])
+            pushP.catch(() => {})
+            await Promise.race([pushP, stop])
+          }
+        }),
+      )
+    } finally {
+      // Repeater combinators do not propagate return() to their contenders, so
+      // signal the sources explicitly - otherwise pollers and file watchers
+      // keep running after the combined generator is done. Deliberately not
+      // awaited: a source that is wedged inside its own executor (exactly the
+      // hung-source case this combinator exists to survive) never settles its
+      // return(), and waiting on it would re-introduce the hang here.
+      for (const dataSource of dataSources) {
+        void Promise.resolve(dataSource.return?.(undefined)).catch(
+          (err: unknown) => {
+            log.warn('error closing data source', err)
+          },
+        )
+      }
+    }
+  })
+}
+
 export async function* combineDataSources(
   dataSources: DataSource[],
   idGen: StreamIDGenerator,
 ) {
-  for await (const streamLists of Repeater.latest(dataSources)) {
+  for await (const streamLists of latestPerSource(dataSources)) {
     const dataByURL = new Map<string, StreamData>()
     for (const list of streamLists) {
       for (const data of list) {

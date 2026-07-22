@@ -1,3 +1,4 @@
+import { Repeater } from '@repeaterjs/repeater'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -53,6 +54,31 @@ async function waitForListener(
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error(`listener for "${event}" was not registered in time`)
+}
+
+// combineDataSources emits a snapshot as soon as *any* source has produced a
+// value (see #596), instead of withholding everything until every source has
+// spoken. A merge across N sources therefore converges over up to N snapshots
+// rather than arriving complete in the very first one.
+async function readUntil<T>(
+  gen: AsyncIterator<T>,
+  predicate: (value: T) => boolean,
+  maxReads = 5,
+): Promise<T> {
+  let last: T | undefined
+  for (let i = 0; i < maxReads; i++) {
+    const { value, done } = await gen.next()
+    if (done) {
+      break
+    }
+    last = value
+    if (predicate(value)) {
+      return value
+    }
+  }
+  throw new Error(
+    `no snapshot matched after ${maxReads} reads (last: ${JSON.stringify(last)})`,
+  )
 }
 
 describe('watchDataFile', () => {
@@ -533,15 +559,16 @@ describe('data source fan-out', () => {
       ],
       new StreamIDGenerator(),
     )
-    // combineDataSources()'s .return() never resolves while its contenders
-    // stay live (Repeater.latest does not propagate return()), so - matching
-    // the existing combineDataSources tests - read values without tearing the
-    // combined generator down. The server holds every response until two
-    // requests have arrived, so a first value can only be produced once both
-    // polls are in flight at the same time.
-    const { value } = await combined.next()
-    expect(value).toBeDefined()
-    expect(maxInFlight).toBe(2)
+    // The server holds every response until two requests have arrived, so a
+    // first value can only be produced once both polls are in flight at the
+    // same time.
+    try {
+      const { value } = await combined.next()
+      expect(value).toBeDefined()
+      expect(maxInFlight).toBe(2)
+    } finally {
+      await combined.return?.(undefined)
+    }
   })
 
   // Error semantics of the fan-out: a source whose read fails yields an empty
@@ -570,12 +597,15 @@ describe('data source fan-out', () => {
       new StreamIDGenerator(),
     )
     let seenGoodStream = false
-    // Bounded read, and no teardown: see the note in the test above.
-    for (let i = 0; i < 5 && !seenGoodStream; i++) {
-      const { value } = await combined.next()
-      seenGoodStream = Boolean(
-        value?.some((s) => s.link === 'https://good.example/s'),
-      )
+    try {
+      for (let i = 0; i < 5 && !seenGoodStream; i++) {
+        const { value } = await combined.next()
+        seenGoodStream = Boolean(
+          value?.some((s) => s.link === 'https://good.example/s'),
+        )
+      }
+    } finally {
+      await combined.return?.(undefined)
     }
     expect(seenGoodStream).toBe(true)
   })
@@ -770,9 +800,9 @@ describe('combineDataSources', () => {
       new StreamIDGenerator(),
     )
     try {
-      const { value } = await gen.next()
+      const value = await readUntil(gen, (v) => v[0]?.label === 'From B')
       expect(value).toHaveLength(1)
-      expect(value?.[0]).toMatchObject({
+      expect(value[0]).toMatchObject({
         link: 'https://a.example/s',
         label: 'From B',
         notes: 'extra',
@@ -881,8 +911,11 @@ describe('combineDataSources', () => {
       new StreamIDGenerator(),
     )
     try {
-      const { value } = await gen.next()
-      expect(value?.byURL?.get('https://a.example/s')).toMatchObject({
+      const value = await readUntil(
+        gen,
+        (v) => v.byURL?.get('https://a.example/s')?.rotation != null,
+      )
+      expect(value.byURL?.get('https://a.example/s')).toMatchObject({
         kind: 'web',
         rotation: 90,
       })
@@ -942,6 +975,125 @@ describe('combineDataSources', () => {
 
     await expect(gen.return(undefined)).resolves.toBeDefined()
   })
+
+  test('closes its sources on teardown', async () => {
+    let markClosed!: () => void
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve
+    })
+    const source = new Repeater<StreamDataContent[]>(async (push, stop) => {
+      try {
+        await push([{ kind: 'video', link: 'https://a.example/s' }])
+        await stop
+      } finally {
+        markClosed()
+      }
+    })
+
+    const gen = combineDataSources(
+      [markDataSource(source, 'a')],
+      new StreamIDGenerator(),
+    )
+    await gen.next()
+    await gen.return(undefined)
+
+    // Resolves only if the teardown propagated down to the source; otherwise
+    // this await never settles and the test times out.
+    await closed
+  })
+
+  // Regression tests for #596: a source that has not produced a first value
+  // yet (a hung `--data.json-url`, a file that is never readable) must not
+  // withhold the data every other source has already delivered.
+  describe('with a source that has not yielded yet', () => {
+    // A source that stays silent until `yieldBatch` is called, so the tests
+    // below drive it by explicit promise resolution rather than by timing.
+    function deferredSource(): {
+      source: AsyncIterableIterator<StreamDataContent[]>
+      yieldBatch: (batch: StreamDataContent[]) => void
+    } {
+      let yieldBatch!: (batch: StreamDataContent[]) => void
+      const first = new Promise<StreamDataContent[]>((resolve) => {
+        yieldBatch = resolve
+      })
+      const source = new Repeater<StreamDataContent[]>(async (push, stop) => {
+        await push(await first)
+        await stop
+      })
+      return { source, yieldBatch }
+    }
+
+    test('delivers a healthy source while another source stays silent', async () => {
+      const { source: silent } = deferredSource()
+      const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
+        await push([{ kind: 'video', link: 'https://good.example/s' }])
+        await stop
+      })
+
+      const gen = combineDataSources(
+        [markDataSource(silent, 'silent'), markDataSource(healthy, 'healthy')],
+        new StreamIDGenerator(),
+      )
+
+      const { value } = await gen.next()
+      expect(value?.map((s) => s.link)).toEqual(['https://good.example/s'])
+    })
+
+    test('delivers the silent source once it finally yields, without losing or duplicating data', async () => {
+      const { source: slow, yieldBatch } = deferredSource()
+      const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
+        await push([
+          { kind: 'video', link: 'https://good.example/s', label: 'from fast' },
+        ])
+        await stop
+      })
+
+      // The slow source sits *after* the healthy one, so once it arrives its
+      // fields must win the merge - the snapshot ordering of the underlying
+      // sources has to survive the partial-first-value handling.
+      const gen = combineDataSources(
+        [markDataSource(healthy, 'healthy'), markDataSource(slow, 'slow')],
+        new StreamIDGenerator(),
+      )
+
+      const first = await gen.next()
+      expect(first.value?.map((s) => s.link)).toEqual([
+        'https://good.example/s',
+      ])
+
+      const pending = gen.next()
+      yieldBatch([
+        { kind: 'video', link: 'https://good.example/s', label: 'from slow' },
+        { kind: 'video', link: 'https://slow.example/s' },
+      ])
+      const { value } = await pending
+
+      expect(value?.map((s) => s.link)).toEqual([
+        'https://good.example/s',
+        'https://slow.example/s',
+      ])
+      expect(value?.byURL?.get('https://good.example/s')).toMatchObject({
+        label: 'from slow',
+        _dataSource: 'slow',
+      })
+    })
+
+    test('tears down while a source has never yielded', async () => {
+      const { source: silent } = deferredSource()
+      const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
+        await push([{ kind: 'video', link: 'https://good.example/s' }])
+        await stop
+      })
+
+      const gen = combineDataSources(
+        [markDataSource(silent, 'silent'), markDataSource(healthy, 'healthy')],
+        new StreamIDGenerator(),
+      )
+
+      await gen.next()
+      await expect(gen.return(undefined)).resolves.toBeDefined()
+    })
+  })
 })
 
 describe('presetDataSource', () => {
@@ -969,19 +1121,19 @@ describe('presetDataSource', () => {
       entries: [{ link: 'https://ard.example/s', kind: 'video', label: 'ARD' }],
     }
     const idGen = new StreamIDGenerator()
-    // combineDataSources()'s .return() never resolves (Repeater.latest does
-    // not propagate return() to its contenders), so - matching the existing
-    // combineDataSources tests above - read a single value and let the
-    // generator get garbage-collected rather than tearing it down.
     const iterator = combineDataSources(
       [markDataSource(presetDataSource(pack), 'preset:de-tv')],
       idGen,
     )
-    const { value } = await iterator.next()
-    expect(value).toHaveLength(1)
-    expect(value?.[0]).toMatchObject({
-      link: 'https://ard.example/s',
-      _dataSource: 'preset:de-tv',
-    })
+    try {
+      const { value } = await iterator.next()
+      expect(value).toHaveLength(1)
+      expect(value?.[0]).toMatchObject({
+        link: 'https://ard.example/s',
+        _dataSource: 'preset:de-tv',
+      })
+    } finally {
+      await iterator.return?.(undefined)
+    }
   })
 })
