@@ -247,6 +247,14 @@ function extractProgress(info: unknown): DownloadProgress | null {
   }
 
   // A zero or negative total would make the banner's percentage meaningless.
+  //
+  // `total` is only usable as `number` here because TypeScript narrows it
+  // through `allFieldsMeasured` above: a `const` holding a direct `&&` chain
+  // is one of the aliased conditions control-flow analysis understands, so
+  // `if (!allFieldsMeasured) return` also narrows `total`. Pulling that
+  // chain into a helper function, or turning `allFieldsMeasured` into a
+  // `let`, silently drops the narrowing and forces a cast back to `number`
+  // here - keep this a `const` with the `&&` chain inline.
   const hasKnownTotal = total > 0
   if (!hasKnownTotal) {
     return null
