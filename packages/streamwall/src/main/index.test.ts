@@ -42,7 +42,9 @@ const mocks = vi.hoisted(() => {
         dataSourceHealth: [],
       })),
       restoreStateDoc: vi.fn(),
-      createStateDocPersister: vi.fn(() => Object.assign(vi.fn(), { flush: vi.fn() })),
+      createStateDocPersister: vi.fn(() =>
+        Object.assign(vi.fn(), { flush: vi.fn() }),
+      ),
       seedAndObserveViewsState: vi.fn(),
       startPlaylistScheduler: vi.fn(() => ({
         start: vi.fn(),
