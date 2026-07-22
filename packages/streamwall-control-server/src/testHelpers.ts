@@ -454,11 +454,12 @@ export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
  */
 export async function startTestServer(overrides: TestAppOverrides = {}) {
   const logs = captureLogs()
+  const { rateLimit, ...restOverrides } = overrides
   const { app, auth } = await buildTestApp({
     baseURL: TEST_BASE_URL,
     logs,
-    rateLimit: WIDE_RATE_LIMITS,
-    ...overrides,
+    ...restOverrides,
+    rateLimit: { ...WIDE_RATE_LIMITS, ...rateLimit },
   })
   after(() => app.close())
   const port = await listenTestApp(app)
@@ -482,18 +483,22 @@ export async function startTestServer(overrides: TestAppOverrides = {}) {
  * message (`VALID_STATE` unless overridden).
  *
  * Waits for the server to have finished with the seeded state instead of
- * sleeping: it either accepts it (the uplink becomes the state authority) or
- * rejects it with a structured warning. Both outcomes end the seeding step, and
- * specs deliberately exercise each of them.
+ * sleeping. By default it waits for the seed to be accepted (`expectRejected:
+ * false`), which fails fast with one clear timeout if a spec's state was
+ * seeded wrongly. Specs that deliberately seed an invalid payload must pass
+ * `expectRejected: true` to wait for the structured rejection warning
+ * instead.
  */
 export async function bootServerWithUplink({
   stateMessage = { type: 'state', state: VALID_STATE } as Record<
     string,
     unknown
   >,
+  expectRejected = false,
   ...overrides
 }: TestAppOverrides & {
   stateMessage?: Record<string, unknown>
+  expectRejected?: boolean
 } = {}) {
   const server = await startTestServer(overrides)
 
@@ -502,11 +507,11 @@ export async function bootServerWithUplink({
     server.port,
   )
   streamwallWs.send(JSON.stringify(stateMessage))
-  await server.logs.waitFor(
-    (entry) =>
-      entry.msg === 'Streamwall connected' ||
-      (typeof entry.msg === 'string' &&
-        entry.msg.startsWith('Rejected invalid Streamwall state')),
+  await server.logs.waitFor((entry) =>
+    expectRejected
+      ? typeof entry.msg === 'string' &&
+        entry.msg.startsWith('Rejected invalid Streamwall state')
+      : entry.msg === 'Streamwall connected',
   )
 
   return { ...server, streamwallWs, streamwall }
