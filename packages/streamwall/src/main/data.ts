@@ -23,6 +23,16 @@ type DataSource = AsyncIterableIterator<StreamDataContent[]>
 // only being diagnosable from a log.
 export type DataSourceHealthCallback = (ok: boolean, message?: string) => void
 
+// The `await fetch(...)` below sits inside a loop, but this is a polling
+// *interval* loop over a single endpoint, not a fan-out over independent
+// items: iteration N is one refresh cycle of the same URL and must not start
+// before iteration N-1 has finished and the interval has elapsed. Batching or
+// parallelising the iterations would turn a paced poller into an unbounded
+// request flood against the operator's endpoint. Concurrency across data
+// sources already exists one level up: `buildDataSources` creates one
+// generator per URL and `combineDataSources` advances all of them at once via
+// `Repeater.latest`, so N URLs are polled in parallel with each other while
+// each individual URL stays strictly serial (see #582).
 export async function* pollDataURL(
   url: string,
   intervalSecs: number,
@@ -57,6 +67,13 @@ export async function* pollDataURL(
   }
 }
 
+// Like `pollDataURL`, the `await fsPromises.readFile(path)` below is inside a
+// loop, but the loop is event-driven over a single file: each iteration is
+// triggered by a filesystem event for that one path, so there is nothing
+// independent to fan out over. Reading ahead would just re-read the same file.
+// Multiple watched files are already concurrent with each other, one generator
+// per path, combined by `combineDataSources` (see #582).
+//
 // Built as a Repeater rather than a plain `async function*`: once a value
 // has been yielded, this generator suspends waiting for the *next*
 // filesystem event, which may never happen. A native async generator
