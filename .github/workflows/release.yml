@@ -414,6 +414,51 @@ jobs:
             fi
           done
 
+  # release-please stops building release PRs while a merged one still carries
+  # `autorelease: pending` — it logs "There are untagged, merged release PRs
+  # outstanding - aborting" and exits successfully, so its workflow stays green
+  # (an 11s run) while every commit on `main` piles up unreleased. That label is
+  # normally cleared by release-please's own GitHub-release step, which this
+  # repository skips (`skip-github-release`, see release-please.yml) because the
+  # tag has to be pushed by hand. Cutting the tag is therefore the moment the
+  # label has to move, and this job is that moment (#611).
+  #
+  # The label `autorelease: tagged` must exist in the repository; `gh pr edit`
+  # fails on an unknown label, which is the intended outcome — a loud failure in
+  # the release run beats the silent blockage this job exists to prevent.
+  release-pr-label:
+    name: Mark the release PR as tagged
+    needs: [publish]
+    # A workflow_dispatch run carries no version to look a release PR up by.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # relabelling the merged release PR
+    steps:
+      - name: Move the release PR from pending to tagged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The job never checks the repository out, so `gh` cannot infer the
+          # target from a git remote.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          number=$(gh pr list --state merged --label 'autorelease: pending' \
+            --search "\"release $version\" in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            # A release cut by hand (`npm run release:version`) has no release
+            # PR to relabel, and neither has a re-run of an already handled tag.
+            echo "::notice::No merged release PR labelled 'autorelease: pending' for $version — nothing to relabel."
+            exit 0
+          fi
+          gh pr edit "$number" \
+            --add-label 'autorelease: tagged' \
+            --remove-label 'autorelease: pending'
+          echo "::notice::Marked release PR #$number as tagged; release-please can build the next release PR."
+
   # electron-forge's GitHub publisher creates the release for the tag but leaves
   # its body empty. The changelog section for that version — generated from the
   # Conventional Commit subjects by release-please.yml — is exactly the release
