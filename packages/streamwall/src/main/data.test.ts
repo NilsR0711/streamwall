@@ -437,6 +437,148 @@ describe('pollDataURL', () => {
       await gen.return(undefined)
     }
   })
+
+  // The serial `await fetch()` in pollDataURL's loop is deliberate: the loop
+  // is a polling interval over one endpoint, so a request must never be
+  // issued while the previous one for the same URL is still in flight.
+  test('never issues overlapping requests for a single URL', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    let counter = 0
+    server = createServer((_req, res) => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      setTimeout(() => {
+        inFlight--
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify([
+            { link: `https://a.example/${counter++}`, kind: 'video' },
+          ]),
+        )
+      }, 20)
+    })
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    )
+    const { port } = server.address() as AddressInfo
+    const url = `http://127.0.0.1:${port}/`
+
+    const gen = pollDataURL(url, 0.01)
+    try {
+      for (let i = 0; i < 3; i++) {
+        await gen.next()
+      }
+      expect(maxInFlight).toBe(1)
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+})
+
+describe('data source fan-out', () => {
+  let server: Server | undefined
+
+  afterEach(() => {
+    server?.close()
+    server = undefined
+  })
+
+  // Concurrency across sources lives one level up from the per-source loops:
+  // combineDataSources advances every source at once, so N URLs are polled in
+  // parallel even though each individual URL is polled serially.
+  test('polls independent URLs concurrently rather than one after another', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    let pendingResponses: Array<() => void> = []
+
+    const flush = () => {
+      const responses = pendingResponses
+      pendingResponses = []
+      for (const respond of responses) {
+        respond()
+      }
+    }
+
+    server = createServer((req, res) => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      pendingResponses.push(() => {
+        inFlight--
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify([
+            { link: `https://example.invalid${req.url}`, kind: 'video' },
+          ]),
+        )
+      })
+      if (pendingResponses.length >= 2) {
+        flush()
+      } else {
+        // Safety valve so a serial implementation fails the assertion below
+        // instead of hanging the test forever.
+        setTimeout(flush, 500)
+      }
+    })
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    )
+    const { port } = server.address() as AddressInfo
+    const base = `http://127.0.0.1:${port}/`
+
+    const combined = combineDataSources(
+      [
+        markDataSource(pollDataURL(`${base}a`, 999), 'json-url'),
+        markDataSource(pollDataURL(`${base}b`, 999), 'json-url'),
+      ],
+      new StreamIDGenerator(),
+    )
+    // combineDataSources()'s .return() never resolves while its contenders
+    // stay live (Repeater.latest does not propagate return()), so - matching
+    // the existing combineDataSources tests - read values without tearing the
+    // combined generator down. The server holds every response until two
+    // requests have arrived, so a first value can only be produced once both
+    // polls are in flight at the same time.
+    const { value } = await combined.next()
+    expect(value).toBeDefined()
+    expect(maxInFlight).toBe(2)
+  })
+
+  // Error semantics of the fan-out: a source whose read fails yields an empty
+  // batch and keeps going, so it must not suppress or delay the others.
+  test('keeps delivering data from healthy sources when one source fails', async () => {
+    server = createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify([{ link: 'https://good.example/s', kind: 'video' }]),
+      )
+    })
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    )
+    const { port } = server.address() as AddressInfo
+
+    const combined = combineDataSources(
+      [
+        // Nothing is listening on this port, so this source always fails.
+        markDataSource(pollDataURL('http://127.0.0.1:1/', 999), 'json-url'),
+        markDataSource(
+          pollDataURL(`http://127.0.0.1:${port}/`, 999),
+          'json-url',
+        ),
+      ],
+      new StreamIDGenerator(),
+    )
+    let seenGoodStream = false
+    // Bounded read, and no teardown: see the note in the test above.
+    for (let i = 0; i < 5 && !seenGoodStream; i++) {
+      const { value } = await combined.next()
+      seenGoodStream = Boolean(
+        value?.some((s) => s.link === 'https://good.example/s'),
+      )
+    }
+    expect(seenGoodStream).toBe(true)
+  })
 })
 
 describe('StreamIDGenerator', () => {
