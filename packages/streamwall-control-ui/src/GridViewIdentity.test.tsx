@@ -1,150 +1,51 @@
-import { render } from 'preact'
-import { act } from 'preact/test-utils'
+import { asCellIdx, type CellIdx } from 'streamwall-shared'
+import { describe, expect, test, vi } from 'vitest'
+import type { StreamwallConnection, ViewInfo } from './index.tsx'
 import {
-  asCellIdx,
-  asViewId,
-  type CellIdx,
-  type StreamData,
-  type StreamDelayStatus,
-  type StreamWindowConfig,
-} from 'streamwall-shared'
-import { afterEach, describe, expect, test, vi } from 'vitest'
-import * as Y from 'yjs'
-import {
-  ControlUI,
-  type StreamwallConnection,
-  type ViewInfo,
-} from './index.tsx'
+  makeConnection,
+  makeStream,
+  makeStreamWindowConfig,
+  makeView,
+  renderControlUI,
+  rerenderControlUI,
+} from './testHelpers.tsx'
 
-vi.mock('react-icons/fa', () => ({
-  FaExchangeAlt: () => null,
-  FaExclamationTriangle: () => null,
-  FaRedoAlt: () => null,
-  FaRegLifeRing: () => null,
-  FaRegWindowMaximize: () => null,
-  FaSyncAlt: () => null,
-  FaVideoSlash: () => null,
-  FaVolumeUp: () => null,
-}))
-vi.mock('react-icons/md', () => ({
-  MdOutlineStayCurrentLandscape: () => null,
-  MdOutlineStayCurrentPortrait: () => null,
-}))
+vi.mock(
+  'react-icons/fa',
+  async () => (await import('./testIconStubs.tsx')).faIconStubs,
+)
+vi.mock(
+  'react-icons/md',
+  async () => (await import('./testIconStubs.tsx')).mdIconStubs,
+)
 vi.mock('react-hotkeys-hook', () => ({
   useHotkeys: () => {},
 }))
 
-let container: HTMLDivElement | undefined
-
-afterEach(() => {
-  if (container) {
-    act(() => render(null, container!))
-    container.remove()
-    container = undefined
-  }
-})
-
-function makeStream(id: string): StreamData {
-  return {
-    _id: id,
-    _dataSource: 'test',
-    kind: 'video',
-    link: `https://example.com/${id}`,
-  }
-}
-
-function makeView(streamIdx: number, cells: number[]): ViewInfo {
-  const spaces = cells.map(asCellIdx)
-  return {
-    state: {
-      state: {
-        displaying: {
-          running: {
-            playback: 'playing',
-            video: 'normal',
-            audio: 'muted',
-            pause: 'unpaused',
-            swap: 'idle',
-          },
-        },
-      },
-      context: {
-        id: asViewId(streamIdx),
-        content: { url: `https://example.com/s${streamIdx}`, kind: 'video' },
-        info: null,
-        pos: { x: spaces[0] * 100, y: 0, width: 100, height: 100, spaces },
-        error: null,
-        volume: 1,
-      },
-    },
-    isListening: false,
-    isBackgroundListening: false,
-    isBlurred: false,
-    isPaused: false,
-    volume: 1,
-    spaces,
-  }
-}
-
-function makeConnection(viewCount: number): StreamwallConnection {
-  const delayState: StreamDelayStatus = {
-    isConnected: true,
-    delaySeconds: 0,
-    restartSeconds: 0,
-    isCensored: false,
-    isStreamRunning: true,
-    startTime: 0,
-    state: 'idle',
-  }
-  const config: StreamWindowConfig = {
-    cols: viewCount,
-    rows: 1,
-    width: 100 * viewCount,
-    height: 100,
-    frameless: false,
-    fullscreen: false,
-    activeColor: '#0f0',
-    backgroundColor: '#000',
-  }
-
+function makeGridConnection(viewCount: number): StreamwallConnection {
   const streams = Array.from({ length: viewCount }, (_, i) =>
     makeStream(`s${i}`),
   )
-  const views = Array.from({ length: viewCount }, (_, i) => makeView(i, [i]))
+  const views = Array.from({ length: viewCount }, (_, i) =>
+    makeView({ id: i, contentUrl: `https://example.com/s${i}`, cells: [i] }),
+  )
   const stateIdxMap = new Map<CellIdx, ViewInfo>()
   views.forEach((v, i) => stateIdxMap.set(asCellIdx(i), v))
 
-  return {
-    isConnected: true,
-    role: 'operator',
-    send: () => {},
+  return makeConnection({
     sharedState: {
       views: Object.fromEntries(
         streams.map((s, i) => [i, { streamId: s._id }]),
       ),
     },
-    stateDoc: new Y.Doc(),
-    config,
+    config: makeStreamWindowConfig({
+      cols: viewCount,
+      width: 100 * viewCount,
+    }),
     streams,
-    customStreams: [],
     views,
-    fullscreenViewIdx: null,
     stateIdxMap,
-    delayState,
-    authState: undefined,
-    layoutPresets: [],
-    favorites: [],
-    dataSourceHealth: [],
-  }
-}
-
-function renderControlUI(viewCount: number): HTMLDivElement {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  act(() => {
-    render(<ControlUI connection={makeConnection(viewCount)} />, container!)
   })
-  return container
 }
 
 function findPreviewBox(
@@ -165,21 +66,19 @@ function findPreviewBox(
 // each box by its view's stable grid position fixes this.
 describe('grid view identity across a shrinking view list', () => {
   test('a surviving preview box keeps its own DOM node after an earlier view disappears', () => {
-    const root = renderControlUI(2)
+    const root = renderControlUI(makeGridConnection(2))
     const boxBefore = findPreviewBox(root, 's1')
     expect(
       boxBefore,
       'expected to find a preview box for stream s1',
     ).not.toBeUndefined()
 
-    act(() => {
-      const connection = makeConnection(2)
-      // Simulate the first cell's view disappearing (e.g. it's stream
-      // stopped): only the second view remains, now at array position 0.
-      connection.views = [connection.views[1]]
-      connection.stateIdxMap = new Map([[asCellIdx(1), connection.views[0]]])
-      render(<ControlUI connection={connection} />, root)
-    })
+    const connection = makeGridConnection(2)
+    // Simulate the first cell's view disappearing (e.g. it's stream
+    // stopped): only the second view remains, now at array position 0.
+    connection.views = [connection.views[1]]
+    connection.stateIdxMap = new Map([[asCellIdx(1), connection.views[0]]])
+    rerenderControlUI(root, connection)
 
     const boxAfter = findPreviewBox(root, 's1')
     expect(
