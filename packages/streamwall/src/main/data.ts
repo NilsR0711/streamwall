@@ -5,7 +5,6 @@ import { EventEmitter, once } from 'events'
 import { promises as fsPromises } from 'fs'
 import fetch from 'node-fetch'
 import { parseStreamList } from 'streamwall-shared'
-import { promisify } from 'util'
 import {
   StreamData,
   StreamDataContent,
@@ -14,9 +13,64 @@ import {
 import log from './logger'
 import type { PresetPack } from './presets'
 
-const sleep = promisify(setTimeout)
+// Deliberately not `promisify(setTimeout)` at module scope: that binds to
+// whatever `setTimeout` function is global at import time, which is the
+// real one - a test that swaps in vi.useFakeTimers() afterwards cannot
+// intercept an already-captured reference. Resolving `setTimeout` fresh
+// inside the function body, on every call, is what lets fake timers control
+// pollDataURL's inter-poll wait (data.test.ts).
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 type DataSource = AsyncIterableIterator<StreamDataContent[]>
+
+// A stalled `fetch(url)` (a host that accepts the connection and never
+// answers) must not hang pollDataURL's loop forever - see #603. The timeout
+// tracks the poll interval (half of it) so a slower configured interval
+// tolerates a proportionally slower endpoint, but is clamped to a band:
+// - a floor high enough that a merely-slow response on a short interval
+//   (including the sub-second intervals this file's own tests use) is not
+//   misreported as a dead source,
+// - a ceiling so a very long interval doesn't leave an operator waiting
+//   minutes to learn a source is unreachable.
+export const MIN_FETCH_TIMEOUT_MS = 5_000
+export const MAX_FETCH_TIMEOUT_MS = 15_000
+
+export function computeFetchTimeoutMs(refreshIntervalMs: number): number {
+  return Math.min(
+    MAX_FETCH_TIMEOUT_MS,
+    Math.max(MIN_FETCH_TIMEOUT_MS, refreshIntervalMs / 2),
+  )
+}
+
+// Deliberately built on a manual AbortController + setTimeout rather than
+// the built-in `AbortSignal.timeout()`: the latter schedules its internal
+// timer through Node's C++ timer binding, which vitest's fake-timers (used
+// by data.test.ts to drive the timeout deterministically) cannot intercept.
+// A timer created via the global `setTimeout` used elsewhere in this file
+// is reliably fake-timer-controllable.
+async function fetchWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { signal: controller.signal })
+  } catch (err) {
+    // node-fetch's AbortError carries a generic "The operation was aborted."
+    // message regardless of the abort reason, so a timeout looks the same
+    // as any other cancellation. Re-throw with a message that names the
+    // actual cause and duration, which is what ends up surfaced to the
+    // operator via onHealth(false, message).
+    if (controller.signal.aborted) {
+      throw new Error(`timed out after ${timeoutMs}ms waiting for ${url}`, {
+        cause: err,
+      })
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 // Reports whether the most recent read of a data source succeeded, so a
 // caller can surface a dead json-url/toml-file from the UI instead of it
@@ -39,11 +93,12 @@ export async function* pollDataURL(
   onHealth?: DataSourceHealthCallback,
 ) {
   const refreshInterval = intervalSecs * 1000
+  const fetchTimeout = computeFetchTimeoutMs(refreshInterval)
   let lastData: StreamDataContent[] = []
   while (true) {
     let data: StreamDataContent[] = []
     try {
-      const resp = await fetch(url)
+      const resp = await fetchWithTimeout(url, fetchTimeout)
       const { streams, errors } = parseStreamList(await resp.json())
       if (errors.length) {
         log.warn(`ignoring ${errors.length} invalid stream(s) from ${url}`)

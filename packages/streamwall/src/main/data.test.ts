@@ -9,6 +9,7 @@ import type { StreamDataContent } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   combineDataSources,
+  computeFetchTimeoutMs,
   LocalStreamData,
   markDataSource,
   pollDataURL,
@@ -498,6 +499,132 @@ describe('pollDataURL', () => {
       expect(maxInFlight).toBe(1)
     } finally {
       await gen.return(undefined)
+    }
+  })
+
+  // These two tests drive the client-side fetch timeout (#603) with
+  // vi.useFakeTimers() rather than real setTimeout races: the abort timer
+  // is advanced by an exact, known amount, and the HTTP response is
+  // released only after that advance, on an explicit "the server received
+  // the request" promise rather than a real delay. That keeps the pass/fail
+  // boundary deterministic instead of depending on how fast this machine's
+  // event loop happens to be, which matters because this file's tests run
+  // in CI on three platforms.
+  test('reports unhealthy after a client-side timeout and recovers on the next successful poll', async () => {
+    // Fake only setTimeout/clearTimeout: pollDataURL's abort timer and its
+    // inter-poll `sleep()` are both built on those, but leaving
+    // setImmediate/process.nextTick real matters because Node's own
+    // http/net internals lean on them to deliver this test's real loopback
+    // response - faking those too stalls the request indefinitely.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let requestCount = 0
+      let firstRequestReceived: () => void
+      const firstRequestReceivedP = new Promise<void>((resolve) => {
+        firstRequestReceived = resolve
+      })
+      let secondRequestReceived: () => void
+      const secondRequestReceivedP = new Promise<void>((resolve) => {
+        secondRequestReceived = resolve
+      })
+      server = createServer((_req, res) => {
+        requestCount++
+        if (requestCount === 1) {
+          // Simulates a host that accepts the connection and never answers.
+          firstRequestReceived()
+          return
+        }
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify([{ link: 'https://a.example/s', kind: 'video' }]),
+        )
+        secondRequestReceived()
+      })
+      await new Promise<void>((resolve) =>
+        server!.listen(0, '127.0.0.1', resolve),
+      )
+      const { port } = server.address() as AddressInfo
+      const url = `http://127.0.0.1:${port}/`
+
+      const intervalSecs = 10
+      const timeoutMs = computeFetchTimeoutMs(intervalSecs * 1000)
+      const onHealth = vi.fn()
+      const gen = pollDataURL(url, intervalSecs, onHealth)
+      try {
+        const firstP = gen.next()
+        // Let the real request actually land at the server before
+        // fast-forwarding the fake clock, so the abort timer cannot fire
+        // before the request was ever sent.
+        await firstRequestReceivedP
+        await vi.advanceTimersByTimeAsync(timeoutMs)
+        const first = await firstP
+        expect(onHealth).toHaveBeenCalledWith(
+          false,
+          expect.stringContaining('timed out'),
+        )
+        expect(first.value).toEqual([])
+
+        const secondP = gen.next()
+        await vi.advanceTimersByTimeAsync(intervalSecs * 1000)
+        await secondRequestReceivedP
+        const second = await secondP
+        expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://a.example/s',
+        ])
+        expect(onHealth).toHaveBeenCalledWith(true)
+      } finally {
+        await gen.return(undefined)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('does not report unhealthy status for a response that resolves under the timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let pendingRes: import('node:http').ServerResponse | undefined
+      let requestReceived: () => void
+      const requestReceivedP = new Promise<void>((resolve) => {
+        requestReceived = resolve
+      })
+      server = createServer((_req, res) => {
+        pendingRes = res
+        requestReceived()
+      })
+      await new Promise<void>((resolve) =>
+        server!.listen(0, '127.0.0.1', resolve),
+      )
+      const { port } = server.address() as AddressInfo
+      const url = `http://127.0.0.1:${port}/`
+
+      const intervalSecs = 10
+      const timeoutMs = computeFetchTimeoutMs(intervalSecs * 1000)
+      const onHealth = vi.fn()
+      const gen = pollDataURL(url, intervalSecs, onHealth)
+      try {
+        const firstP = gen.next()
+        await requestReceivedP
+
+        // Advance to just under the timeout: the endpoint is slow, not dead,
+        // so no abort should fire yet.
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1000)
+        pendingRes!.setHeader('content-type', 'application/json')
+        pendingRes!.end(
+          JSON.stringify([{ link: 'https://a.example/s', kind: 'video' }]),
+        )
+
+        const first = await firstP
+        expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://a.example/s',
+        ])
+        expect(onHealth).toHaveBeenCalledWith(true)
+        expect(onHealth).not.toHaveBeenCalledWith(false, expect.any(String))
+      } finally {
+        await gen.return(undefined)
+      }
+    } finally {
+      vi.useRealTimers()
     }
   })
 })
