@@ -1,143 +1,51 @@
-import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { asCellIdx, type ControlCommand } from 'streamwall-shared'
+import { describe, expect, test, vi } from 'vitest'
+import type { StreamwallConnection, ViewInfo } from './index.tsx'
 import {
-  asCellIdx,
-  asViewId,
-  type ControlCommand,
-  type StreamData,
-  type StreamWindowConfig,
-} from 'streamwall-shared'
-import { afterEach, describe, expect, test, vi } from 'vitest'
-import * as Y from 'yjs'
-import {
-  ControlUI,
-  type StreamwallConnection,
-  type ViewInfo,
-} from './index.tsx'
+  makeConnection,
+  makeStream,
+  makeStreamWindowConfig,
+  makeView,
+  renderControlUI,
+} from './testHelpers.tsx'
 
-vi.mock('react-icons/fa', () => ({
-  FaExchangeAlt: () => null,
-  FaExclamationTriangle: () => null,
-  FaRedoAlt: () => null,
-  FaRegLifeRing: () => null,
-  FaRegWindowMaximize: () => null,
-  FaSyncAlt: () => null,
-  FaVideoSlash: () => null,
-  FaVolumeUp: () => null,
-}))
-vi.mock('react-icons/md', () => ({
-  MdOutlineStayCurrentLandscape: () => null,
-  MdOutlineStayCurrentPortrait: () => null,
-}))
+vi.mock(
+  'react-icons/fa',
+  async () => (await import('./testIconStubs.tsx')).faIconStubs,
+)
+vi.mock(
+  'react-icons/md',
+  async () => (await import('./testIconStubs.tsx')).mdIconStubs,
+)
 vi.mock('react-hotkeys-hook', () => ({
   useHotkeys: () => {},
 }))
 
-let container: HTMLDivElement | undefined
-
-afterEach(() => {
-  if (container) {
-    act(() => render(null, container!))
-    container.remove()
-    container = undefined
-  }
-})
-
-function makeStream(id: string): StreamData {
-  return {
-    _id: id,
-    _dataSource: 'test',
-    kind: 'video',
-    link: `https://example.com/${id}`,
-  }
-}
-
-function makeView(streamId: string, cells: number[]): ViewInfo {
-  const spaces = cells.map(asCellIdx)
-  return {
-    state: {
-      state: {
-        displaying: {
-          running: {
-            playback: 'playing',
-            video: 'normal',
-            audio: 'muted',
-            pause: 'unpaused',
-            swap: 'idle',
-          },
-        },
-      },
-      context: {
-        // Deliberately distinct from the grid cell index so tests that assert
-        // on dispatched commands prove they carry the stable view id, not the
-        // cell index (issue #397).
-        id: asViewId(1000 + spaces[0]),
-        content: { url: `https://example.com/${streamId}`, kind: 'video' },
-        info: null,
-        pos: {
-          x: spaces[0] * 100,
-          y: 0,
-          width: 100 * spaces.length,
-          height: 100,
-          spaces,
-        },
-        error: null,
-        volume: 1,
-      },
-    },
-    isListening: false,
-    isBackgroundListening: false,
-    isBlurred: false,
-    isPaused: false,
-    volume: 1,
-    spaces,
-  }
+// Deliberately distinct from the grid cell index so tests that assert on
+// dispatched commands prove they carry the stable view id, not the cell index
+// (issue #397).
+function makeFullscreenView(streamId: string, cells: number[]): ViewInfo {
+  return makeView({
+    id: 1000 + cells[0],
+    contentUrl: `https://example.com/${streamId}`,
+    cells,
+  })
 }
 
 function baseConnection(
   overrides: Partial<StreamwallConnection> = {},
 ): StreamwallConnection {
-  const config: StreamWindowConfig = {
-    cols: 2,
-    rows: 1,
-    width: 200,
-    height: 100,
-    frameless: false,
-    fullscreen: false,
-    activeColor: '#0f0',
-    backgroundColor: '#000',
-  }
-  const streams = [makeStream('s0'), makeStream('s1')]
-  return {
-    isConnected: true,
-    role: 'operator',
-    send: () => {},
+  return makeConnection({
     sharedState: {
       views: { 0: { streamId: 's0' }, 1: { streamId: 's1' } },
     },
-    stateDoc: new Y.Doc(),
-    config,
-    streams,
-    customStreams: [],
-    views: [makeView('s0', [0]), makeView('s1', [1])],
-    fullscreenViewIdx: null,
-    stateIdxMap: new Map(),
+    config: makeStreamWindowConfig(),
+    streams: [makeStream('s0'), makeStream('s1')],
+    views: [makeFullscreenView('s0', [0]), makeFullscreenView('s1', [1])],
     delayState: undefined,
-    authState: undefined,
-    layoutPresets: [],
-    favorites: [],
-    dataSourceHealth: [],
     ...overrides,
-  }
-}
-
-function renderControlUI(connection: StreamwallConnection): HTMLDivElement {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  act(() => {
-    render(<ControlUI connection={connection} />, container!)
   })
-  return container
 }
 
 // The GridControls container (the interactive layer that owns the double-click
@@ -177,7 +85,7 @@ describe('ControlUI double-click fullscreen', () => {
     const root = renderControlUI(
       baseConnection({
         send: (msg) => sent.push(msg),
-        views: [makeView('s1', [0, 1])],
+        views: [makeFullscreenView('s1', [0, 1])],
         fullscreenViewIdx: asCellIdx(1),
       }),
     )
@@ -201,7 +109,7 @@ describe('ControlUI double-click fullscreen', () => {
     // the preview must resolve via fullscreenViewIdx rather than spaces[0].
     const root = renderControlUI(
       baseConnection({
-        views: [makeView('s1', [0, 1])],
+        views: [makeFullscreenView('s1', [0, 1])],
         fullscreenViewIdx: asCellIdx(1),
       }),
     )
