@@ -6,89 +6,26 @@ import WebSocket from 'ws'
 import type { Delta } from 'jsondiffpatch'
 import {
   stateDiff,
-  type ClientCommandResponse,
   type ClientStateDeltaMessage,
-  type ClientStateMessage,
-  type ControlCommandMessage,
-  type ServerToClientMessage,
-  type StreamwallRole,
   type StreamwallState,
 } from 'streamwall-shared'
 import {
-  buildTestApp,
-  captureLogs,
-  connectStreamwallUplink,
-  listenTestApp,
+  bootServerWithUplink,
+  isCommandType,
+  isResponseTo,
+  isStateDelta,
+  isStateMessage,
   messageCollector,
   mintUplinkToken,
   redeemInviteAndConnectClient,
+  startTestServer,
+  TEST_BASE_URL,
   VALID_STATE,
-  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
-
-const BASE_URL = 'http://localhost:3000'
-
-/** Narrows to the server's reply to the client command with the given `id`. */
-function isResponseTo(id: number) {
-  return (m: ServerToClientMessage): m is ClientCommandResponse =>
-    'response' in m && m.response === true && m.id === id
-}
-
-/** Narrows to a forwarded control command of the given `type`. */
-function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
-  return (
-    m: ControlCommandMessage,
-  ): m is Extract<ControlCommandMessage, { type: Type }> => m.type === type
-}
-
-const isStateMessage = (m: ServerToClientMessage): m is ClientStateMessage =>
-  'type' in m && m.type === 'state'
-
-const isStateDelta = (m: ServerToClientMessage): m is ClientStateDeltaMessage =>
-  'type' in m && m.type === 'state-delta'
 
 /** Applies a `state-delta`'s patch to a client's last-known state, as a real client would. */
 function applyDelta(state: StreamwallState, delta: Delta): StreamwallState {
   return stateDiff.patch(structuredClone(state), delta) as StreamwallState
-}
-
-/**
- * Boots a live server, connects a Streamwall uplink and seeds it with
- * `VALID_STATE`, and returns a `connectClient` helper that redeems a
- * freshly-minted invite for the given role and opens an authenticated
- * `/client/ws` socket.
- */
-async function bootServerWithUplink() {
-  const logs = captureLogs()
-  const { app, auth } = await buildTestApp({
-    baseURL: BASE_URL,
-    logs,
-    rateLimit: WIDE_RATE_LIMITS,
-  })
-  after(() => app.close())
-  const port = await listenTestApp(app)
-
-  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink(
-    auth,
-    port,
-  )
-  streamwallWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
-  // The uplink is only the state authority once the server has accepted the
-  // seeded snapshot; wait for that signal rather than a blind sleep.
-  await logs.waitForMessage('Streamwall connected')
-
-  async function connectClient(role: StreamwallRole) {
-    const { ws: clientWs, client } = await redeemInviteAndConnectClient(
-      app,
-      auth,
-      port,
-      BASE_URL,
-      role,
-    )
-    return { clientWs, client }
-  }
-
-  return { app, auth, port, streamwallWs, streamwall, connectClient, logs }
 }
 
 test('an operator cannot create-invite: it is dropped, logged, and never forwarded', async () => {
@@ -228,16 +165,9 @@ test("an admin's state broadcast includes auth while an operator's does not", as
 
 /** Boots a live server and mints a Streamwall uplink token, without connecting yet. */
 async function startUplinkServer() {
-  const logs = captureLogs()
-  const { app, auth } = await buildTestApp({
-    baseURL: BASE_URL,
-    logs,
-    rateLimit: WIDE_RATE_LIMITS,
-  })
-  after(() => app.close())
-  const port = await listenTestApp(app)
-  const { base, secret } = await mintUplinkToken(auth, port)
-  return { app, auth, port, base, secret, logs }
+  const server = await startTestServer()
+  const { base, secret } = await mintUplinkToken(server.auth, server.port)
+  return { ...server, base, secret }
 }
 
 test('rejects a second Streamwall connection while the first stays connected', async () => {
@@ -309,7 +239,7 @@ test('a state message sent immediately on connect is not dropped while auth vali
     app,
     auth,
     port,
-    BASE_URL,
+    TEST_BASE_URL,
   )
 
   const stateMsg = await client.waitFor(isStateMessage)

@@ -1,100 +1,40 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { after, test } from 'node:test'
+import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import type {
-  ClientCommandResponse,
-  ClientErrorMessage,
-  ControlCommandMessage,
-  ServerToClientMessage,
-  StreamwallRole,
-} from 'streamwall-shared'
+import type { StreamwallRole } from 'streamwall-shared'
 import * as Y from 'yjs'
 import {
-  buildTestApp,
-  captureLogs,
-  connectStreamwallUplink,
-  listenTestApp,
-  redeemInviteAndConnectClient,
+  bootServerWithUplink,
+  isBareError,
+  isCommandType,
+  isResponseTo,
   VALID_STATE,
-  WIDE_RATE_LIMITS,
 } from './testHelpers.ts'
 
-const BASE_URL = 'http://localhost:3000'
-
-/** Narrows to the server's reply to the client command with the given `id`. */
-function isResponseTo(id: number) {
-  return (m: ServerToClientMessage): m is ClientCommandResponse =>
-    'response' in m && m.response === true && m.id === id
-}
-
-/** Narrows to a forwarded control command of the given `type`. */
-function isCommandType<Type extends ControlCommandMessage['type']>(type: Type) {
-  return (
-    m: ControlCommandMessage,
-  ): m is Extract<ControlCommandMessage, { type: Type }> => m.type === type
-}
-
-/** Narrows to a bare connection-level rejection (never has `response`). */
-const isBareError = (m: ServerToClientMessage): m is ClientErrorMessage =>
-  !('response' in m) && 'error' in m
-
 /**
- * Boots a live server, connects a Streamwall uplink and seeds a state message,
- * then redeems an invite and opens an authenticated client socket. JSON frames
- * from both sockets are recorded from the moment they open.
+ * Boots a live server with a seeded Streamwall uplink and opens an
+ * authenticated client socket on top of it.
  */
 async function connectStreamwallAndClient({
-  stateMessage = { type: 'state', state: VALID_STATE } as Record<
-    string,
-    unknown
-  >,
   role = 'admin' as StreamwallRole,
   wsUpdateMaxBytes,
+  ...overrides
 }: {
   stateMessage?: Record<string, unknown>
   role?: StreamwallRole
   wsUpdateMaxBytes?: number
 } = {}) {
-  const logs = captureLogs()
-  const { app, auth } = await buildTestApp({
-    baseURL: BASE_URL,
-    logs,
-    rateLimit: WIDE_RATE_LIMITS,
+  const booted = await bootServerWithUplink({
+    ...overrides,
     // Injected rather than set in the environment: the cap belongs to this one
     // server instance and never leaks into whichever file runs next.
     ...(wsUpdateMaxBytes !== undefined && {
       docUpdateLimits: { maxUpdateBytes: wsUpdateMaxBytes },
     }),
   })
-  after(() => app.close())
-  const port = await listenTestApp(app)
-
-  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink(
-    auth,
-    port,
-  )
-  streamwallWs.send(JSON.stringify(stateMessage))
-  // Wait for the server to have finished with the seeded state instead of
-  // sleeping: it either accepts it (the uplink becomes the state authority) or
-  // rejects it with a structured warning. Both outcomes end the seeding step,
-  // and specs here deliberately exercise each of them.
-  await logs.waitFor(
-    (entry) =>
-      entry.msg === 'Streamwall connected' ||
-      (typeof entry.msg === 'string' &&
-        entry.msg.startsWith('Rejected invalid Streamwall state')),
-  )
-
-  const { ws: clientWs, client } = await redeemInviteAndConnectClient(
-    app,
-    auth,
-    port,
-    BASE_URL,
-    role,
-  )
-
-  return { app, auth, streamwallWs, clientWs, streamwall, client, logs }
+  const { clientWs, client } = await booted.connectClient(role)
+  return { ...booted, clientWs, client }
 }
 
 test('does not forward an out-of-bounds command to the Streamwall uplink', async () => {

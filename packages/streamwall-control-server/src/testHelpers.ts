@@ -8,6 +8,10 @@ import process from 'node:process'
 import { after } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
+  ClientCommandResponse,
+  ClientErrorMessage,
+  ClientStateDeltaMessage,
+  ClientStateMessage,
   ControlCommandMessage,
   ServerToClientMessage,
   StreamwallRole,
@@ -210,28 +214,35 @@ export const WIDE_RATE_LIMITS: Partial<RateLimitConfig> = {
 export const TEST_SCRYPT_PARAMS: ScryptParams = { N: 16, r: 8, p: 1 }
 
 /**
+ * The origin a test app is built for. Client sockets must present it as their
+ * `Origin` header, so specs and helpers have to agree on a single value.
+ */
+export const TEST_BASE_URL = 'http://localhost:3000'
+
+/** Everything a test may override when building an app instance. */
+export type TestAppOverrides = Partial<AppOptions> & {
+  db?: StorageDB
+  docUpdateLimits?: Partial<DocUpdateLimits>
+  logs?: LogCapture
+  logLevel?: LogLevel
+  rateLimit?: Partial<RateLimitConfig>
+  scryptParams?: ScryptParams
+  sentryEnabled?: boolean
+  sentryClient?: SentryCaptureClient
+  updateChecker?: UpdateChecker
+}
+
+/**
  * Builds a fully-wired app instance backed by in-memory storage and throwaway
  * static assets, ready for `app.inject()` or `app.listen()` in tests.
  *
  * Logging is silent unless a `logs` capture is passed, in which case every
  * entry down to `trace` is recorded (override with `logLevel`).
  */
-export function buildTestApp(
-  overrides: Partial<AppOptions> & {
-    db?: StorageDB
-    docUpdateLimits?: Partial<DocUpdateLimits>
-    logs?: LogCapture
-    logLevel?: LogLevel
-    rateLimit?: Partial<RateLimitConfig>
-    scryptParams?: ScryptParams
-    sentryEnabled?: boolean
-    sentryClient?: SentryCaptureClient
-    updateChecker?: UpdateChecker
-  } = {},
-) {
+export function buildTestApp(overrides: TestAppOverrides = {}) {
   const { logs, logLevel, ...rest } = overrides
   return initApp({
-    baseURL: 'http://localhost:3000',
+    baseURL: TEST_BASE_URL,
     clientStaticPath: makeStaticDir(),
     db: inMemoryDb(),
     logLevel: logLevel ?? (logs ? 'trace' : 'silent'),
@@ -433,3 +444,100 @@ export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
   await once(ws, 'open')
   return { ws, client }
 }
+
+/**
+ * Boots a live server on a random port with rate limits wide enough to stay out
+ * of the way, captures its structured log output, and closes it after the test.
+ *
+ * The returned `connectClient` redeems a freshly-minted invite for the given
+ * role and opens an authenticated `/client/ws` socket against this server.
+ */
+export async function startTestServer(overrides: TestAppOverrides = {}) {
+  const logs = captureLogs()
+  const { app, auth } = await buildTestApp({
+    baseURL: TEST_BASE_URL,
+    logs,
+    rateLimit: WIDE_RATE_LIMITS,
+    ...overrides,
+  })
+  after(() => app.close())
+  const port = await listenTestApp(app)
+
+  async function connectClient(role: StreamwallRole = 'admin') {
+    const { ws: clientWs, client } = await redeemInviteAndConnectClient(
+      app,
+      auth,
+      port,
+      TEST_BASE_URL,
+      role,
+    )
+    return { clientWs, client }
+  }
+
+  return { app, auth, port, logs, connectClient }
+}
+
+/**
+ * `startTestServer` plus a connected Streamwall uplink seeded with a state
+ * message (`VALID_STATE` unless overridden).
+ *
+ * Waits for the server to have finished with the seeded state instead of
+ * sleeping: it either accepts it (the uplink becomes the state authority) or
+ * rejects it with a structured warning. Both outcomes end the seeding step, and
+ * specs deliberately exercise each of them.
+ */
+export async function bootServerWithUplink({
+  stateMessage = { type: 'state', state: VALID_STATE } as Record<
+    string,
+    unknown
+  >,
+  ...overrides
+}: TestAppOverrides & {
+  stateMessage?: Record<string, unknown>
+} = {}) {
+  const server = await startTestServer(overrides)
+
+  const { ws: streamwallWs, streamwall } = await connectStreamwallUplink(
+    server.auth,
+    server.port,
+  )
+  streamwallWs.send(JSON.stringify(stateMessage))
+  await server.logs.waitFor(
+    (entry) =>
+      entry.msg === 'Streamwall connected' ||
+      (typeof entry.msg === 'string' &&
+        entry.msg.startsWith('Rejected invalid Streamwall state')),
+  )
+
+  return { ...server, streamwallWs, streamwall }
+}
+
+/** Narrows to the server's reply to the client command with the given `id`. */
+export function isResponseTo(id: number) {
+  return (m: ServerToClientMessage): m is ClientCommandResponse =>
+    'response' in m && m.response === true && m.id === id
+}
+
+/** Narrows to a forwarded control command of the given `type`. */
+export function isCommandType<Type extends ControlCommandMessage['type']>(
+  type: Type,
+) {
+  return (
+    m: ControlCommandMessage,
+  ): m is Extract<ControlCommandMessage, { type: Type }> => m.type === type
+}
+
+/** Narrows to a bare connection-level rejection (never has `response`). */
+export const isBareError = (
+  m: ServerToClientMessage,
+): m is ClientErrorMessage => !('response' in m) && 'error' in m
+
+/** Narrows to a full state broadcast. */
+export const isStateMessage = (
+  m: ServerToClientMessage,
+): m is ClientStateMessage => 'type' in m && m.type === 'state'
+
+/** Narrows to an incremental state update. */
+export const isStateDelta = (
+  m: ServerToClientMessage,
+): m is ClientStateDeltaMessage => 'type' in m && m.type === 'state-delta'
