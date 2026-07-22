@@ -89,6 +89,16 @@ const matchers: Array<Matcher<unknown>> = [
  * `candidates` order is significant: when several actors match a box equally
  * well, the earliest one wins. `StreamWindow` passes its live views before its
  * parked ones, so a live view is preferred over a parked one (issue #369).
+ *
+ * Caller assumption: the `candidates` list must not contain the same actor
+ * twice. The pool below is consumed by *candidate object* identity, not by
+ * actor identity, so a duplicated actor wrapped in two candidate objects would
+ * be handed to two different boxes and then be positioned twice by
+ * `StreamWindow.setViews`. This is unreachable today because `views` and
+ * `parkedViews` -- the only two sources `reuseCandidates()` concatenates -- are
+ * disjoint by construction (`setViews` clears `parkedViews` and rebuilds it
+ * only from actors no box claimed). Anything that adds a third source, or lets
+ * an actor live in both maps at once, must deduplicate by actor identity here.
  */
 export function planViewLayout<TBox extends PlannableBox, TView>(
   boxes: TBox[],
