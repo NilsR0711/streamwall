@@ -22,8 +22,15 @@ export type SpawnSync = (
   options: SpawnSyncOptions,
 ) => SpawnSyncReturns<Buffer>
 
-export function runTypecheck(spawn: SpawnSync = spawnSync): void {
-  const result = spawn('npm', ['run', 'typecheck'], {
+export function runTypecheck(
+  spawn: SpawnSync = spawnSync,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  // On Windows `npm` is a shell script next to the `npm.cmd` shim, and
+  // `spawnSync` without a shell only resolves executables - asking for `npm`
+  // fails with ENOENT and aborts packaging (#586).
+  const npm = platform === 'win32' ? 'npm.cmd' : 'npm'
+  const result = spawn(npm, ['run', 'typecheck'], {
     // Forge runs hooks from the directory it was invoked in, which is not
     // necessarily this package (a root-level `npm -w streamwall run make`
     // starts elsewhere), so anchor the check to this file's package.

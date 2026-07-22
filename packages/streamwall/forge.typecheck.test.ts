@@ -20,12 +20,24 @@ describe('runTypecheck', () => {
   it('runs the package `typecheck` script', () => {
     const spawn = vi.fn(() => spawnResult())
 
-    runTypecheck(spawn)
+    runTypecheck(spawn, 'linux')
 
     expect(spawn).toHaveBeenCalledTimes(1)
     const [command, args] = spawn.mock.calls[0]
     expect(command).toBe('npm')
     expect(args).toEqual(['run', 'typecheck'])
+  })
+
+  // npm ships as a shell script plus an `npm.cmd` shim on Windows, and
+  // `spawnSync` without a shell only finds executables - asking for `npm`
+  // there fails with ENOENT and takes the whole packaging run down (#586).
+  it('spawns the cmd shim on Windows', () => {
+    const spawn = vi.fn(() => spawnResult())
+
+    runTypecheck(spawn, 'win32')
+
+    const [command] = spawn.mock.calls[0]
+    expect(command).toBe('npm.cmd')
   })
 
   it('runs in the package directory so it does not typecheck the caller workspace', () => {
