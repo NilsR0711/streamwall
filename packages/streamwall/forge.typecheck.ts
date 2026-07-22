@@ -26,11 +26,14 @@ export function runTypecheck(
   spawn: SpawnSync = spawnSync,
   platform: NodeJS.Platform = process.platform,
 ): void {
-  // On Windows `npm` is a shell script next to the `npm.cmd` shim, and
-  // `spawnSync` without a shell only resolves executables - asking for `npm`
-  // fails with ENOENT and aborts packaging (#586).
-  const npm = platform === 'win32' ? 'npm.cmd' : 'npm'
-  const result = spawn(npm, ['run', 'typecheck'], {
+  // On Windows npm is only reachable as the `npm.cmd` shim: `spawnSync`
+  // without a shell resolves executables only (bare `npm` fails with ENOENT),
+  // and since the CVE-2024-27980 fix Node refuses to spawn a `.cmd` directly
+  // (EINVAL). Both abort packaging, so that platform goes through a shell
+  // (#586). The command line is a fixed literal, so nothing is interpolated
+  // into it.
+  const result = spawn('npm', ['run', 'typecheck'], {
+    shell: platform === 'win32',
     // Forge runs hooks from the directory it was invoked in, which is not
     // necessarily this package (a root-level `npm -w streamwall run make`
     // starts elsewhere), so anchor the check to this file's package.
