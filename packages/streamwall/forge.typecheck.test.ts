@@ -28,16 +28,28 @@ describe('runTypecheck', () => {
     expect(args).toEqual(['run', 'typecheck'])
   })
 
-  // npm ships as a shell script plus an `npm.cmd` shim on Windows, and
-  // `spawnSync` without a shell only finds executables - asking for `npm`
-  // there fails with ENOENT and takes the whole packaging run down (#586).
-  it('spawns the cmd shim on Windows', () => {
+  // On Windows npm is only reachable as the `npm.cmd` shim, which Node
+  // refuses to spawn without a shell since the CVE-2024-27980 fix. Without
+  // `shell` the hook dies with ENOENT (bare `npm`) or EINVAL (`npm.cmd`) and
+  // takes the whole packaging run down (#586).
+  it('spawns through a shell on Windows', () => {
     const spawn = vi.fn(() => spawnResult())
 
     runTypecheck(spawn, 'win32')
 
-    const [command] = spawn.mock.calls[0]
-    expect(command).toBe('npm.cmd')
+    const [command, args, options] = spawn.mock.calls[0]
+    expect(command).toBe('npm')
+    expect(args).toEqual(['run', 'typecheck'])
+    expect(options?.shell).toBe(true)
+  })
+
+  it('does not need a shell elsewhere', () => {
+    const spawn = vi.fn(() => spawnResult())
+
+    runTypecheck(spawn, 'linux')
+
+    const [, , options] = spawn.mock.calls[0]
+    expect(options?.shell).toBeFalsy()
   })
 
   it('runs in the package directory so it does not typecheck the caller workspace', () => {
