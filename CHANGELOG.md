@@ -17,6 +17,27 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.1](https://github.com/NilsR0711/streamwall/compare/v0.10.0...v0.10.1) (2026-07-22)
+
+
+### Fixed
+
+* **control-server:** tighten testHelpers per [#588](https://github.com/NilsR0711/streamwall/issues/588) follow-ups ([#604](https://github.com/NilsR0711/streamwall/issues/604)) ([20c42a7](https://github.com/NilsR0711/streamwall/commit/20c42a7ba4ae2e4132e462eb052be71e82a75d06)), closes [#591](https://github.com/NilsR0711/streamwall/issues/591)
+* **scripts:** spawn npm through a shell on Windows in release/check tooling ([#601](https://github.com/NilsR0711/streamwall/issues/601)) ([7362a5f](https://github.com/NilsR0711/streamwall/commit/7362a5f8808f24607b2de858db755ea39301b7b2)), closes [#586](https://github.com/NilsR0711/streamwall/issues/586)
+* **streamwall:** deliver data from healthy sources while another hangs ([#605](https://github.com/NilsR0711/streamwall/issues/605)) ([23ca85b](https://github.com/NilsR0711/streamwall/commit/23ca85bc06f0e5a4481b28867f4888ae9e3c0f7e))
+* **streamwall:** time out pollDataURL fetches so a black-holed source reports unhealthy ([#608](https://github.com/NilsR0711/streamwall/issues/608)) ([6cc2e50](https://github.com/NilsR0711/streamwall/commit/6cc2e50572c7b9b2eb72ff77990135ee883ca2e7)), closes [#603](https://github.com/NilsR0711/streamwall/issues/603)
+
+
+### Changed
+
+* **streamwall:** decompose StreamWindow's brain methods ([#595](https://github.com/NilsR0711/streamwall/issues/595)) ([dda706b](https://github.com/NilsR0711/streamwall/commit/dda706be84d5f1dd81bd91f16a4bb942828640e7)), closes [#581](https://github.com/NilsR0711/streamwall/issues/581)
+* **streamwall:** extract main() startup phases into bootstrap.ts ([#597](https://github.com/NilsR0711/streamwall/issues/597)) ([2b439ab](https://github.com/NilsR0711/streamwall/commit/2b439ab34332a1f03bb32cfb1d1eaf87abfee85d))
+
+
+### Documentation
+
+* **contributing:** document close/reopen as the release PR's check trigger ([#609](https://github.com/NilsR0711/streamwall/issues/609)) ([1a51cff](https://github.com/NilsR0711/streamwall/commit/1a51cff8817db4ee814e1ffe3bb5e072a3e4bce9))
+
 ## [0.10.0](https://github.com/NilsR0711/streamwall/compare/v0.9.1...v0.10.0) (2026-07-21)
 
 
