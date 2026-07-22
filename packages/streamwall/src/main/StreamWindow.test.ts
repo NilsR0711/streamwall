@@ -1,24 +1,85 @@
 import {
+  asCellIdx,
   fullscreenViewContentMap,
   type StreamWindowConfig,
   type ViewContent,
   type ViewContentMap,
 } from 'streamwall-shared'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * Instances created by the Electron stub below, in creation order, so the
+ * constructor test can assert *what* was built and *in which order* without a
+ * real Electron runtime.
+ */
+const electronStub = vi.hoisted(() => ({
+  windows: [] as Array<InstanceType<typeof import('electron').BrowserWindow>>,
+  webContentsViews: [] as Array<
+    InstanceType<typeof import('electron').WebContentsView>
+  >,
+  ipcMain: { handle: vi.fn(), on: vi.fn() },
+}))
 
 // StreamWindow pulls in Electron (directly and via ./loadHTML and
 // ./viewStateMachine). Stub the module so the file can be imported without an
-// Electron runtime; setGridSize under test never touches these.
-vi.mock('electron', () => ({
-  BrowserWindow: class {},
-  WebContentsView: class {},
-  WebContents: class {},
-  ipcMain: { handle: () => {}, on: () => {} },
-  screen: { getAllDisplays: () => [] },
-  app: {},
+// Electron runtime. Most tests here build their own plain-object doubles and
+// never touch these classes; the constructor test does, so the stubs carry
+// just enough of the BrowserWindow / WebContentsView surface the constructor
+// exercises.
+vi.mock('electron', () => {
+  let nextWebContentsId = 1
+  class BrowserWindow {
+    options: Record<string, unknown>
+    removeMenu = vi.fn()
+    loadURL = vi.fn()
+    on = vi.fn()
+    once = vi.fn()
+    destroy = vi.fn()
+    getContentSize = vi.fn(() => [0, 0])
+    getBounds = vi.fn(() => ({ x: 0, y: 0, width: 0, height: 0 }))
+    contentView = { addChildView: vi.fn(), removeChildView: vi.fn() }
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = options
+      electronStub.windows.push(this as never)
+    }
+  }
+  class WebContentsView {
+    options: Record<string, unknown>
+    webContents = {
+      id: nextWebContentsId++,
+      on: vi.fn(),
+      send: vi.fn(),
+      close: vi.fn(),
+      openDevTools: vi.fn(),
+      session: {},
+    }
+    setBackgroundColor = vi.fn()
+    setBounds = vi.fn()
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = options
+      electronStub.webContentsViews.push(this as never)
+    }
+  }
+  return {
+    BrowserWindow,
+    WebContentsView,
+    WebContents: class {},
+    ipcMain: electronStub.ipcMain,
+    screen: { getAllDisplays: () => [] },
+    app: {},
+  }
+})
+
+// `loadHTML` reads the MAIN_WINDOW_VITE_* globals that only exist in a Vite
+// build, and would resolve renderer HTML off disk. The constructor test only
+// cares about which page each layer is told to load, so record the calls.
+vi.mock('./loadHTML', () => ({
+  loadHTML: vi.fn(),
+  devServerOrigin: () => undefined,
 }))
 
 const { default: StreamWindow } = await import('./StreamWindow')
+const { loadHTML } = await import('./loadHTML')
 
 function makeConfig(
   overrides: Partial<StreamWindowConfig> = {},
@@ -327,6 +388,104 @@ describe('StreamWindow.setViews', () => {
       next.view,
       next.offscreenWin,
     )
+  })
+
+  it('replaces this.views only after the teardown pass, so a state event emitted mid-teardown still describes the old layout', () => {
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+    const orphan = makeReuseTestActor({
+      id: 1,
+      content: streamA,
+      spaces: [0],
+      running: true,
+    })
+    sw.views = new Map([[1, orphan.actor]])
+    sw.createView = vi.fn()
+
+    const emitted: number[][] = []
+    sw.on('state', (states) =>
+      emitted.push(states.map((s) => s.context.id as number)),
+    )
+    // A real actor's `stop()` pushes a final snapshot to the subscription
+    // `createView()` installs, which calls `emitState()` synchronously -- so
+    // the teardown pass observes whatever `this.views` holds at that moment.
+    orphan.stop.mockImplementation(() => {
+      sw.emitState()
+    })
+
+    // The single box is dropped, leaving the actor unused: it is stopped, and
+    // that stop emits state while `setViews` is still mid-flight.
+    sw.setViews(new Map(), { byURL: new Map() })
+
+    expect(orphan.stop).toHaveBeenCalled()
+    // The intermediate emit must still describe the pre-teardown layout.
+    // Assigning `this.views = newViews` before `retireUnusedViews` would make
+    // this emit the (already empty) new layout instead, publishing a layout
+    // the wall has not been torn down to yet.
+    expect(emitted[0]).toEqual([1])
+    // ...and the final emit, after the swap, describes the new layout.
+    expect(emitted.at(-1)).toEqual([])
+    expect(sw.views.size).toBe(0)
+  })
+})
+
+/** Typed access to the private halves of `setViews`' plan executor. */
+function planExecutorOf(sw: InstanceType<typeof StreamWindow>) {
+  return sw as unknown as {
+    displayPlannedViews: (
+      viewsToDisplay: Array<{ box: unknown; view: unknown }>,
+      streams: unknown,
+      previouslyParkedIds: Set<unknown>,
+      unusedViews: Set<unknown>,
+    ) => Map<number, unknown>
+    retireUnusedViews: (unusedViews: Set<unknown>, parkUnused: boolean) => void
+  }
+}
+
+describe('StreamWindow.displayPlannedViews', () => {
+  it('hands a planned view whose box carries no content to the teardown pass instead of dropping it', () => {
+    // The sibling of the `!stream` case pinned above. It is exercised through
+    // the private method rather than through `setViews`, because
+    // `boxesFromViewContentMap` skips empty cells and so never emits a
+    // content-less box today -- the branch is defensive, and dropping the
+    // actor there would leak it, its WebContentsView and its offscreen
+    // BrowserWindow permanently.
+    const sw = makeStreamWindow(makeConfig({ cols: 1, rows: 1 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const tracked = makeTeardownTrackingViewActor(99)
+    const box = {
+      content: undefined,
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+      spaces: [asCellIdx(0)],
+    }
+    const unusedViews = new Set<unknown>()
+
+    const newViews = planExecutorOf(sw).displayPlannedViews(
+      [{ box, view: tracked.actor }],
+      { byURL: new Map() },
+      new Set(),
+      unusedViews,
+    )
+
+    // The actor is not placed...
+    expect(newViews.size).toBe(0)
+    // ...but it is handed over for reclamation rather than silently forgotten.
+    expect(unusedViews.has(tracked.actor)).toBe(true)
+
+    planExecutorOf(sw).retireUnusedViews(unusedViews, false)
+
+    expect(tracked.stop).toHaveBeenCalled()
+    expect(tracked.disposeView).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1219,5 +1378,115 @@ describe('StreamWindow view registration and disposal', () => {
     fireDidFailLoad(handlers, -105, false) // not the main frame
 
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('StreamWindow constructor', () => {
+  beforeEach(() => {
+    electronStub.windows.length = 0
+    electronStub.webContentsViews.length = 0
+    electronStub.ipcMain.handle.mockClear()
+    electronStub.ipcMain.on.mockClear()
+    vi.mocked(loadHTML).mockClear()
+  })
+
+  function contentViewOf(win: InstanceType<typeof StreamWindow>['win']) {
+    return (
+      win as unknown as {
+        contentView: { addChildView: ReturnType<typeof vi.fn> }
+      }
+    ).contentView
+  }
+
+  it('creates the wall window, then the background layer, then the overlay layer', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    // The window must exist before the layers, which are added as its children.
+    expect(electronStub.windows).toHaveLength(1)
+    expect(sw.win).toBe(electronStub.windows[0])
+
+    // Creation order is load-bearing: `addChildView` stacks children in call
+    // order, so the background layer has to be added before the overlay or
+    // the overlay ends up painted underneath it.
+    expect(electronStub.webContentsViews).toEqual([
+      sw.backgroundView,
+      sw.overlayView,
+    ])
+    expect(
+      contentViewOf(sw.win).addChildView.mock.calls.map(([view]) => view),
+    ).toEqual([sw.backgroundView, sw.overlayView])
+
+    // Each layer loads its own page, in the same order.
+    expect(vi.mocked(loadHTML).mock.calls.map(([, page]) => page)).toEqual([
+      'background',
+      'overlay',
+    ])
+    expect(vi.mocked(loadHTML).mock.calls[0][0]).toBe(
+      sw.backgroundView.webContents,
+    )
+    expect(vi.mocked(loadHTML).mock.calls[1][0]).toBe(
+      sw.overlayView.webContents,
+    )
+  })
+
+  it('gives each layer its own web preferences and sizes it to the configured wall', () => {
+    const sw = new StreamWindow(makeConfig({ width: 1280, height: 720 }))
+
+    const prefsOf = (view: unknown) =>
+      (view as { options: { webPreferences: Electron.WebPreferences } }).options
+        .webPreferences
+    expect(prefsOf(sw.backgroundView).contextIsolation).toBeUndefined()
+    expect(prefsOf(sw.overlayView).contextIsolation).toBe(true)
+
+    for (const layer of [sw.backgroundView, sw.overlayView]) {
+      expect(layer.setBounds).toHaveBeenCalledWith({
+        x: 0,
+        y: 0,
+        width: 1280,
+        height: 720,
+      })
+    }
+  })
+
+  it('starts with empty view bookkeeping', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    expect(sw.views.size).toBe(0)
+    expect(sw.parkedViews.size).toBe(0)
+    expect(sw.viewsByWebContentsId.size).toBe(0)
+    expect(sw.pauseParkedViews).toBe(false)
+  })
+
+  it('registers the IPC handlers once both layers exist', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    expect(electronStub.ipcMain.handle.mock.calls.map(([ch]) => ch)).toEqual([
+      'layer:load',
+      'view-init',
+    ])
+    expect(electronStub.ipcMain.on.mock.calls.map(([ch]) => ch)).toEqual([
+      'view-loaded',
+      'view-stalled',
+      'view-info',
+      'view-error',
+      'devtools-overlay',
+    ])
+
+    // The `layer:load` handler closes over both layer views, so it can only
+    // be registered after they have been created. Driving it proves the
+    // wiring, not just the registration.
+    const layerLoad = electronStub.ipcMain.handle.mock.calls.find(
+      ([channel]) => channel === 'layer:load',
+    )?.[1] as (ev: { sender: unknown }) => void
+    let loads = 0
+    sw.on('load', () => {
+      loads++
+    })
+
+    layerLoad({ sender: sw.backgroundView.webContents })
+    layerLoad({ sender: sw.overlayView.webContents })
+    layerLoad({ sender: {} })
+
+    expect(loads).toBe(2)
   })
 })
