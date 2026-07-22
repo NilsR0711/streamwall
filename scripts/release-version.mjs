@@ -57,6 +57,15 @@ export function buildReleasePleaseManifest(version) {
   return `${JSON.stringify({ '.': version }, null, 2)}\n`
 }
 
+// On Windows npm is only reachable as the `npm.cmd` shim, and since the
+// CVE-2024-27980 fix Node refuses to spawn a `.cmd` file without a shell
+// (bare `npm` fails with ENOENT, `npm.cmd` fails with EINVAL) - so a
+// release engineer bumping the version on a Windows machine needs the
+// shell branch (#586).
+export function buildNpmSpawnOptions(platform = process.platform) {
+  return { stdio: 'inherit', shell: platform === 'win32' }
+}
+
 function main() {
   let version
   try {
@@ -69,7 +78,7 @@ function main() {
     buildRootVersionArgs(version),
     buildNpmVersionArgs(version),
   ]) {
-    const result = spawnSync('npm', args, { stdio: 'inherit' })
+    const result = spawnSync('npm', args, buildNpmSpawnOptions())
     if (result.status !== 0) {
       process.exit(result.status ?? 1)
     }

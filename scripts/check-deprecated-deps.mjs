@@ -142,13 +142,22 @@ export async function fetchDeprecations(
   return deprecations
 }
 
+// On Windows npm is only reachable as the `npm.cmd` shim, and since the
+// CVE-2024-27980 fix Node refuses to spawn a `.cmd` file without a shell
+// (bare `npm` fails with ENOENT, `npm.cmd` fails with EINVAL) - so a
+// maintainer running this check locally on Windows needs the shell branch
+// (#586). CI only runs this on Linux, where the extra option is a no-op.
+export function buildNpmExecOptions(platform = process.platform) {
+  return { cwd: rootDir, shell: platform === 'win32' }
+}
+
 // `npm view <name>@<exact-version> deprecated --json` prints the deprecation
 // message, or nothing at all when the version is current.
 async function lookUpDeprecation({ name, version }) {
   const { stdout } = await execFileAsync(
     'npm',
     ['view', `${name}@${version}`, 'deprecated', '--json'],
-    { cwd: rootDir },
+    buildNpmExecOptions(),
   )
   const trimmed = stdout.trim()
   return trimmed === '' ? null : JSON.parse(trimmed)

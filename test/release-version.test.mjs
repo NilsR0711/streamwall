@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  buildNpmSpawnOptions,
   buildNpmVersionArgs,
   buildReleasePleaseManifest,
   buildRootVersionArgs,
@@ -76,4 +77,24 @@ test('buildNpmVersionArgs bumps every release-tracked workspace without tagging'
     '0.9.2',
     '--no-git-tag-version',
   ])
+})
+
+// On Windows npm is only reachable as the `npm.cmd` shim, which Node refuses
+// to spawn without a shell since the CVE-2024-27980 fix (#586).
+test('buildNpmSpawnOptions spawns through a shell on Windows', () => {
+  assert.deepEqual(buildNpmSpawnOptions('win32'), {
+    stdio: 'inherit',
+    shell: true,
+  })
+})
+
+test('buildNpmSpawnOptions does not need a shell elsewhere', () => {
+  assert.deepEqual(buildNpmSpawnOptions('linux'), {
+    stdio: 'inherit',
+    shell: false,
+  })
+  assert.deepEqual(buildNpmSpawnOptions('darwin'), {
+    stdio: 'inherit',
+    shell: false,
+  })
 })
