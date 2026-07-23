@@ -130,6 +130,16 @@ class SnapshotController {
 
   constructor() {
     this.canvas = document.createElement('canvas')
+    // Object URLs pin their blobs until revoked or the document is destroyed,
+    // so release the final poster's blob when the page goes away.
+    window.addEventListener('pagehide', () => this.revokeLatest())
+  }
+
+  revokeLatest() {
+    if (this.latestSnapshotURL) {
+      URL.revokeObjectURL(this.latestSnapshotURL)
+      this.latestSnapshotURL = null
+    }
   }
 
   async snapshotVideo(videoEl: HTMLVideoElement) {
@@ -156,11 +166,14 @@ class SnapshotController {
           return
         }
 
-        if (this.latestSnapshotURL) {
-          URL.revokeObjectURL(this.latestSnapshotURL)
-        }
+        // Release the blob pinned by the previous poster before replacing
+        // it: snapshots arrive once per second, so a poster URL that is
+        // never revoked leaks one full-resolution PNG blob per tick for the
+        // rest of the document's life (issue #616).
+        this.revokeLatest()
 
         const url = URL.createObjectURL(blob)
+        this.latestSnapshotURL = url
         videoEl.poster = url
       }, 'image/png')
     })

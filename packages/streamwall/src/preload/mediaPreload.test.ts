@@ -755,6 +755,143 @@ describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
   })
 })
 
+describe('mediaPreload snapshot poster object URL lifecycle (issue #616)', () => {
+  // Must match the snapshot interval in acquireMedia (mediaPreload.ts).
+  const SNAPSHOT_INTERVAL_MS = 1000
+
+  let createdURLs: string[]
+  const createObjectURL = vi.fn(() => {
+    const url = `blob:snapshot-${createdURLs.length + 1}`
+    createdURLs.push(url)
+    return url
+  })
+  const revokeObjectURL = vi.fn()
+  const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
+    URL,
+    'createObjectURL',
+  )
+  const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(
+    URL,
+    'revokeObjectURL',
+  )
+
+  function restoreURLMethod(
+    name: 'createObjectURL' | 'revokeObjectURL',
+    descriptor: PropertyDescriptor | undefined,
+  ) {
+    if (descriptor) {
+      Object.defineProperty(URL, name, descriptor)
+    } else {
+      delete (URL as Record<string, unknown>)[name]
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    createdURLs = []
+    // happy-dom provides no canvas rendering or blob URL support, so stub the
+    // pieces snapshotVideo needs: a 2d context to draw into, a toBlob that
+    // synchronously delivers a blob, and the object URL registry under test.
+    // The static methods are patched in place (and restored below) rather
+    // than replacing the URL global, which must stay constructable.
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL,
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => ({ drawImage: vi.fn() }),
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+      configurable: true,
+      value: (callback: (blob: Blob) => void) => {
+        callback(new Blob(['snapshot']))
+      },
+    })
+  })
+
+  afterEach(() => {
+    restoreURLMethod('createObjectURL', originalCreateObjectURL)
+    restoreURLMethod('revokeObjectURL', originalRevokeObjectURL)
+    delete (HTMLCanvasElement.prototype as { getContext?: unknown }).getContext
+    delete (HTMLCanvasElement.prototype as { toBlob?: unknown }).toBlob
+    createObjectURL.mockClear()
+    revokeObjectURL.mockClear()
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  // Same acquisition setup as the pause/resume tests, plus a synchronous
+  // requestVideoFrameCallback so each snapshot tick runs to completion within
+  // the same timer advance that scheduled it.
+  async function loadAcquiredVideo(): Promise<HTMLVideoElement> {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    ;(video as unknown as { videoHeight: number }).videoHeight = 100
+    ;(
+      video as unknown as {
+        requestVideoFrameCallback: (callback: () => void) => void
+      }
+    ).requestVideoFrameCallback = (callback) => callback()
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    return video
+  }
+
+  it('revokes the previous poster object URL when the next snapshot replaces it', async () => {
+    const video = await loadAcquiredVideo()
+
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS)
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    expect(video.poster).toBe(createdURLs[0])
+    // Nothing to release yet: the first snapshot has no predecessor.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+
+    // Each subsequent tick must release the blob pinned by the previous
+    // poster, or a long-running view accumulates one PNG blob per second.
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS)
+    expect(revokeObjectURL).toHaveBeenCalledWith(createdURLs[0])
+    expect(video.poster).toBe(createdURLs[1])
+
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS)
+    expect(revokeObjectURL).toHaveBeenCalledWith(createdURLs[1])
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(createdURLs[2])
+  })
+
+  it('revokes the last poster object URL when the page goes away', async () => {
+    await loadAcquiredVideo()
+
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS)
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(revokeObjectURL).toHaveBeenCalledWith(createdURLs[0])
+  })
+})
+
 describe('mediaPreload pause/resume handling (issue #374)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
