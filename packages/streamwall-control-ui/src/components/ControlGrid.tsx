@@ -160,6 +160,18 @@ export function ControlGrid({
             return null
           }
           const anchorIdx = asCellIdx(Math.min(...pos.spaces))
+          // A human-readable identifier so each tile's resize handles get a
+          // distinct aria-label (issue #625): the stream's own label/source/
+          // city when known, otherwise the (1-based) cell position, which is
+          // always present and unique per placed tile.
+          const streamId = sharedState?.views?.[anchorIdx]?.streamId
+          const streamData = streams.find((d) => d._id === streamId)
+          const tileLabel =
+            streamData?.label ||
+            streamData?.source ||
+            streamData?.city ||
+            streamId ||
+            `cell ${anchorIdx + 1}`
           return (
             <div
               key={`rh-${anchorIdx}`}
@@ -175,6 +187,7 @@ export function ControlGrid({
               <ResizeHandles
                 anchorIdx={anchorIdx}
                 originalSpaces={pos.spaces}
+                tileLabel={tileLabel}
                 role={role}
                 onResizeStart={handleResizeStart}
                 onResizeKeyDown={handleResizeKeyDown}
