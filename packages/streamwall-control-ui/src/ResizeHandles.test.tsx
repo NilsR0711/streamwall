@@ -24,6 +24,7 @@ function renderHandles(
       <ResizeHandles
         anchorIdx={asCellIdx(0)}
         originalSpaces={[asCellIdx(0)]}
+        tileLabel="Downtown cam"
         role="operator"
         onResizeStart={() => {}}
         onResizeKeyDown={() => {}}
@@ -98,17 +99,61 @@ describe('ResizeHandles role gating', () => {
     expect(onResizeKeyDown).toHaveBeenCalledWith(0, 'e', [0], expect.anything())
   })
 
-  test('gives every resize handle a descriptive aria-label', () => {
-    const box = renderHandles()
+  test('folds the tile label into every resize handle aria-label', () => {
+    const box = renderHandles({ tileLabel: 'Downtown cam' })
 
     expect(
-      box.querySelector('button[aria-label="Resize right edge"]'),
+      box.querySelector(
+        'button[aria-label="Resize right edge of Downtown cam"]',
+      ),
     ).not.toBeNull()
     expect(
-      box.querySelector('button[aria-label="Resize bottom edge"]'),
+      box.querySelector(
+        'button[aria-label="Resize bottom edge of Downtown cam"]',
+      ),
     ).not.toBeNull()
     expect(
-      box.querySelector('button[aria-label="Resize bottom-right corner"]'),
+      box.querySelector(
+        'button[aria-label="Resize bottom-right corner of Downtown cam"]',
+      ),
     ).not.toBeNull()
+  })
+
+  test('gives handles on different tiles distinct aria-labels', () => {
+    const first = renderHandles({
+      anchorIdx: asCellIdx(0),
+      tileLabel: 'Downtown cam',
+    })
+    const firstLabel = first
+      .querySelector('button.handle.e')
+      ?.getAttribute('aria-label')
+    // Tear down the first render before mounting the second so their ids and
+    // labels don't coexist in the same document.
+    act(() => render(null, first))
+    first.remove()
+    container = undefined
+
+    const second = renderHandles({
+      anchorIdx: asCellIdx(3),
+      tileLabel: 'Harbor cam',
+    })
+    const secondLabel = second
+      .querySelector('button.handle.e')
+      ?.getAttribute('aria-label')
+
+    expect(firstLabel).toBe('Resize right edge of Downtown cam')
+    expect(secondLabel).toBe('Resize right edge of Harbor cam')
+    expect(firstLabel).not.toBe(secondLabel)
+  })
+
+  test('exposes the keyboard-override hint via aria-describedby', () => {
+    const box = renderHandles({ anchorIdx: asCellIdx(2) })
+
+    const handle = box.querySelector('button.handle.e') as HTMLButtonElement
+    const hintId = handle.getAttribute('aria-describedby')
+    expect(hintId).toBe('resize-keyboard-hint-2')
+
+    const hint = box.querySelector(`#${hintId}`)
+    expect(hint?.textContent).toContain('Hold Shift to overwrite')
   })
 })
