@@ -9,6 +9,19 @@ export const SESSION_COOKIE_NAME = 's'
 export const SESSION_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
 export const STREAMWALL_PING_TIMEOUT_MS = 5 * 1000
 
+/** Liveness probing for browser client sockets on `/client/ws`. */
+export interface ClientPingConfig {
+  /** How often the server pings each connected client. */
+  intervalMs: number
+  /** How long after a ping to wait for the pong before terminating. */
+  timeoutMs: number
+}
+
+export const DEFAULT_CLIENT_PING_CONFIG: ClientPingConfig = {
+  intervalMs: 20 * 1000,
+  timeoutMs: 5 * 1000,
+}
+
 const DEFAULT_GLOBAL_RATE_LIMIT_MAX = 100
 const DEFAULT_AUTH_RATE_LIMIT_MAX = 10
 const DEFAULT_RATE_LIMIT_WINDOW = '1 minute'
