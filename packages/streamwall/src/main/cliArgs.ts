@@ -47,6 +47,7 @@ export interface StreamwallConfig {
     'max-delay': number
     'max-retries': number
     'stalled-timeout': number
+    'healthy-duration': number
   }
   park: {
     pause: boolean
@@ -254,6 +255,7 @@ export function parseArgs({
         'retry.max-delay',
         'retry.max-retries',
         'retry.stalled-timeout',
+        'retry.healthy-duration',
       ],
       'Auto-retry',
     )
@@ -281,6 +283,12 @@ export function parseArgs({
       describe: 'How long (in seconds) a view may stall before it is reloaded',
       number: true,
       default: 30,
+    })
+    .option('retry.healthy-duration', {
+      describe:
+        'How long (in seconds) a view must play without stalling before its retry budget resets',
+      number: true,
+      default: 60,
     })
     .group(['park.pause'], 'Fullscreen Parking')
     .option('park.pause', {

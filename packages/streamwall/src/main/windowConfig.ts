@@ -40,5 +40,6 @@ export function buildRetryConfig(argv: StreamwallConfig): RetryConfig {
     maxDelay: argv.retry['max-delay'] * 1000,
     maxRetries: argv.retry['max-retries'],
     stalledTimeout: argv.retry['stalled-timeout'] * 1000,
+    healthyDuration: argv.retry['healthy-duration'] * 1000,
   }
 }
