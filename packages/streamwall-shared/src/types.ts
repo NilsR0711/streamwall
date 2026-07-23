@@ -193,12 +193,14 @@ export type ClientErrorMessage = {
  * The server's reply to a specific client-issued command, correlated by the
  * client-supplied `id`. `error` is present only when the command was
  * rejected; a successful `create-invite` additionally returns the minted
- * token's `name`/`secret`/`tokenId`.
+ * token's `name`/`secret`/`tokenId`, and a successful `delete-token` returns
+ * `ok: true`.
  */
 export type ClientCommandResponse = {
   response: true
   id?: number
   error?: string
+  ok?: boolean
   name?: string
   secret?: string
   tokenId?: string

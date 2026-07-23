@@ -296,12 +296,18 @@ export class Auth extends EventEmitter<AuthEvents> {
     return { tokenId, secret }
   }
 
-  deleteToken(tokenId: string) {
+  /**
+   * Removes the token with `tokenId`. Returns whether a token was actually
+   * deleted, so callers can acknowledge the outcome (see the `delete-token`
+   * command handler, which relays this to the requesting client).
+   */
+  deleteToken(tokenId: string): boolean {
     const tokenData = this.tokensById.get(tokenId)
     if (!tokenData) {
-      return
+      return false
     }
     this.tokensById.delete(tokenData.tokenId)
     this.emitState()
+    return true
   }
 }
