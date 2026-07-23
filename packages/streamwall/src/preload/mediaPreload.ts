@@ -581,8 +581,14 @@ async function main() {
   const viewInit = ipcRenderer.invoke('view-init')
   const pageReady = new Promise((resolve) => process.once('loaded', resolve))
 
-  const [{ content, options: initialOptions, volume: initialVolume }] =
-    await Promise.all([viewInit, pageReady])
+  const [
+    {
+      content,
+      options: initialOptions,
+      volume: initialVolume,
+      paused: initialPaused,
+    },
+  ] = await Promise.all([viewInit, pageReady])
 
   const snapshotController = new SnapshotController()
 
@@ -595,10 +601,13 @@ async function main() {
   // recovery, so the tracked value is re-applied below (issue #620).
   let latestRotation: number | undefined = initialOptions?.rotation
   // Whether the operator asked this view's playback to stay paused (a parked
-  // view, issue #374). Tracked so a re-acquisition -- whose findMedia()
+  // view, issue #374). Initialized from the view-init payload so a fresh view
+  // for an already-paused cell -- in particular a background preload for a
+  // parked cell -- never starts playing before the post-swap 'pause' IPC
+  // arrives (issue #658). Tracked so a re-acquisition -- whose findMedia()
   // unconditionally starts playback -- can re-assert the pause instead of
   // silently resuming a hidden view (issue #621).
-  let desiredPaused = false
+  let desiredPaused = initialPaused ?? false
   // The most recently acquired media element (reassigned across a re-
   // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
   // message received at any point can act on whichever one is current.

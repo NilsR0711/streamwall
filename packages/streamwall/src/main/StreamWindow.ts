@@ -252,13 +252,18 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       if (!view) {
         return
       }
-      const { content, options, volume } = view.getSnapshot().context
+      const { content, options, volume, desiredPaused } =
+        view.getSnapshot().context
       view.send({
         type: isFromNextView(view, ev.sender.id)
           ? 'NEXT_VIEW_INIT'
           : 'VIEW_INIT',
       })
-      return { content, options, volume }
+      // The desired paused state rides along so a fresh view -- in
+      // particular a background preload for a parked (paused) cell --
+      // initializes paused instead of playing until the post-swap 'pause'
+      // IPC arrives (issue #658).
+      return { content, options, volume, paused: desiredPaused }
     })
     this.registerIpcOn('view-loaded', (ev) => {
       const view = this.viewsByWebContentsId.get(ev.sender.id)

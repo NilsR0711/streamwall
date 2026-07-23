@@ -1237,3 +1237,136 @@ describe('mediaPreload re-acquisition keeps operator-set state (issues #620/#621
     expect(next.paused).toBe(false)
   })
 })
+
+describe('mediaPreload initial paused state from view-init (issue #658)', () => {
+  // Must match SCAN_THROTTLE in mediaPreload.ts: long enough for the
+  // re-acquisition's throttled scan to find the replacement element.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredHandler(
+    channel: string,
+  ): (ev: unknown, ...args: unknown[]) => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as (ev: unknown, ...args: unknown[]) => void
+  }
+
+  function viewLoadedCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  async function loadAcquiredVideo(
+    init: Record<string, unknown> = {},
+  ): Promise<HTMLVideoElement> {
+    const video = playableVideo()
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+      ...init,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    return video
+  }
+
+  it('pauses the acquired media when view-init reports the cell as parked-paused', async () => {
+    const video = await loadAcquiredVideo({ paused: true })
+
+    expect(video.paused).toBe(true)
+  })
+
+  it('bypasses an instance-level pause override when honoring the initial paused state', async () => {
+    // Mirrors lockdownMediaTags(), which permanently shadows the element's
+    // own `pause` with a no-op: the initial pause must go through
+    // HTMLMediaElement.prototype.pause to have any effect.
+    const shadowedPause = vi.fn()
+    const video = playableVideo()
+    Object.defineProperty(video, 'pause', {
+      writable: false,
+      value: shadowedPause,
+    })
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+      paused: true,
+    })
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.paused).toBe(true)
+    expect(shadowedPause).not.toHaveBeenCalled()
+  })
+
+  it('resumes an initially-paused acquisition on a later resume message', async () => {
+    const video = await loadAcquiredVideo({ paused: true })
+    expect(video.paused).toBe(true)
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(video.paused).toBe(false)
+  })
+
+  it('keeps an initially-paused view paused across an emptied re-acquisition', async () => {
+    const video = await loadAcquiredVideo({ paused: true })
+
+    video.remove()
+    const next = playableVideo()
+    document.body.appendChild(next)
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(viewLoadedCalls()).toHaveLength(2)
+
+    expect(next.paused).toBe(true)
+  })
+
+  it('leaves playback running when view-init reports the cell as not paused', async () => {
+    const video = await loadAcquiredVideo({ paused: false })
+
+    expect(video.paused).toBe(false)
+  })
+
+  it('defaults to playing when view-init omits the paused field', async () => {
+    const video = await loadAcquiredVideo()
+
+    expect(video.paused).toBe(false)
+  })
+})
