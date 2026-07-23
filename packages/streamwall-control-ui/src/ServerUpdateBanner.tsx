@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
+import { type ServerStatus } from 'streamwall-shared'
 import { styled } from 'styled-components'
-import { type ServerStatus } from './useServerStatus.ts'
 
 const StyledServerUpdateBanner = styled.div`
   display: flex;

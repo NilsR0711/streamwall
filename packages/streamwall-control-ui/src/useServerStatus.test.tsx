@@ -1,11 +1,8 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { type ServerStatus } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  REFRESH_INTERVAL_MS,
-  type ServerStatus,
-  useServerStatus,
-} from './useServerStatus.ts'
+import { REFRESH_INTERVAL_MS, useServerStatus } from './useServerStatus.ts'
 
 let container: HTMLDivElement | undefined
 let fetchMock: ReturnType<typeof vi.fn>

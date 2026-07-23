@@ -6,6 +6,7 @@ import {
   isNewerVersion,
   type GithubReleaseFetchImpl,
   type LatestRelease,
+  type ServerStatus,
 } from 'streamwall-shared'
 
 import type { Logger } from './logger.ts'
@@ -61,17 +62,12 @@ export function isUpdateCheckEnabled(raw: string | undefined): boolean {
   return !(v === '0' || v === 'false' || v === 'no' || v === 'off')
 }
 
-export interface UpdateStatus {
-  /** Version of the running server. */
-  version: string
-  /** Latest release seen by the most recent successful check, if any. */
-  latestVersion: string | null
-  updateAvailable: boolean
-  releaseUrl: string | null
-  /** ISO timestamp of the last *successful* check. */
-  lastCheckedAt: string | null
-  checkEnabled: boolean
-}
+/**
+ * The `GET /admin/status` payload. Derived from the shared
+ * `serverStatusSchema` (issue #649), which the control UI uses to validate
+ * the fetched body — so this producer and that consumer cannot drift.
+ */
+export type UpdateStatus = ServerStatus
 
 export interface UpdateChecker {
   getStatus(): UpdateStatus

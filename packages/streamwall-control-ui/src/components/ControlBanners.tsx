@@ -1,9 +1,12 @@
-import { type DataSourceHealth, type DisconnectReason } from 'streamwall-shared'
+import {
+  type DataSourceHealth,
+  type DisconnectReason,
+  type ServerStatus,
+} from 'streamwall-shared'
 import { CommandErrorBanner } from '../CommandErrorBanner.tsx'
 import { ConnectionStatusBanner } from '../ConnectionStatusBanner.tsx'
 import { DataSourceHealthBanner } from '../DataSourceHealthBanner.tsx'
 import { ServerUpdateBanner } from '../ServerUpdateBanner.tsx'
-import { type ServerStatus } from '../useServerStatus.ts'
 
 /**
  * The stack of transient status banners shown above the wall: connection
