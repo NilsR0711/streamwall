@@ -728,8 +728,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   }
 
   onState(state: StreamwallState) {
-    this.overlayView.webContents.send('state', state)
-    this.backgroundView.webContents.send('state', state)
+    // A layer's webContents may already be gone during window teardown (or a
+    // future recreate flow); sending to a destroyed webContents throws. Same
+    // guard as the `devtools-overlay` handler (issue #651).
+    for (const layerView of [this.overlayView, this.backgroundView]) {
+      const { webContents } = layerView
+      if (!webContents.isDestroyed()) {
+        webContents.send('state', state)
+      }
+    }
 
     for (const view of this.views.values()) {
       const { content } = view.getSnapshot().context

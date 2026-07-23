@@ -337,6 +337,73 @@ describe('StreamWindow.emitState', () => {
   })
 })
 
+describe('StreamWindow.onState', () => {
+  /**
+   * A stand-in for a layer WebContentsView whose `send` throws once the
+   * webContents is marked destroyed, mirroring Electron's "Object has been
+   * destroyed" behavior (issue #651).
+   */
+  function makeFakeLayerView(destroyed = false) {
+    const send = vi.fn(() => {
+      if (destroyed) {
+        throw new Error('Object has been destroyed')
+      }
+    })
+    return {
+      view: {
+        webContents: { send, isDestroyed: () => destroyed },
+      } as unknown as InstanceType<typeof StreamWindow>['overlayView'],
+      send,
+    }
+  }
+
+  const state = { streams: {} } as Parameters<
+    typeof StreamWindow.prototype.onState
+  >[0]
+
+  it('sends the state to both layer webContents', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const overlay = makeFakeLayerView()
+    const background = makeFakeLayerView()
+    sw.overlayView = overlay.view
+    sw.backgroundView = background.view
+    sw.views = new Map()
+
+    sw.onState(state)
+
+    expect(overlay.send).toHaveBeenCalledWith('state', state)
+    expect(background.send).toHaveBeenCalledWith('state', state)
+  })
+
+  it('skips a destroyed layer webContents instead of throwing (issue #651)', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const overlay = makeFakeLayerView(true)
+    const background = makeFakeLayerView()
+    sw.overlayView = overlay.view
+    sw.backgroundView = background.view
+    sw.views = new Map()
+
+    expect(() => sw.onState(state)).not.toThrow()
+
+    expect(overlay.send).not.toHaveBeenCalled()
+    expect(background.send).toHaveBeenCalledWith('state', state)
+  })
+
+  it('does not throw when both layer webContents are destroyed', () => {
+    const sw = makeStreamWindow(makeConfig())
+    const overlay = makeFakeLayerView(true)
+    const background = makeFakeLayerView(true)
+    sw.overlayView = overlay.view
+    sw.backgroundView = background.view
+    sw.views = new Map()
+
+    expect(() => sw.onState(state)).not.toThrow()
+
+    expect(overlay.send).not.toHaveBeenCalled()
+    expect(background.send).not.toHaveBeenCalled()
+  })
+})
+
 function makeFakeViewActorWithSnapshot(snapshot: {
   value: unknown
   context: Record<string, unknown>
