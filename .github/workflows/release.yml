@@ -175,9 +175,51 @@ jobs:
       - uses: ./.github/actions/setup
       - run: npm run licenses:check
 
+  # Create the draft release exactly once, before the three-platform publish
+  # matrix fans out. Each publish leg runs electron-forge's GitHub publisher,
+  # which looks the release up by tag and only creates it when none exists
+  # (check-then-create). With no draft present yet, two legs can pass that check
+  # concurrently and each creates its own draft: the release splits into one
+  # draft holding the notes and the mac/windows assets and a second, notes-less
+  # draft holding just the Linux installers, so `latest.yml` never references
+  # them and `gh release edit <tag>` becomes ambiguous (#671). Materializing the
+  # draft here first means every forge publisher finds it and only appends
+  # assets.
+  #
+  # The step is gated on a tag ref rather than the whole job so a
+  # workflow_dispatch run (whose ref carries no version to name a release by)
+  # still satisfies the publish matrix's `needs` and behaves exactly as before.
+  prepare-release:
+    name: Prepare draft release
+    needs: [checks, test, build, make, e2e, licenses]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # electron-forge's publishers append assets to this draft
+    steps:
+      - name: Create the draft release if it does not exist
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The job never checks the repository out, so `gh` cannot infer the
+          # target from a git remote.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Idempotent: a re-run of an already-handled tag — or a forge
+          # publisher that raced ahead of this job — must not fail here.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG already exists — nothing to prepare."
+            exit 0
+          fi
+          # Empty notes: release-notes below fills the body once every asset is
+          # uploaded. Draft so the publish matrix appends before it goes live.
+          gh release create "$TAG" --draft --title "$TAG" --notes ""
+          echo "::notice::Created draft release $TAG for the publish matrix to append to."
+
   publish:
     name: Publish (${{ matrix.platform.name }})
-    needs: [checks, test, build, make, e2e, licenses]
+    needs: [checks, test, build, make, e2e, licenses, prepare-release]
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 30
     permissions:

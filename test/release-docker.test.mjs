@@ -206,10 +206,16 @@ test('the multi-arch manifest is merged and verified', () => {
 
 // The image must not ship code that would have failed a pull request, and a
 // `latest` tag pointing at an untested build is worse than no image at all.
+// `prepare-release` is not a quality gate but the binaries' draft-release
+// setup, which the image (published straight to GHCR) does not use, so it is
+// excluded from the shared gate the image must also wait for.
 test('the image publish waits for the release quality gate', () => {
   const release = readYaml('.github/workflows/release.yml')
 
-  for (const job of release.jobs.publish.needs) {
+  const gate = release.jobs.publish.needs.filter(
+    (job) => job !== 'prepare-release',
+  )
+  for (const job of gate) {
     assert.ok(
       release.jobs['docker-image'].needs.includes(job),
       `release.yml job "${job}" gates the binaries but not the image`,
