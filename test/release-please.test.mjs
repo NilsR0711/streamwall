@@ -149,108 +149,69 @@ test('the release-please workflow maintains the release PR on main', () => {
   assert.equal(step.with['skip-github-release'], true)
 })
 
-// A pull request opened with a workflow's GITHUB_TOKEN raises no
-// `pull_request` events, so the release PR arrives without the two checks
-// branch protection requires. `workflow_dispatch` is the one event GitHub
-// still delivers for that token, so release-please starts both checks itself
-// instead of a maintainer closing and reopening the PR by hand (#521).
-test('release-please starts the required checks on the release PR', () => {
+// The dispatch shim added in #547 was meant to start the required checks for
+// the release PR, whose `pull_request` events GitHub never delivers because
+// the PR is opened with a workflow's GITHUB_TOKEN. It never worked: a
+// workflow_dispatch run reports against the branch head, not the pull
+// request, so its checks never entered the PR's status check rollup and
+// branch protection still blocked the merge (#578) — while every push to
+// `main` paid for an extra full CI matrix, macOS packaging leg included.
+// Close/reopen is the step that works; a PAT or GitHub App token (#549)
+// would remove the workaround entirely.
+test('release-please does not dispatch the required checks (#578)', () => {
   const workflow = readWorkflow('release-please.yml')
   const job = workflow.jobs['release-please']
 
   assert.equal(
     job.permissions.actions,
-    'write',
-    'dispatching a workflow run needs the actions: write scope',
+    undefined,
+    'nothing is dispatched, so the actions scope must stay dropped',
   )
-
-  const action = job.steps.find((candidate) =>
-    candidate.uses?.startsWith('googleapis/release-please-action@'),
-  )
-  assert.ok(action.id, 'the release-please step must expose its outputs via id')
-
-  const dispatch = job.steps.find((candidate) =>
-    candidate.run?.includes('gh workflow run'),
-  )
-  assert.ok(
-    dispatch,
-    'release-please.yml must dispatch the required checks for the release PR',
-  )
-  assert.match(
-    dispatch.if ?? '',
-    new RegExp(`steps\\.${action.id}\\.outputs\\.pr`),
-    'the dispatch must be skipped on pushes that leave no release PR',
-  )
-  for (const required of ['ci.yml', 'pr-title.yml']) {
-    assert.match(
-      dispatch.run,
-      new RegExp(`gh workflow run ${required.replace('.', '\\.')}`),
-      `${required} produces a required check and must be dispatched`,
+  for (const step of job.steps) {
+    assert.doesNotMatch(
+      step.run ?? '',
+      /gh workflow run/,
+      'dispatched runs never attach to the release PR and cannot satisfy branch protection (#578)',
     )
   }
-  assert.match(
-    dispatch.run,
-    /--ref/,
-    'the checks must run against the release branch, not the default branch',
-  )
 })
 
-// Both workflows are dispatched by name from release-please.yml; without the
-// trigger the dispatch fails and the release PR stays unmergeable.
-test('the required checks can be dispatched for the release branch', () => {
+// The workflow_dispatch triggers on ci.yml and pr-title.yml existed only for
+// that shim (#547). Leaving them behind invites wiring the dispatch back up,
+// and pr-title.yml cannot even resolve a title without an event payload. A
+// genuine future need for manual runs should revisit #578 first.
+test('the required checks are event-driven only (#578)', () => {
   for (const fileName of ['ci.yml', 'pr-title.yml']) {
     assert.ok(
-      'workflow_dispatch' in readWorkflow(fileName).on,
-      `${fileName} must be dispatchable so the release PR can run it`,
+      !('workflow_dispatch' in readWorkflow(fileName).on),
+      `${fileName} must not be dispatchable — a dispatched run reports on the branch head, not the PR (#578)`,
     )
   }
-})
-
-// A dispatched run carries no pull request payload, so the check has to look
-// the title up from the number it was dispatched with.
-test('the PR title check resolves the title of a dispatched release PR', () => {
-  const workflow = readWorkflow('pr-title.yml')
-  const input = workflow.on.workflow_dispatch?.inputs?.['pr-number']
-
-  assert.ok(input, 'pr-title.yml must accept the PR number as a dispatch input')
-  assert.equal(input.required, true)
-
-  const job = workflow.jobs['conventional-title']
-  assert.equal(
-    job.permissions['pull-requests'],
-    'read',
-    'reading the title of a dispatched PR needs the pull-requests: read scope',
-  )
-
-  const step = job.steps.find((candidate) => candidate.run?.includes('regex='))
-  assert.match(
-    step.run,
-    /gh pr view/,
-    'the dispatched run must fetch the title it cannot read from the event',
-  )
-  assert.equal(step.env.PR_NUMBER, '${{ inputs.pr-number }}')
 })
 
 // This guard used to assert the opposite: that the close/reopen workaround was
 // gone, because the dispatch shim added in #547 was expected to make it
-// unnecessary. It does not. A workflow_dispatch run reports against the branch
+// unnecessary. It did not. A workflow_dispatch run reports against the branch
 // head rather than the pull request, so its checks never enter the PR's status
 // check rollup and branch protection still blocks the merge (#578). Cutting
 // v0.10.0 hit exactly that. Until release-please runs with a token that raises
 // real pull_request events (#549), close/reopen is the step that works, and the
-// documentation has to say so.
+// documentation has to say so — without describing the removed dispatch as
+// part of the release.
 test('the release documentation keeps the close/reopen step', () => {
   const contributing = readFileSync(join(rootDir, 'CONTRIBUTING.md'), 'utf8')
+  const releasing = contributing.split('#### Releasing')[1]?.split('\n### ')[0]
 
+  assert.ok(releasing, 'CONTRIBUTING.md must keep the "Releasing" walkthrough')
   assert.match(
-    contributing,
+    releasing,
     /reopen the release PR/i,
     'the release PR only gets its required checks from a real pull_request event (#578)',
   )
-  assert.match(
-    contributing,
-    /smoke signal/i,
-    'the dispatched runs must not be presented as satisfying branch protection (#578)',
+  assert.doesNotMatch(
+    releasing,
+    /dispatch/i,
+    'the removed dispatch shim must not be described as a release step (#578)',
   )
 })
 
