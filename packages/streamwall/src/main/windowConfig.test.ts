@@ -28,6 +28,7 @@ function baseArgv(overrides: Partial<StreamwallConfig> = {}): StreamwallConfig {
       'max-delay': 60,
       'max-retries': 4,
       'stalled-timeout': 30,
+      'healthy-duration': 60,
     },
     park: { pause: false },
     twitch: {
@@ -70,6 +71,7 @@ describe('buildRetryConfig', () => {
       maxDelay: 60000,
       maxRetries: 4,
       stalledTimeout: 30000,
+      healthyDuration: 60000,
     })
   })
 
@@ -82,11 +84,13 @@ describe('buildRetryConfig', () => {
           'max-delay': 10,
           'max-retries': 0,
           'stalled-timeout': 15,
+          'healthy-duration': 45,
         },
       }),
     )
     expect(config.enabled).toBe(false)
     expect(config.maxRetries).toBe(0)
     expect(config.delay).toBe(2000)
+    expect(config.healthyDuration).toBe(45000)
   })
 })

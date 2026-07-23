@@ -38,6 +38,14 @@ export interface RetryConfig {
   maxRetries: number
   /** How long a view may stay stalled before it is reloaded, in milliseconds. */
   stalledTimeout: number
+  /**
+   * How long a view must keep playing without stalling before its failure
+   * streak is forgotten, in milliseconds. Merely reaching the running state
+   * does not reset the retry budget: a stream that stalls again right after
+   * every reload would otherwise cycle forever without ever exhausting it
+   * (issue #645).
+   */
+  healthyDuration: number
 }
 
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
@@ -46,6 +54,16 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxDelay: 60 * 1000,
   maxRetries: 5,
   stalledTimeout: 30 * 1000,
+  healthyDuration: 60 * 1000,
+}
+
+/**
+ * How long to wait before the next automatic reload: exponential in the number
+ * of attempts already spent on the current failure streak, capped at maxDelay.
+ * Shared by the error state's backoff and the stalled watchdog's growth.
+ */
+function retryBackoffMs(retry: RetryConfig, retryCount: number): number {
+  return Math.min(retry.delay * 2 ** retryCount, retry.maxDelay)
 }
 
 /**
@@ -376,12 +394,19 @@ const viewStateMachine = setup({
     // Exponential backoff, capped, computed from how many attempts have already
     // been spent on the current failure streak.
     retryBackoff: ({ context }) =>
-      Math.min(
-        context.retry.delay * 2 ** context.retryCount,
-        context.retry.maxDelay,
-      ),
+      retryBackoffMs(context.retry, context.retryCount),
 
-    stalledTimeout: ({ context }) => context.retry.stalledTimeout,
+    // The first stall of a streak gets the plain watchdog window to self-heal;
+    // consecutive stall-reload cycles extend it by the same exponential
+    // backoff the error state applies, so repeated stalls slow down instead of
+    // reloading at a fixed cadence (issue #645).
+    stalledTimeout: ({ context }) =>
+      context.retry.stalledTimeout +
+      (context.retryCount > 0
+        ? retryBackoffMs(context.retry, context.retryCount)
+        : 0),
+
+    healthyDuration: ({ context }) => context.retry.healthyDuration,
   },
 
   actors: {
@@ -606,9 +631,13 @@ const viewStateMachine = setup({
         },
         running: {
           type: 'parallel',
-          // Reaching running means the view recovered: clear any error streak so
-          // the next failure starts its backoff from scratch.
-          entry: ['positionView', 'resetRetryState'],
+          // Reaching running is not yet proof of recovery: a stream that
+          // stalls again right after each reload would otherwise reset its
+          // streak on every cycle and never exhaust the retry budget or grow
+          // its backoff (issue #645). The streak is instead cleared once the
+          // view has stayed healthy for retry.healthyDuration -- see
+          // `playback.playing` below.
+          entry: 'positionView',
           // Leaving `running` for any reason (manual RELOAD, a renderer-
           // reported VIEW_ERROR, or a stalled-view auto-reload) abandons any
           // preload that was in flight for this cell, so its WebContentsView
@@ -668,7 +697,19 @@ const viewStateMachine = setup({
                 VIEW_LOADED: '.playing',
               },
               states: {
-                playing: {},
+                playing: {
+                  // Only sustained playback counts as recovery: after
+                  // healthyDuration without a stall (a VIEW_STALLED or a
+                  // re-entered VIEW_LOADED restarts this clock by re-entering
+                  // `playing`), the failure streak is forgotten so a later
+                  // failure starts its budget and backoff from scratch
+                  // (issue #645).
+                  after: {
+                    healthyDuration: {
+                      actions: 'resetRetryState',
+                    },
+                  },
+                },
                 stalled: {
                   // A view that stays stalled past the watchdog is reloaded
                   // (as long as it still has retry budget). A stall that clears

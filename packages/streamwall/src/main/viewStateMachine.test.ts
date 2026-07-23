@@ -29,6 +29,7 @@ function makeRetry(overrides: Partial<RetryConfig> = {}): RetryConfig {
     maxDelay: 8000,
     maxRetries: 5,
     stalledTimeout: 2000,
+    healthyDuration: 10000,
     ...overrides,
   }
 }
@@ -116,6 +117,7 @@ describe('viewStateMachine error handling and auto-retry', () => {
       maxDelay: expect.any(Number),
       maxRetries: expect.any(Number),
       stalledTimeout: expect.any(Number),
+      healthyDuration: expect.any(Number),
     })
   })
 
@@ -238,8 +240,8 @@ describe('viewStateMachine error handling and auto-retry', () => {
     expect(actor.getSnapshot().context.retryCount).toBe(0)
   })
 
-  it('resets retry state and clears the error once running is reached', async () => {
-    const actor = makeActor(makeRetry())
+  it('keeps the retry streak on reaching running until playback stays healthy (issue #645)', async () => {
+    const actor = makeActor(makeRetry({ healthyDuration: 5000 }))
     actor.start()
     display(actor)
     actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
@@ -249,8 +251,20 @@ describe('viewStateMachine error handling and auto-retry', () => {
     actor.send({ type: 'VIEW_INIT' })
     actor.send({ type: 'VIEW_LOADED' })
 
-    const snapshot = actor.getSnapshot()
+    // Reaching running is not yet proof of recovery: the streak survives so a
+    // stream that fails again right away keeps consuming its budget.
+    let snapshot = actor.getSnapshot()
     expect(matchesState('displaying.running', snapshot.value)).toBe(true)
+    expect(snapshot.context.retryCount).toBe(1)
+    expect(snapshot.context.error).toBe(null)
+
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+
+    // Only after healthyDuration of uninterrupted playback is the streak
+    // forgotten.
+    await vi.advanceTimersByTimeAsync(1)
+    snapshot = actor.getSnapshot()
     expect(snapshot.context.retryCount).toBe(0)
     expect(snapshot.context.error).toBe(null)
   })
@@ -289,8 +303,8 @@ describe('viewStateMachine error handling and auto-retry', () => {
 
   it('surfaces a terminal error when a stalled view has no retry budget', async () => {
     // maxRetries: 0 means the budget is already spent when the stall happens
-    // (reaching `running` resets the streak, so a nonzero budget always allows
-    // at least one stall-reload).
+    // (a freshly displayed view starts with a clean streak, so a nonzero
+    // budget always allows at least one stall-reload).
     const actor = makeActor(makeRetry({ maxRetries: 0 }))
     actor.start()
     await reachRunning(actor)
@@ -313,6 +327,122 @@ describe('viewStateMachine error handling and auto-retry', () => {
     expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
       true,
     )
+  })
+
+  // Drives a view that just began an automatic reload (displaying.loading)
+  // back into running, mirroring reachRunning for mid-test reload cycles.
+  async function finishReload(actor: ReturnType<typeof makeActor>) {
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+  }
+
+  it('counts consecutive stall-reload cycles against the retry budget (issue #645)', async () => {
+    const actor = makeActor(makeRetry({ maxRetries: 2 }))
+    actor.start()
+    await reachRunning(actor)
+
+    // 1st stall-reload: fires at the base stalledTimeout.
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+
+    // Stalling again shortly after the reload continues the streak instead of
+    // starting a fresh one.
+    await finishReload(actor)
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000 + 2000) // stalledTimeout + backoff (1000 * 2^1)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+    expect(actor.getSnapshot().context.retryCount).toBe(2)
+
+    // Budget exhausted: the next stall becomes a terminal error instead of
+    // churning through reloads forever.
+    await finishReload(actor)
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000 + 4000) // stalledTimeout + backoff (1000 * 2^2)
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.error', snapshot.value)).toBe(true)
+    expect(snapshot.context.error).toBe(STALLED_ERROR_MESSAGE)
+  })
+
+  it('spaces consecutive stall-reloads with growing backoff (issue #645)', async () => {
+    const actor = makeActor(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+
+    // The second cycle's watchdog waits stalledTimeout + the same exponential
+    // backoff the error state would apply (1000 * 2^1 = 2000).
+    await finishReload(actor)
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(
+      matchesState(
+        'displaying.running.playback.stalled',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+    expect(actor.getSnapshot().context.retryCount).toBe(2)
+  })
+
+  it('resets the stall streak after sustained healthy playback (issue #645)', async () => {
+    const actor = makeActor(makeRetry({ healthyDuration: 5000 }))
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+
+    // The reloaded view plays healthily past healthyDuration: the streak is
+    // forgotten.
+    await finishReload(actor)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(actor.getSnapshot().context.retryCount).toBe(0)
+
+    // A later stall starts a fresh streak with the base watchdog delay again.
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+  })
+
+  it('restarts the healthy-playback clock when a stall clears on its own (issue #645)', async () => {
+    const actor = makeActor(makeRetry({ healthyDuration: 5000 }))
+    actor.start()
+    await reachRunning(actor)
+
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+    await finishReload(actor)
+
+    // A transient stall that self-heals before the watchdog fires spends no
+    // budget, but playback time before it does not count as sustained health.
+    await vi.advanceTimersByTimeAsync(3000)
+    actor.send({ type: 'VIEW_STALLED' })
+    actor.send({ type: 'VIEW_LOADED' })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(actor.getSnapshot().context.retryCount).toBe(1)
+
+    // Only healthyDuration of uninterrupted playback resets the streak.
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(actor.getSnapshot().context.retryCount).toBe(0)
   })
 
   it('resets the retry budget on a manual RELOAD', () => {
