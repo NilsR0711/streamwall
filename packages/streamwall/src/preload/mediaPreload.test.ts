@@ -1370,3 +1370,143 @@ describe('mediaPreload initial paused state from view-init (issue #658)', () => 
     expect(video.paused).toBe(false)
   })
 })
+
+describe('mediaPreload paused acquisition announces the park to the page world (issue #667)', () => {
+  // Must match SCAN_THROTTLE in mediaPreload.ts: long enough for the
+  // re-acquisition's throttled scan to find the replacement element.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredHandler(channel: string): () => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as () => void
+  }
+
+  function viewLoadedCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+  }
+
+  // The bundled HLS player (renderer/playHLS.ts) only stops segment fetching
+  // via these document events (issue #384); its hls.js instance lives in a
+  // closure the preload cannot reach. Records every park/unpark announcement
+  // from registration onward; each call returns a fresh log.
+  function parkEvents(): string[] {
+    const names: string[] = []
+    const record = (event: Event) => names.push(event.type)
+    document.addEventListener('streamwall:media-pause', record)
+    document.addEventListener('streamwall:media-resume', record)
+    return names
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  async function loadAcquiredVideo(
+    init: Record<string, unknown> = {},
+  ): Promise<HTMLVideoElement> {
+    const video = playableVideo()
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+      ...init,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    return video
+  }
+
+  it('announces the park when an acquisition comes up initially paused', async () => {
+    const events = parkEvents()
+
+    await loadAcquiredVideo({ paused: true })
+
+    expect(events).toEqual(['streamwall:media-pause'])
+  })
+
+  it('re-announces the park when a parked view re-acquires after an emptied teardown', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    expect(video.paused).toBe(true)
+
+    // The teardown that empties the element may also have destroyed and
+    // re-created the page's hls.js instance, which starts loading again and
+    // was never told about the park -- the re-acquisition has to repeat the
+    // announcement (issue #667).
+    const events = parkEvents()
+    video.remove()
+    const next = playableVideo()
+    document.body.appendChild(next)
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(viewLoadedCalls()).toHaveLength(2)
+
+    expect(events).toEqual(['streamwall:media-pause'])
+    expect(next.paused).toBe(true)
+  })
+
+  it('does not announce a park while acquiring for a view that is not paused', async () => {
+    const events = parkEvents()
+
+    const video = await loadAcquiredVideo()
+
+    expect(events).toEqual([])
+    expect(video.paused).toBe(false)
+  })
+
+  it('does not announce a park when re-acquiring for a view that was resumed before the stall', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const events = parkEvents()
+    video.remove()
+    const next = playableVideo()
+    document.body.appendChild(next)
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(viewLoadedCalls()).toHaveLength(2)
+
+    expect(events).toEqual([])
+  })
+
+  it('still announces the resume symmetrically after an initially-paused acquisition', async () => {
+    const video = await loadAcquiredVideo({ paused: true })
+    const events = parkEvents()
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(events).toEqual(['streamwall:media-resume'])
+    expect(video.paused).toBe(false)
+  })
+})
