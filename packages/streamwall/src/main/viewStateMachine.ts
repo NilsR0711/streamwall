@@ -49,6 +49,13 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 }
 
 /**
+ * Reason recorded when a view stays stalled past the watchdog with no retry
+ * budget left, so the wall overlay and control UI show an error instead of a
+ * loading spinner forever.
+ */
+export const STALLED_ERROR_MESSAGE = 'Stream stalled'
+
+/**
  * Turns an arbitrary thrown value into a short, serializable reason that can be
  * shown on the wall overlay and in the control UI.
  */
@@ -652,11 +659,30 @@ const viewStateMachine = setup({
                   // (as long as it still has retry budget). A stall that clears
                   // on its own (VIEW_LOADED -> playing) simply cancels this.
                   after: {
-                    stalledTimeout: {
-                      target: '#view.displaying.loading',
-                      guard: 'canRetry',
-                      actions: 'incrementRetry',
-                    },
+                    stalledTimeout: [
+                      {
+                        target: '#view.displaying.loading',
+                        guard: 'canRetry',
+                        actions: 'incrementRetry',
+                      },
+                      // Retry budget exhausted (or retry disabled): surface a
+                      // terminal error instead of showing a loading spinner
+                      // forever, mirroring how a spent budget behaves in the
+                      // `error` state below.
+                      {
+                        target: '#view.displaying.error',
+                        actions: [
+                          {
+                            type: 'logError',
+                            params: { error: STALLED_ERROR_MESSAGE },
+                          },
+                          {
+                            type: 'setError',
+                            params: { error: STALLED_ERROR_MESSAGE },
+                          },
+                        ],
+                      },
+                    ],
                   },
                 },
               },

@@ -11,8 +11,11 @@ vi.mock('electron', () => ({
 }))
 
 const { createActor, fromPromise, matchesState } = await import('xstate')
-const { default: viewStateMachine, DEFAULT_RETRY_CONFIG } =
-  await import('./viewStateMachine')
+const {
+  default: viewStateMachine,
+  DEFAULT_RETRY_CONFIG,
+  STALLED_ERROR_MESSAGE,
+} = await import('./viewStateMachine')
 type RetryConfig = import('./viewStateMachine').RetryConfig
 
 const noop = () => {}
@@ -271,20 +274,45 @@ describe('viewStateMachine error handling and auto-retry', () => {
     expect(snapshot.context.retryCount).toBe(1)
   })
 
-  it('does not reload a stalled view when retry is disabled', async () => {
+  it('surfaces an error instead of reloading a stalled view when retry is disabled', async () => {
     const actor = makeActor(makeRetry({ enabled: false }))
     actor.start()
     await reachRunning(actor)
     actor.send({ type: 'VIEW_STALLED' })
 
-    vi.advanceTimersByTime(60000)
+    vi.advanceTimersByTime(2000) // stalledTimeout
 
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.error', snapshot.value)).toBe(true)
+    expect(snapshot.context.error).toBe(STALLED_ERROR_MESSAGE)
+  })
+
+  it('surfaces a terminal error when a stalled view has no retry budget', async () => {
+    // maxRetries: 0 means the budget is already spent when the stall happens
+    // (reaching `running` resets the streak, so a nonzero budget always allows
+    // at least one stall-reload).
+    const actor = makeActor(makeRetry({ maxRetries: 0 }))
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'VIEW_STALLED' })
     expect(
       matchesState(
         'displaying.running.playback.stalled',
         actor.getSnapshot().value,
       ),
     ).toBe(true)
+
+    vi.advanceTimersByTime(2000) // stalledTimeout
+
+    const snapshot = actor.getSnapshot()
+    expect(matchesState('displaying.error', snapshot.value)).toBe(true)
+    expect(snapshot.context.error).toBe(STALLED_ERROR_MESSAGE)
+
+    // Terminal: with no budget left, no further auto-reload happens.
+    vi.advanceTimersByTime(60000)
+    expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
+      true,
+    )
   })
 
   it('resets the retry budget on a manual RELOAD', () => {
