@@ -583,6 +583,16 @@ async function main() {
   let rotationController: RotationController | undefined
   let volumeController: VolumeController | undefined
   let latestVolume = initialVolume ?? 1
+  // The most recent operator-set rotation, mirroring `latestVolume`: a
+  // re-acquisition constructs a fresh RotationController (which starts at
+  // 0°), and no 'options' message is re-sent for the internal stall
+  // recovery, so the tracked value is re-applied below (issue #620).
+  let latestRotation: number | undefined = initialOptions?.rotation
+  // Whether the operator asked this view's playback to stay paused (a parked
+  // view, issue #374). Tracked so a re-acquisition -- whose findMedia()
+  // unconditionally starts playback -- can re-assert the pause instead of
+  // silently resuming a hidden view (issue #621).
+  let desiredPaused = false
   // The most recently acquired media element (reassigned across a re-
   // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
   // message received at any point can act on whichever one is current.
@@ -595,10 +605,17 @@ async function main() {
 
     currentMedia = media
     volumeController = new VolumeController(media, latestVolume)
+    if (desiredPaused) {
+      // Same caveat as the 'pause' handler below: lockdownMediaTags()
+      // permanently shadows the element's own `pause` with a no-op, so the
+      // native implementation must be called directly.
+      HTMLMediaElement.prototype.pause.call(media)
+    }
     ipcRenderer.send('view-loaded')
 
     if (content.kind === 'video' && media instanceof HTMLVideoElement) {
       rotationController = new RotationController(media)
+      rotationController.setCustom(latestRotation)
       snapshotInterval = window.setInterval(() => {
         snapshotController.snapshotVideo(media)
       }, 1000)
@@ -662,6 +679,7 @@ async function main() {
   }
 
   function updateOptions(options: ContentDisplayOptions) {
+    latestRotation = options.rotation
     if (rotationController) {
       rotationController.setCustom(options.rotation)
     }
@@ -685,6 +703,7 @@ async function main() {
     // cannot reach, and it should stop fetching segments whether or not a
     // <video> has been acquired here yet (issue #384).
     document.dispatchEvent(new CustomEvent(MEDIA_PAUSE_EVENT))
+    desiredPaused = true
     if (!currentMedia) {
       return
     }
@@ -696,6 +715,7 @@ async function main() {
   })
   ipcRenderer.on('resume', () => {
     document.dispatchEvent(new CustomEvent(MEDIA_RESUME_EVENT))
+    desiredPaused = false
     // Live streams are typically not seekable on-demand video, so resuming
     // after a pause may briefly re-buffer or land slightly behind the live
     // edge -- both cheaper than a full reload and expected to self-correct
