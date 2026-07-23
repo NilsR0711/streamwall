@@ -1419,3 +1419,101 @@ describe('viewStateMachine pause/resume IPC (issue #374)', () => {
     expect(sendViewResume).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('viewStateMachine resyncSwappedView pause re-send (issue #621)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Unlike makeActorWithSwapSpies above, this keeps the REAL resyncSwappedView
+  // action and instead fakes the webContents of the preloaded next view, so
+  // tests can assert exactly which IPC messages the swapped-in view receives.
+  function makeActorWithRealResync(retry: RetryConfig) {
+    const nextSend = vi.fn()
+    const nextView = { webContents: { send: nextSend, audioMuted: false } }
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView: noop,
+        positionView: noop,
+        offscreenNextView: noop,
+        performSwap: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        sendViewPause: noop,
+        sendViewResume: noop,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: {} as never,
+        win: {} as never,
+        offscreenWin: {} as never,
+        retry,
+        createNextView: () => ({
+          view: nextView as never,
+          offscreenWin: {} as never,
+        }),
+        disposeView: noopDisposeView,
+      },
+    })
+    return { actor, nextSend }
+  }
+
+  async function swapToOtherContent(
+    actor: ReturnType<typeof makeActorWithRealResync>['actor'],
+  ) {
+    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
+  }
+
+  it('re-sends pause to the swapped-in view when the cell is parked-paused', async () => {
+    const { actor, nextSend } = makeActorWithRealResync(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+
+    await swapToOtherContent(actor)
+
+    // The fresh view starts playing on load; without a pause re-send the
+    // parked cell silently resumes decoding (and potentially audio).
+    expect(nextSend).toHaveBeenCalledWith('pause')
+  })
+
+  it('does not send pause to the swapped-in view when the cell is not paused', async () => {
+    const { actor, nextSend } = makeActorWithRealResync(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    await swapToOtherContent(actor)
+
+    // Sanity check that the real resync ran at all for this swap.
+    expect(nextSend).toHaveBeenCalledWith('volume', 1)
+    expect(nextSend).not.toHaveBeenCalledWith('pause')
+  })
+
+  it('does not send pause to the swapped-in view when the cell was resumed before the swap', async () => {
+    const { actor, nextSend } = makeActorWithRealResync(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+    actor.send({ type: 'RESUME' })
+
+    await swapToOtherContent(actor)
+
+    expect(nextSend).toHaveBeenCalledWith('volume', 1)
+    expect(nextSend).not.toHaveBeenCalledWith('pause')
+  })
+})

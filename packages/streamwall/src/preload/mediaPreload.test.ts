@@ -820,7 +820,14 @@ describe('mediaPreload pause/resume handling (issue #374)', () => {
     vi.useFakeTimers()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Some tests here never dispatch DOMContentLoaded, leaving their module
+    // instance's media search pending on the page-ready gate. Run out the
+    // acquisition timeout while this test's fake timers are still in charge
+    // so the abandoned search aborts for good -- otherwise a later describe's
+    // DOMContentLoaded would revive it against that test's document and the
+    // stale instance would acquire (and start mutating) the new test's video.
+    await vi.advanceTimersByTimeAsync(10 * 1000)
     vi.useRealTimers()
     vi.resetModules()
     invoke.mockClear()
@@ -1089,5 +1096,144 @@ describe('RotationController', () => {
     controller.setCustom(45)
     expect(video.className).toBe('__rot90__')
     expect(warn).toHaveBeenCalledWith('ignoring invalid rotation', 45)
+  })
+})
+
+describe('mediaPreload re-acquisition keeps operator-set state (issues #620/#621)', () => {
+  // Must match SCAN_THROTTLE in mediaPreload.ts: long enough for the
+  // re-acquisition's throttled scan to find the replacement element.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredHandler(
+    channel: string,
+  ): (ev: unknown, ...args: unknown[]) => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as (ev: unknown, ...args: unknown[]) => void
+  }
+
+  function viewLoadedCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  async function loadAcquiredVideo(
+    options: Record<string, unknown> = {},
+  ): Promise<HTMLVideoElement> {
+    const video = playableVideo()
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options,
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    return video
+  }
+
+  // Simulates an HLS teardown that discards the old element entirely: the
+  // page swaps in a brand-new <video>, and the 'emptied' handler's
+  // re-acquisition finds that one instead of the original.
+  async function reacquireOnNewElement(
+    oldVideo: HTMLVideoElement,
+  ): Promise<HTMLVideoElement> {
+    oldVideo.remove()
+    const next = playableVideo()
+    document.body.appendChild(next)
+    oldVideo.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(viewLoadedCalls()).toHaveLength(2)
+    return next
+  }
+
+  it('applies the initial rotation from view-init options once media is acquired', async () => {
+    const video = await loadAcquiredVideo({ rotation: 180 })
+
+    expect(video.className).toBe('__rot180__')
+  })
+
+  it('keeps an operator-set rotation across an emptied re-acquisition (issue #620)', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('options')(undefined, { rotation: 90 })
+    expect(video.className).toBe('__rot90__')
+
+    const next = await reacquireOnNewElement(video)
+
+    expect(next.className).toBe('__rot90__')
+  })
+
+  it('keeps a parked view paused across an emptied re-acquisition (issue #621)', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    expect(video.paused).toBe(true)
+
+    const next = await reacquireOnNewElement(video)
+
+    expect(next.paused).toBe(true)
+  })
+
+  it('keeps a parked view paused when re-acquisition finds the same element again', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    expect(video.paused).toBe(true)
+
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+    expect(viewLoadedCalls()).toHaveLength(2)
+
+    expect(video.paused).toBe(true)
+  })
+
+  it('resumes the re-acquired element on a later resume message', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    const next = await reacquireOnNewElement(video)
+    expect(next.paused).toBe(true)
+
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(next.paused).toBe(false)
+  })
+
+  it('does not pause a re-acquired element for a view that was resumed before the stall', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('pause')()
+    registeredHandler('resume')()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const next = await reacquireOnNewElement(video)
+
+    expect(next.paused).toBe(false)
   })
 })

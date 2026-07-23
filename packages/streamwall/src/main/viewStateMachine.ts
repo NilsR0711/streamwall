@@ -319,12 +319,18 @@ const viewStateMachine = setup({
     // options/volume/mute state that the retired view already had, since
     // none of `running`'s own entry actions re-fire for an in-place swap.
     resyncSwappedView: ({ context }) => {
-      const { view, options, volume, desiredAudio } = context
+      const { view, options, volume, desiredAudio, desiredPaused } = context
       view.webContents.audioMuted = desiredAudio === 'muted'
       if (options) {
         view.webContents.send('options', options)
       }
       view.webContents.send('volume', volume)
+      // The pause region's `paused` entry action does not re-fire for an
+      // in-place swap, so a parked (paused) cell must re-send the pause to
+      // the fresh view or it comes up playing (issue #621).
+      if (desiredPaused) {
+        view.webContents.send('pause')
+      }
     },
   },
 
