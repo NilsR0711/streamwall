@@ -755,6 +755,106 @@ describe('mediaPreload MutationObserver lifecycle (issue #412)', () => {
   })
 })
 
+describe('mediaPreload rotation across re-acquisition (issue #620)', () => {
+  // Must match SCAN_THROTTLE in mediaPreload.ts: long enough for the
+  // re-acquisition's throttled scan to find the replacement element.
+  const SCAN_THROTTLE_MS = 500
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredHandler(
+    channel: string,
+  ): (ev: unknown, ...args: unknown[]) => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as (ev: unknown, ...args: unknown[]) => void
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    return video
+  }
+
+  async function loadAcquiredVideo(
+    options: Record<string, unknown> = {},
+  ): Promise<HTMLVideoElement> {
+    const video = playableVideo()
+    document.body.appendChild(video)
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options,
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    return video
+  }
+
+  it('applies the initial rotation from view-init options once media is acquired', async () => {
+    const video = await loadAcquiredVideo({ rotation: 90 })
+
+    expect(video.className).toBe('__rot90__')
+  })
+
+  it("re-applies an operator-set rotation to the element re-acquired after an 'emptied' stall", async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('options')(null, { rotation: 90 })
+    expect(video.className).toBe('__rot90__')
+
+    // An HLS teardown empties the element and the page brings up a fresh
+    // player; the re-acquisition finds the replacement, which starts with no
+    // rotation class of its own.
+    const newVideo = playableVideo()
+    video.remove()
+    document.body.appendChild(newVideo)
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    expect(
+      send.mock.calls.filter(([channel]) => channel === 'view-loaded'),
+    ).toHaveLength(2)
+    expect(newVideo.className).toBe('__rot90__')
+  })
+
+  it('keeps later options updates working on the re-acquired element', async () => {
+    const video = await loadAcquiredVideo()
+    registeredHandler('options')(null, { rotation: 90 })
+
+    const newVideo = playableVideo()
+    video.remove()
+    document.body.appendChild(newVideo)
+    video.dispatchEvent(new Event('emptied'))
+    await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
+
+    registeredHandler('options')(null, { rotation: 180 })
+
+    expect(newVideo.className).toBe('__rot180__')
+  })
+})
+
 describe('mediaPreload pause/resume handling (issue #374)', () => {
   beforeEach(() => {
     vi.useFakeTimers()

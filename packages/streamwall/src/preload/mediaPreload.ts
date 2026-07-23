@@ -573,6 +573,13 @@ async function main() {
   let rotationController: RotationController | undefined
   let volumeController: VolumeController | undefined
   let latestVolume = initialVolume ?? 1
+  // The most recently requested rotation, mirroring latestVolume: a fresh
+  // RotationController starts at 0, and neither the initial 'view-init'
+  // options (which arrive before the first acquisition finishes) nor an
+  // 'emptied' re-acquisition re-sends an 'options' IPC, so the operator-set
+  // rotation must be re-applied from here whenever a controller is (re-)
+  // created (issue #620).
+  let latestRotation = initialOptions?.rotation ?? 0
   // The most recently acquired media element (reassigned across a re-
   // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
   // message received at any point can act on whichever one is current.
@@ -589,6 +596,7 @@ async function main() {
 
     if (content.kind === 'video' && media instanceof HTMLVideoElement) {
       rotationController = new RotationController(media)
+      rotationController.setCustom(latestRotation)
       snapshotInterval = window.setInterval(() => {
         snapshotController.snapshotVideo(media)
       }, 1000)
@@ -652,8 +660,9 @@ async function main() {
   }
 
   function updateOptions(options: ContentDisplayOptions) {
+    latestRotation = options.rotation ?? 0
     if (rotationController) {
-      rotationController.setCustom(options.rotation)
+      rotationController.setCustom(latestRotation)
     }
   }
   ipcRenderer.on('options', (ev, options) => updateOptions(options))
