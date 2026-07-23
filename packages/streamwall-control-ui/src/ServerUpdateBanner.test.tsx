@@ -1,8 +1,8 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { type ServerStatus } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { ServerUpdateBanner } from './ServerUpdateBanner.tsx'
-import { type ServerStatus } from './useServerStatus.ts'
 
 let container: HTMLDivElement | undefined
 

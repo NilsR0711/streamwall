@@ -1,11 +1,10 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type { StreamwallRole } from 'streamwall-shared'
+import type { ServerStatus, StreamwallRole } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import * as Y from 'yjs'
 import type { StreamwallConnection } from './index.tsx'
 import { ControlUI } from './index.tsx'
-import { type ServerStatus } from './useServerStatus.ts'
 
 // react-icons renders through preact/compat's Context.Consumer, which
 // currently crashes under this package's happy-dom test environment

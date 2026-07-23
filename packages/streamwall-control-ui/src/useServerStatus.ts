@@ -1,22 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { z } from 'zod'
-
-/**
- * Shape of `GET /admin/status` (mirrors the server's `UpdateStatus` in
- * `streamwall-control-server/src/updateCheck.ts`). Validated at runtime because
- * this is a cross-boundary payload; a malformed body yields no status rather
- * than a mistyped object leaking into the UI.
- */
-export const serverStatusSchema = z.object({
-  version: z.string(),
-  latestVersion: z.string().nullable(),
-  updateAvailable: z.boolean(),
-  releaseUrl: z.string().nullable(),
-  lastCheckedAt: z.string().nullable(),
-  checkEnabled: z.boolean(),
-})
-
-export type ServerStatus = z.infer<typeof serverStatusSchema>
+import { serverStatusSchema, type ServerStatus } from 'streamwall-shared'
 
 /**
  * How often to revalidate `/admin/status` while enabled. The server refreshes

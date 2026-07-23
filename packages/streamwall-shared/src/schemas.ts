@@ -433,3 +433,25 @@ export const streamwallStateSchema = z.object({
   favorites: z.array(z.string()),
   dataSourceHealth: z.array(dataSourceHealthSchema),
 })
+
+/**
+ * Response body of the control server's admin-only `GET /admin/status`
+ * endpoint (issue #430): the running server version plus whether a newer
+ * release exists. The single source of truth for this cross-boundary payload
+ * (issue #649): the server derives its `UpdateStatus` response type from it,
+ * and the control UI validates the fetched body with it, so producer and
+ * consumer cannot drift.
+ */
+export const serverStatusSchema = z.object({
+  /** Version of the running server. */
+  version: z.string(),
+  /** Latest release seen by the most recent successful check, if any. */
+  latestVersion: z.string().nullable(),
+  updateAvailable: z.boolean(),
+  releaseUrl: z.string().nullable(),
+  /** ISO timestamp of the last *successful* check. */
+  lastCheckedAt: z.string().nullable(),
+  checkEnabled: z.boolean(),
+})
+
+export type ServerStatus = z.infer<typeof serverStatusSchema>

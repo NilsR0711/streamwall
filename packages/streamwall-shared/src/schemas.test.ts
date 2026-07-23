@@ -2,10 +2,12 @@ import { describe, expect, test } from 'vitest'
 import {
   type ControlCommand,
   MAX_VIEW_IDX,
+  type ServerStatus,
   controlCommandMessageSchema,
   controlStateMessageSchema,
   localStreamDataSchema,
   parseStreamList,
+  serverStatusSchema,
   streamDataInputSchema,
   streamwallStateSchema,
 } from './schemas.ts'
@@ -752,6 +754,58 @@ describe('streamwallStateSchema', () => {
       // Compile-time guard against schema/type drift.
       const state: StreamwallState = result.data
       expect(state.identity.role).toBe('admin')
+    }
+  })
+})
+
+describe('serverStatusSchema', () => {
+  /** A payload exactly as the control server's `GET /admin/status` sends it. */
+  const VALID_STATUS: ServerStatus = {
+    version: '0.10.1',
+    latestVersion: '0.11.0',
+    updateAvailable: true,
+    releaseUrl: 'https://example.com/releases/v0.11.0',
+    lastCheckedAt: '2026-07-23T00:00:00.000Z',
+    checkEnabled: true,
+  }
+
+  test('accepts a fully populated status', () => {
+    expect(serverStatusSchema.safeParse(VALID_STATUS).success).toBe(true)
+  })
+
+  test('accepts the before-first-check shape with null fields', () => {
+    expect(
+      serverStatusSchema.safeParse({
+        version: '0.10.1',
+        latestVersion: null,
+        updateAvailable: false,
+        releaseUrl: null,
+        lastCheckedAt: null,
+        checkEnabled: false,
+      }).success,
+    ).toBe(true)
+  })
+
+  test('rejects a payload with a missing field', () => {
+    const { checkEnabled: _checkEnabled, ...missingField } = VALID_STATUS
+    expect(serverStatusSchema.safeParse(missingField).success).toBe(false)
+  })
+
+  test('rejects a payload with a mistyped field', () => {
+    expect(
+      serverStatusSchema.safeParse({ ...VALID_STATUS, updateAvailable: 'yes' })
+        .success,
+    ).toBe(false)
+  })
+
+  test('strips unknown keys from a newer server', () => {
+    const result = serverStatusSchema.safeParse({
+      ...VALID_STATUS,
+      futureField: 'ignored',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toEqual(VALID_STATUS)
     }
   })
 })
