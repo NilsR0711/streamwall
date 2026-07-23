@@ -11,12 +11,13 @@ import { pathToFileURL } from 'node:url'
 import { Auth, type ScryptParams } from './auth.ts'
 import runServer from './bootstrap.ts'
 import {
-  type ClientPingConfig,
   DEFAULT_CLIENT_PING_CONFIG,
+  DEFAULT_UPLINK_PING_CONFIG,
   getDocUpdateLimits,
   getRateLimitConfig,
   getWsMaxPayloadBytes,
   getWsMessageLimitConfig,
+  type HeartbeatConfig,
   parseTrustProxy,
   type RateLimitConfig,
 } from './config.ts'
@@ -71,6 +72,7 @@ export async function initApp({
   scryptParams,
   trustProxy: injectedTrustProxy,
   updateChecker: injectedUpdateChecker,
+  uplinkPing: injectedUplinkPing,
 }: AppOptions & {
   db?: StorageDB
   /**
@@ -87,7 +89,12 @@ export async function initApp({
    * the ping/pong path can use short timers instead of the production 20s
    * interval. Unset fields keep `DEFAULT_CLIENT_PING_CONFIG`.
    */
-  clientPing?: Partial<ClientPingConfig>
+  clientPing?: Partial<HeartbeatConfig>
+  /**
+   * Overrides the uplink-socket liveness probing cadence, for the same reason
+   * `clientPing` exists. Unset fields keep `DEFAULT_UPLINK_PING_CONFIG`.
+   */
+  uplinkPing?: Partial<HeartbeatConfig>
   /**
    * Overrides individual per-IP rate limits, so specs that are not about
    * throttling widen them without writing the process-wide environment (which
@@ -163,6 +170,7 @@ export async function initApp({
     isSecure,
     wsMessageLimitConfig: getWsMessageLimitConfig(),
     clientPingConfig: { ...DEFAULT_CLIENT_PING_CONFIG, ...injectedClientPing },
+    uplinkPingConfig: { ...DEFAULT_UPLINK_PING_CONFIG, ...injectedUplinkPing },
     docUpdateLimits: { ...getDocUpdateLimits(), ...injectedDocUpdateLimits },
     clients,
     currentStreamwallWs: null,

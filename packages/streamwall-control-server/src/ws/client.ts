@@ -13,7 +13,11 @@ import { SESSION_COOKIE_NAME } from '../config.ts'
 import { type AppContext, type Client } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
 import { applyValidatedDocUpdate } from '../stateDocGuard.ts'
-import { createWsMessageGuard, queueWebSocketMessages } from '../wsSupport.ts'
+import {
+  createWsMessageGuard,
+  queueWebSocketMessages,
+  startHeartbeat,
+} from '../wsSupport.ts'
 
 export interface ClientRouteOptions {
   /** Filesystem root of the built control client served at `/`. */
@@ -96,34 +100,19 @@ export function registerClientRoutes(
         ...identityFields(identity),
       })
 
-      // Liveness check mirroring the uplink route: a peer that vanishes
-      // without a TCP FIN (laptop sleep, NAT idle timeout, network partition)
-      // never fires 'close' on its own, so its registry entry would leak and
-      // keep receiving every broadcast. A missed pong terminates the socket,
-      // which fires 'close' and cleans up (issue #618).
-      const { intervalMs: pingIntervalMs, timeoutMs: pongTimeoutMs } =
-        ctx.clientPingConfig
-      let pongTimeout: NodeJS.Timeout | undefined
-      const pingInterval = setInterval(() => {
-        ws.ping()
-        clearTimeout(pongTimeout)
-        pongTimeout = setTimeout(() => {
-          if (ws.readyState === ws.OPEN) {
-            log.warn(
-              `Client timeout: no pong within ${pongTimeoutMs}ms. Closing connection.`,
-            )
-            ws.terminate()
-          }
-        }, pongTimeoutMs)
-      }, pingIntervalMs)
-      ws.on('pong', () => {
-        clearTimeout(pongTimeout)
-      })
+      // Liveness check: without it, a browser that disappears mid-connection
+      // would leak its registry entry and keep receiving every broadcast
+      // forever (issue #618).
+      const stopHeartbeat = startHeartbeat(
+        ws,
+        ctx.clientPingConfig,
+        'Client',
+        log,
+      )
 
       ws.on('close', () => {
         ctx.clients.delete(clientId)
-        clearInterval(pingInterval)
-        clearTimeout(pongTimeout)
+        stopHeartbeat()
 
         log.info('Client disconnected')
       })

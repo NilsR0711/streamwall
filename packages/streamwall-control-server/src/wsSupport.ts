@@ -1,6 +1,6 @@
 import WebSocket from 'ws'
 
-import type { WsMessageLimitConfig } from './config.ts'
+import type { HeartbeatConfig, WsMessageLimitConfig } from './config.ts'
 import type { Logger } from './logger.ts'
 import { TokenBucket } from './rateLimiter.ts'
 
@@ -106,6 +106,46 @@ export function queueWebSocketMessages(ws: WebSocket, log: Logger) {
   })
 
   return setMessageHandler
+}
+
+/**
+ * Starts a ping/pong liveness probe on a socket: a peer that vanishes without
+ * a TCP FIN (laptop sleep, NAT idle timeout, network partition) never fires
+ * 'close' on its own, so a missed pong terminates the socket, which fires
+ * 'close' and lets the route's cleanup run (issues #618/#635).
+ *
+ * `label` names the peer in the timeout warning (e.g. `Client`, `Streamwall`).
+ * Returns a stop function that clears every timer and listener the heartbeat
+ * registered; call it from the route's 'close' handler.
+ */
+export function startHeartbeat(
+  ws: WebSocket,
+  { intervalMs, timeoutMs }: HeartbeatConfig,
+  label: string,
+  log: Logger,
+): () => void {
+  let pongTimeout: NodeJS.Timeout | undefined
+  const onPong = () => {
+    clearTimeout(pongTimeout)
+  }
+  const pingInterval = setInterval(() => {
+    ws.ping()
+    clearTimeout(pongTimeout)
+    pongTimeout = setTimeout(() => {
+      if (ws.readyState === ws.OPEN) {
+        log.warn(
+          `${label} timeout: no pong within ${timeoutMs}ms. Closing connection.`,
+        )
+        ws.terminate()
+      }
+    }, timeoutMs)
+  }, intervalMs)
+  ws.on('pong', onPong)
+  return () => {
+    clearInterval(pingInterval)
+    clearTimeout(pongTimeout)
+    ws.off('pong', onPong)
+  }
 }
 
 /**
