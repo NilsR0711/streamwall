@@ -17,6 +17,14 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.3](https://github.com/NilsR0711/streamwall/compare/v0.10.2...v0.10.3) (2026-07-23)
+
+
+### Fixed
+
+* **release:** create the draft release once before the publish matrix fans out so parallel publish jobs no longer split it into two drafts ([#672](https://github.com/NilsR0711/streamwall/issues/672)) ([c689df7](https://github.com/NilsR0711/streamwall/commit/c689df736233f96d2387427c193e940be9ab815c)), closes [#671](https://github.com/NilsR0711/streamwall/issues/671)
+
+
 ## [0.10.2](https://github.com/NilsR0711/streamwall/compare/v0.10.1...v0.10.2) (2026-07-23)
 
 
