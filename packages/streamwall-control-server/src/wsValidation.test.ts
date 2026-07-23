@@ -83,6 +83,34 @@ test('answers an invalid command with an error response', async () => {
   assert.equal(response.error, 'invalid message')
 })
 
+test('answers a delete-token command so the caller callback resolves (issue #630)', async () => {
+  const { clientWs, client, auth } = await connectStreamwallAndClient()
+
+  const { tokenId } = await auth.createToken({
+    kind: 'invite',
+    role: 'operator',
+    name: 'to-delete',
+  })
+
+  clientWs.send(JSON.stringify({ id: 55, type: 'delete-token', tokenId }))
+
+  const response = await client.waitFor(isResponseTo(55))
+  assert.equal(response.ok, true)
+  assert.equal(response.error, undefined)
+})
+
+test('answers a delete-token for an unknown token with an error (issue #630)', async () => {
+  const { clientWs, client } = await connectStreamwallAndClient()
+
+  clientWs.send(
+    JSON.stringify({ id: 56, type: 'delete-token', tokenId: 'never-existed' }),
+  )
+
+  const response = await client.waitFor(isResponseTo(56))
+  assert.equal(response.error, 'unknown token')
+  assert.equal(response.ok, undefined)
+})
+
 test('rejects a state message with no payload instead of wiring a broken connection', async () => {
   // The old code built a StateWrapper around `undefined`, establishing a
   // connection that crashed clients on view(). Validation must reject it so

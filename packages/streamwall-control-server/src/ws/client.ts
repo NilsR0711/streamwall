@@ -237,7 +237,16 @@ export function registerClientRoutes(
             respond({ name: msg.name, secret, tokenId })
           } else if (msg.type === 'delete-token') {
             log.debug('Deleting token')
-            ctx.auth.deleteToken(msg.tokenId)
+            const deleted = ctx.auth.deleteToken(msg.tokenId)
+            // Always answer so a caller that supplied a response callback does
+            // not hang until the socket closes (issue #630). Report whether a
+            // token was actually removed, matching the sibling commands that
+            // all respond via `respond(...)`.
+            if (deleted) {
+              respond({ ok: true })
+            } else {
+              respond({ error: 'unknown token' })
+            }
           } else {
             streamwallConn.ws.send(
               JSON.stringify({ ...msg, clientId: identity.tokenId }),
