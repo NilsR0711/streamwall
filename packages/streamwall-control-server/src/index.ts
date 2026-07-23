@@ -13,6 +13,7 @@ import runServer from './bootstrap.ts'
 import {
   getDocUpdateLimits,
   getRateLimitConfig,
+  getWsMaxPayloadBytes,
   getWsMessageLimitConfig,
   parseTrustProxy,
   type RateLimitConfig,
@@ -43,7 +44,11 @@ export {
   resolveListenPort,
   SESSION_COOKIE_NAME,
 } from './config.ts'
-export { queueWebSocketMessages } from './wsSupport.ts'
+export {
+  queueWebSocketMessages,
+  WS_QUEUE_MAX_BYTES,
+  WS_QUEUE_MAX_MESSAGES,
+} from './wsSupport.ts'
 
 export interface AppOptions {
   baseURL: string
@@ -189,6 +194,12 @@ export async function initApp({
   await app.register(fastifyWebsocket, {
     errorHandler: (err) => {
       app.log.warn({ err }, 'Error handling socket request')
+    },
+    options: {
+      // Reject oversized frames while they are still being assembled; the
+      // `ws` default of 100 MiB per frame would be fully buffered before any
+      // message-level guard could run (issue #623).
+      maxPayload: getWsMaxPayloadBytes(),
     },
   })
 

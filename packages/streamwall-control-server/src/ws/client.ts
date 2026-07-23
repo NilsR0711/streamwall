@@ -63,7 +63,7 @@ export function registerClientRoutes(
     // Client WebSocket connection
     fastify.get('/client/ws', { websocket: true }, async (ws, request) => {
       ws.binaryType = 'arraybuffer'
-      const handleMessage = queueWebSocketMessages(ws)
+      const handleMessage = queueWebSocketMessages(ws, request.log)
 
       const { identity } = request
 

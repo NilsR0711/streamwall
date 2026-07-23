@@ -30,7 +30,7 @@ export function registerUplinkRoute(
     { websocket: true },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'
-      const handleMessage = queueWebSocketMessages(ws)
+      const handleMessage = queueWebSocketMessages(ws, request.log)
 
       const { id } = request.params
       const token = bearerToken(request.headers.authorization)

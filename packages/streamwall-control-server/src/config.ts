@@ -27,6 +27,14 @@ const DEFAULT_WS_MSG_BURST = 1000
 const DEFAULT_WS_UPDATE_MAX_BYTES = 512 * 1024
 const DEFAULT_WS_DOC_GROWTH_MAX_BYTES = 1024 * 1024
 
+// Upper bound on a single inbound WebSocket frame, enforced by `ws` while the
+// frame is still being assembled. Without it `ws` buffers up to its 100 MiB
+// default per frame before any message-level guard (rate limiting, the Yjs
+// update size check) can run. 1 MiB gives the largest legitimate payload —
+// a full Yjs state snapshot or a `maxUpdateBytes`-bounded client update —
+// comfortable headroom.
+const DEFAULT_WS_MAX_PAYLOAD_BYTES = 1024 * 1024
+
 /** Parses a positive numeric env value, falling back when unset or invalid. */
 function parsePositiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value)
@@ -96,6 +104,14 @@ export function getWsMessageLimitConfig(): WsMessageLimitConfig {
       DEFAULT_WS_MSG_RATE,
     ),
   }
+}
+
+/** Reads the maximum inbound WebSocket frame size from the environment. */
+export function getWsMaxPayloadBytes(): number {
+  return parsePositiveNumber(
+    process.env.STREAMWALL_WS_MAX_PAYLOAD_BYTES,
+    DEFAULT_WS_MAX_PAYLOAD_BYTES,
+  )
 }
 
 /** Reads the binary Yjs update size limits from the environment. */
