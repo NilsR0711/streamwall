@@ -18,7 +18,7 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import type { ScryptParams } from './auth.ts'
-import type { ClientPingConfig, RateLimitConfig } from './config.ts'
+import type { HeartbeatConfig, RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
@@ -237,7 +237,8 @@ export const TEST_BASE_URL = 'http://localhost:3000'
 
 /** Everything a test may override when building an app instance. */
 export type TestAppOverrides = Partial<AppOptions> & {
-  clientPing?: Partial<ClientPingConfig>
+  clientPing?: Partial<HeartbeatConfig>
+  uplinkPing?: Partial<HeartbeatConfig>
   db?: StorageDB
   docUpdateLimits?: Partial<DocUpdateLimits>
   logs?: LogCapture
@@ -408,13 +409,18 @@ export async function mintUplinkToken(auth: TestApp['auth'], port: number) {
  *
  * `T` describes the shape of the JSON frames the caller expects to record,
  * defaulting to the real shape the server forwards over this connection.
+ *
+ * `wsOptions` is merged into the socket's client options, so a spec can e.g.
+ * pass `autoPong: false` to simulate a peer that no longer answers pings.
  */
 export async function connectStreamwallUplink<T = ControlCommandMessage>(
   auth: TestApp['auth'],
   port: number,
+  wsOptions: WebSocket.ClientOptions = {},
 ) {
   const { base, secret } = await mintUplinkToken(auth, port)
   const ws = new WebSocket(base, {
+    ...wsOptions,
     headers: { authorization: `Bearer ${secret}` },
   })
   const streamwall = recordJsonMessages<T>(ws)

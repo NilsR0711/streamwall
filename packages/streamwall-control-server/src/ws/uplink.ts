@@ -6,13 +6,13 @@ import {
   streamwallStateSchema,
 } from 'streamwall-shared'
 import { StateWrapper } from '../auth.ts'
-import { STREAMWALL_PING_TIMEOUT_MS } from '../config.ts'
 import type { AppContext } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
 import {
   bearerToken,
   createWsMessageGuard,
   queueWebSocketMessages,
+  startHeartbeat,
 } from '../wsSupport.ts'
 
 /**
@@ -59,26 +59,20 @@ export function registerUplinkRoute(
 
       ctx.currentStreamwallWs = ws
 
-      const pingInterval = setInterval(() => {
-        ws.ping()
-        const pongTimeout = setTimeout(() => {
-          if (ws.readyState === ws.OPEN) {
-            log.warn(
-              `Streamwall timeout: no pong within ${STREAMWALL_PING_TIMEOUT_MS}ms. Closing connection.`,
-            )
-            ws.terminate()
-          }
-        }, STREAMWALL_PING_TIMEOUT_MS)
-        ws.once('pong', () => {
-          clearTimeout(pongTimeout)
-        })
-      }, STREAMWALL_PING_TIMEOUT_MS)
+      // Liveness check: without it, a desktop that disappears mid-connection
+      // would keep the single uplink slot occupied and block any reconnect.
+      const stopHeartbeat = startHeartbeat(
+        ws,
+        ctx.uplinkPingConfig,
+        'Streamwall',
+        log,
+      )
 
       ws.on('close', () => {
         log.info('Streamwall disconnected')
         ctx.currentStreamwallWs = null
         ctx.currentStreamwallConn = null
-        clearInterval(pingInterval)
+        stopHeartbeat()
 
         for (const client of ctx.clients.values()) {
           client.ws.close()
