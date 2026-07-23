@@ -47,7 +47,9 @@ export async function initialInviteCodes({
     // Scrub any plaintext secret a pre-fix server version may have persisted
     // alongside the id, so it stops leaking through storage.json.
     if ((record as { secret?: string }).secret !== undefined) {
-      db.update((data) => {
+      // Awaited so a failed scrub write surfaces at startup instead of being
+      // silently dropped, leaving the plaintext secret on disk (issue #619).
+      await db.update((data) => {
         data.streamwallToken = { tokenId: uplinkTokenId }
       })
     }
@@ -67,7 +69,10 @@ export async function initialInviteCodes({
     })
     uplinkSecret = minted.secret
     uplinkTokenId = minted.tokenId
-    db.update((data) => {
+    // Awaited so an unwritable storage fails the boot loudly: dropping this
+    // rejection would strand a token id that only exists in memory, forcing a
+    // silent uplink-token rotation on every restart (issue #619).
+    await db.update((data) => {
       data.streamwallToken = { tokenId: minted.tokenId }
     })
   }

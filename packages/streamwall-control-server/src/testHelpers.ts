@@ -48,6 +48,22 @@ export function inMemoryDb(): Low<StoredData> {
 }
 
 /**
+ * An in-memory storage backend whose every write rejects with `error`, for
+ * specs that exercise how storage persistence failures are surfaced
+ * (issue #619). Reads behave like a fresh, empty store.
+ */
+export function failingWriteDb(
+  error: Error = new Error('simulated storage write failure'),
+): Low<StoredData> {
+  const adapter = new Memory<StoredData>()
+  adapter.write = () => Promise.reject(error)
+  return new Low<StoredData>(adapter, {
+    auth: { salt: null, tokens: [] },
+    streamwallToken: null,
+  })
+}
+
+/**
  * Collects the server's structured log output as parsed JSON entries, so specs
  * can assert on what was logged (and on what was deliberately *not* logged)
  * instead of spying on `console`.

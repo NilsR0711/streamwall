@@ -214,8 +214,15 @@ export async function initApp({
   registerClientRoutes(app, ctx, { clientStaticPath })
 
   auth.on('state', (state) => {
+    // The write is fire-and-forget by design (the listener is synchronous),
+    // but its rejection must not be dropped: a failed persist means the
+    // in-memory auth state — including token revocations — silently diverges
+    // from storage.json and would be undone by the next restart (issue #619).
     db.update((data) => {
       data.auth = auth.getStoredData()
+    }).catch((err: unknown) => {
+      app.log.error({ err }, 'Failed to persist auth state to storage')
+      reportCaughtError(err)
     })
 
     const tokenIds = new Set(state.sessions.map((t) => t.tokenId))
