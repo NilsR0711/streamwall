@@ -7,6 +7,7 @@ import { type UpdateStatus } from '../updateStatus'
 import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
 import { loadHTML } from './loadHTML'
+import log from './logger'
 
 export type ControlCommandHandler = (
   command: ControlCommand,
@@ -59,7 +60,11 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
 
     this.win.on('close', (event) => this.emit('close', event))
 
-    loadHTML(this.win.webContents, 'control')
+    // A superseded load rejects with ERR_ABORTED; log it so it leaves a
+    // breadcrumb instead of an unhandled promise rejection (issue #392/#626).
+    loadHTML(this.win.webContents, 'control').catch((err) => {
+      log.warn('error loading control window', err)
+    })
 
     ipcMain.handle('control:load', (ev) => {
       if (ev.sender !== this.win.webContents) {

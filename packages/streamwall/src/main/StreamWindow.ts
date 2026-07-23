@@ -25,6 +25,7 @@ import {
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { devServerOrigin, loadHTML } from './loadHTML'
+import log from './logger'
 import { secureStreamView } from './navigationSecurity'
 import { allocateViewPartition, hardenSession } from './partitions'
 import { planViewLayout, type ViewCandidate } from './viewLayoutPlan'
@@ -189,7 +190,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       width,
       height,
     })
-    loadHTML(layerView.webContents, page)
+    // A superseded load rejects with ERR_ABORTED; log it so it leaves a
+    // breadcrumb instead of an unhandled promise rejection (issue #392/#626).
+    loadHTML(layerView.webContents, page).catch((err) => {
+      log.warn('error loading chrome layer', page, err)
+    })
     return layerView
   }
 

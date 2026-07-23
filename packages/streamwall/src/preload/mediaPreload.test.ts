@@ -244,6 +244,66 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
   })
 })
 
+describe('mediaPreload acquisition play() rejection (issue #626)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.restoreAllMocks()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function viewErrorCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-error')
+  }
+
+  it('logs and swallows the acquisition play() rejection instead of leaving it unhandled', async () => {
+    const video = document.createElement('video')
+    // happy-dom never sets videoWidth, so give it a truthy value to skip
+    // findMedia's "wait for playing" branch and let acquisition resolve as
+    // soon as the element is found.
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+
+    // The acquisition's fire-and-forget play() rejects (e.g. autoplay policy
+    // or a load interrupted by a superseding acquisition).
+    const playError = new Error('play interrupted')
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockRejectedValue(playError)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+
+    await import('./mediaPreload')
+    document.dispatchEvent(new Event('DOMContentLoaded'))
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The rejection is caught and logged as a breadcrumb, and acquisition
+    // still completes rather than being derailed or leaking an unhandled
+    // rejection.
+    expect(play).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      'error starting media playback',
+      playError,
+    )
+    expect(send).toHaveBeenCalledWith('view-loaded')
+    expect(viewErrorCalls()).toEqual([])
+  })
+})
+
 describe('mediaPreload iframe video extraction (issue #413)', () => {
   // Must match INITIAL_TIMEOUT in mediaPreload.ts; the iframe scan only runs
   // after the top-level <video> wait loses its race against this timeout.

@@ -30,7 +30,9 @@ vi.mock('electron', () => ({
   shell: { openPath },
 }))
 
-vi.mock('./loadHTML', () => ({ loadHTML: vi.fn() }))
+// Returns a resolved promise like the real loadHTML, so the caller's `.catch`
+// breadcrumb (issue #626) has something to attach to.
+vi.mock('./loadHTML', () => ({ loadHTML: vi.fn(() => Promise.resolve()) }))
 
 const createExampleConfig = vi.fn()
 vi.mock('./exampleConfig', () => ({ createExampleConfig }))

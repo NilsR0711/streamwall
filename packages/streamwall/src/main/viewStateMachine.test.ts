@@ -801,6 +801,38 @@ describe('viewStateMachine loadPage navigation', () => {
 
     warnSpy.mockRestore()
   })
+
+  it('logs a warning when the HLS navigation load rejects (issue #626)', async () => {
+    // The HLS branch routes through loadHTML (which calls loadURL under the
+    // hood) and is likewise not awaited, so a superseding reload/swap that
+    // aborts the in-flight navigation would otherwise vanish with no log
+    // breadcrumb. Stub the dev-server global so loadHTML takes its loadURL
+    // path instead of the packaged loadFile path.
+    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173')
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const { actor, loadURL } = makeActorWithRealLoadPage(makeRetry())
+    const loadErr = new Error('net::ERR_ABORTED')
+    loadURL.mockRejectedValue(loadErr)
+    const hlsUrl = 'https://example.com/live.m3u8'
+
+    actor.start()
+    actor.send({
+      type: 'DISPLAY',
+      pos: POS,
+      content: { url: hlsUrl, kind: 'video' as const },
+    })
+
+    await vi.waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith(
+        'error loading HLS view URL',
+        hlsUrl,
+        loadErr,
+      ),
+    )
+
+    warnSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('viewStateMachine deferred MUTE/BLUR/BACKGROUND requests', () => {
