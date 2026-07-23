@@ -391,17 +391,14 @@ breaking change bumps the minor version.
    for it — so the checks attach to the PR itself and `mergeStateStatus` becomes
    `CLEAN`.
 
-   `release-please.yml` also dispatches both workflows against the release
-   branch after every update, `workflow_dispatch` being the one event GitHub
-   still delivers for that token. Treat those runs as a smoke signal only: they
-   report on the branch head, **not** on the pull request, so they never enter
-   its status check rollup and cannot satisfy branch protection (#578). Because
-   a dispatched run has nothing to diff against, it always runs the full gate
-   rather than the change-scaled subset.
-
-   Both workarounds exist only because release-please runs with `GITHUB_TOKEN`.
-   Switching it to a PAT or GitHub App token (#549) would let the release PR
-   start its own required checks and make this step unnecessary.
+   This workaround exists only because release-please runs with
+   `GITHUB_TOKEN`. Switching it to a PAT or GitHub App token (#549) would let
+   the release PR start its own required checks and make this step
+   unnecessary. (An earlier shim had `release-please.yml` start both
+   workflows itself after every update; it was removed again because those
+   runs reported on the branch head, **not** on the pull request, so they
+   never satisfied branch protection while costing a full CI matrix per push
+   to `main` — #578.)
 
 3. Tag the merge commit and push the tag:
 

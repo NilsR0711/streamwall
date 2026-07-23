@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # release-please.yml dispatches this workflow for the release PR, whose
-  # `pull_request` events GitHub never delivers (#521).
-  workflow_dispatch:
 
 # Least privilege: read-only by default. Jobs opt into more where needed.
 permissions:
@@ -21,10 +18,6 @@ concurrency:
 jobs:
   # Classify the change so docs-only edits skip the heavy jobs. Downstream
   # jobs skip based on these outputs; the ci-ok gate treats skipped as OK.
-  #
-  # A dispatched run (the release PR, see the trigger above) has no base to
-  # diff against, and a release is the last place to narrow the gate — so it
-  # skips the filter and runs everything.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
@@ -33,22 +26,20 @@ jobs:
       contents: read
       pull-requests: read # paths-filter lists changed files via the PR API
     outputs:
-      code: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.code }}
-      dependencies: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.dependencies }}
-      docker: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.docker }}
-      workflows: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.workflows }}
+      code: ${{ steps.filter.outputs.code }}
+      dependencies: ${{ steps.filter.outputs.dependencies }}
+      docker: ${{ steps.filter.outputs.docker }}
+      workflows: ${{ steps.filter.outputs.workflows }}
       # Runner matrix for the package smoke job. macOS is the expensive leg
       # and the only one that ad-hoc re-signs the app, so it joins only when
-      # the PR actually touches a packaging input (#538) — or when the run was
-      # dispatched, which cuts a release and takes the whole matrix.
-      package_os: ${{ (github.event_name == 'workflow_dispatch' || steps.filter.outputs.packaging == 'true') && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]' }}
+      # the PR actually touches a packaging input (#538).
+      package_os: ${{ steps.filter.outputs.packaging == 'true' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
-        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             # Anything that can influence lint/typecheck/test/build results.
