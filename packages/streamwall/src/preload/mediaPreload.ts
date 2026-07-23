@@ -510,7 +510,13 @@ async function findMedia(
     document.body.appendChild(video)
   }
 
-  video.play()
+  // Fire-and-forget: playback readiness is confirmed below via videoWidth, so
+  // the play() promise is not awaited. A rejection (autoplay policy, or a load
+  // interrupted by a superseding acquisition) is otherwise invisible, so log it
+  // as a breadcrumb, symmetric with the resume path (issue #392/#626).
+  video.play().catch((err) => {
+    console.warn('error starting media playback', err)
+  })
 
   if (video instanceof HTMLVideoElement && !video.videoWidth) {
     console.log(`video isn't playing yet. waiting for it to start...`)

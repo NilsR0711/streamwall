@@ -115,7 +115,9 @@ vi.mock('electron', () => {
 // build, and would resolve renderer HTML off disk. The constructor test only
 // cares about which page each layer is told to load, so record the calls.
 vi.mock('./loadHTML', () => ({
-  loadHTML: vi.fn(),
+  // Returns a resolved promise like the real loadHTML, so the caller's `.catch`
+  // breadcrumb (issue #626) has something to attach to.
+  loadHTML: vi.fn(() => Promise.resolve()),
   devServerOrigin: () => undefined,
 }))
 

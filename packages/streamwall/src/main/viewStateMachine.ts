@@ -392,7 +392,16 @@ const viewStateMachine = setup({
         wc.audioMuted = true
 
         if (/\.m3u8?$/.test(content.url)) {
-          loadHTML(wc, 'playHLS', { query: { src: content.url } })
+          // Do NOT await (same reason as the loadURL branch below). A reload or
+          // swap superseding this in-flight navigation rejects with
+          // ERR_ABORTED, which is invisible to the 'did-fail-load' listener;
+          // log it so it leaves a breadcrumb instead of an unhandled promise
+          // rejection (issue #392/#626).
+          loadHTML(wc, 'playHLS', { query: { src: content.url } }).catch(
+            (err) => {
+              log.warn('error loading HLS view URL', content.url, err)
+            },
+          )
         } else {
           // Do NOT await: the preload sends VIEW_INIT before loadURL resolves
           // (did-finish-load), so awaiting here would strand that event and hang
