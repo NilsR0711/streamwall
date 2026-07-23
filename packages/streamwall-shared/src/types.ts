@@ -54,7 +54,10 @@ export interface StreamData extends StreamDataContent {
 
 export type LocalStreamData = Omit<StreamData, '_id' | '_dataSource'>
 
-export type StreamList = StreamData[] & { byURL?: Map<string, StreamData> }
+export type StreamList = StreamData[] & {
+  byURL?: Map<string, StreamData>
+  byId?: Map<string, StreamData>
+}
 
 /**
  * Mirrors `viewStateMachine.ts`'s snapshot `.value`. Derived from the schema so

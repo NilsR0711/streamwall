@@ -191,6 +191,22 @@ describe('combineDataSources', () => {
     }
   })
 
+  test('attaches a byId index keyed by the assigned stream id', async () => {
+    async function* sourceA() {
+      yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]
+    }
+    const gen = combineDataSources([sourceA()], new StreamIDGenerator())
+    try {
+      const { value } = await gen.next()
+      expect(value?.byId?.get('exa')).toMatchObject({
+        _id: 'exa',
+        link: 'https://a.example/s',
+      })
+    } finally {
+      await gen.return?.(undefined)
+    }
+  })
+
   test('assigns stream ids via the provided StreamIDGenerator', async () => {
     async function* sourceA() {
       yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]

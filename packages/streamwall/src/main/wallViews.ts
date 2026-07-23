@@ -1,9 +1,25 @@
 import {
+  type StreamData,
   type StreamList,
   type ViewContentMap,
   fullscreenViewContentMap,
 } from 'streamwall-shared'
 import * as Y from 'yjs'
+
+/**
+ * Indexes a stream list by `_id` for O(1) cell resolution. First entry wins on
+ * a duplicate id, preserving the first-match behaviour of the `streams.find`
+ * scan this replaces.
+ */
+function buildStreamById(streams: StreamList): Map<string, StreamData> {
+  const byId = new Map<string, StreamData>()
+  for (const stream of streams) {
+    if (stream._id != null && !byId.has(stream._id)) {
+      byId.set(stream._id, stream)
+    }
+  }
+  return byId
+}
 
 export interface DeriveWallViewsInput {
   /** The view currently expanded to fill the wall, or null for the normal grid. */
@@ -54,9 +70,16 @@ export function deriveWallViews({
   cols,
   rows,
 }: DeriveWallViewsInput): WallViews {
+  // Resolve cell assignments through an id -> stream index built once per
+  // invocation, rather than scanning the whole stream list per cell. Prefer the
+  // index the data pipeline already attached (see combine.ts); fall back to
+  // building one here so callers that pass a bare list still work. First entry
+  // wins on a duplicate id, matching the previous `streams.find(...)` scan.
+  const byId = streams.byId ?? buildStreamById(streams)
+
   if (fullscreenViewIdx != null) {
     const streamId = viewsState.get(String(fullscreenViewIdx))?.get('streamId')
-    const stream = streams.find((s) => s._id === streamId)
+    const stream = streamId != null ? byId.get(streamId) : undefined
     if (stream) {
       return {
         mode: 'fullscreen',
@@ -71,7 +94,7 @@ export function deriveWallViews({
   const contentMap: ViewContentMap = new Map()
   for (const [key, viewData] of viewsState) {
     const streamId = viewData.get('streamId')
-    const stream = streams.find((s) => s._id === streamId)
+    const stream = streamId != null ? byId.get(streamId) : undefined
     if (!stream) {
       continue
     }

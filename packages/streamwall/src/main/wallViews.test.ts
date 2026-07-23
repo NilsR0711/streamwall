@@ -76,6 +76,43 @@ describe('deriveWallViews — normal grid', () => {
     expect(result.contentMap.has('0')).toBe(true)
     expect(result.contentMap.has('1')).toBe(false)
   })
+
+  it('resolves cells through a caller-attached byId index', () => {
+    // Only the attached index carries the stream; the array is empty, proving
+    // the lookup does not fall back to scanning the list.
+    const list = streams([])
+    list.byId = new Map([
+      ['a', { _id: 'a', link: 'http://a', kind: 'web' }],
+    ]) as unknown as NonNullable<StreamList['byId']>
+
+    const result = deriveWallViews({
+      fullscreenViewIdx: null,
+      streams: list,
+      viewsState: viewsStateWith({ '0': 'a' }),
+      cols: 1,
+      rows: 1,
+    })
+
+    expect(result.contentMap.get('0')).toEqual({ url: 'http://a', kind: 'web' })
+  })
+
+  it('keeps the first stream when two share an id', () => {
+    const result = deriveWallViews({
+      fullscreenViewIdx: null,
+      streams: streams([
+        { _id: 'dup', link: 'http://first', kind: 'video' },
+        { _id: 'dup', link: 'http://second', kind: 'web' },
+      ]),
+      viewsState: viewsStateWith({ '0': 'dup' }),
+      cols: 1,
+      rows: 1,
+    })
+
+    expect(result.contentMap.get('0')).toEqual({
+      url: 'http://first',
+      kind: 'video',
+    })
+  })
 })
 
 describe('deriveWallViews — fullscreen', () => {
