@@ -1600,6 +1600,102 @@ describe('StreamWindow constructor', () => {
   })
 })
 
+describe('StreamWindow view-init payload (issue #658)', () => {
+  beforeEach(() => {
+    electronStub.windows.length = 0
+    electronStub.webContentsViews.length = 0
+    electronStub.resetIpc()
+    vi.mocked(loadHTML).mockClear()
+  })
+
+  function viewInitHandler() {
+    const call = electronStub.ipcMain.handle.mock.calls.find(
+      ([channel]) => channel === 'view-init',
+    )
+    if (!call) {
+      throw new Error('no view-init handler registered')
+    }
+    return call[1] as (ev: {
+      sender: { id: number }
+    }) => Promise<Record<string, unknown> | undefined>
+  }
+
+  const content = { url: 'https://example.com/stream', kind: 'video' }
+  const options = { rotation: 90 }
+
+  function makeActor(context: Record<string, unknown>) {
+    return {
+      getSnapshot: () => ({ context }),
+      send: vi.fn(),
+    }
+  }
+
+  it('includes the desired paused state so a parked cell initializes paused', async () => {
+    const sw = new StreamWindow(makeConfig())
+    const actor = makeActor({
+      content,
+      options,
+      volume: 0.5,
+      desiredPaused: true,
+      next: null,
+    })
+    sw.viewsByWebContentsId.set(42, actor as never)
+
+    await expect(viewInitHandler()({ sender: { id: 42 } })).resolves.toEqual({
+      content,
+      options,
+      volume: 0.5,
+      paused: true,
+    })
+    expect(actor.send).toHaveBeenCalledWith({ type: 'VIEW_INIT' })
+    sw.dispose()
+  })
+
+  it('reports paused: false for a cell that is not parked-paused', async () => {
+    const sw = new StreamWindow(makeConfig())
+    const actor = makeActor({
+      content,
+      options,
+      volume: 1,
+      desiredPaused: false,
+      next: null,
+    })
+    sw.viewsByWebContentsId.set(42, actor as never)
+
+    await expect(viewInitHandler()({ sender: { id: 42 } })).resolves.toEqual({
+      content,
+      options,
+      volume: 1,
+      paused: false,
+    })
+    sw.dispose()
+  })
+
+  it("sends the cell's paused state to a preloading next view too", async () => {
+    // A background preload for a parked-paused cell is exactly the window
+    // issue #658 is about: the swapped-in view must come up paused instead
+    // of playing until the swap completes.
+    const sw = new StreamWindow(makeConfig())
+    const actor = makeActor({
+      content,
+      options,
+      volume: 1,
+      desiredPaused: true,
+      next: { view: { webContents: { id: 43 } } },
+    })
+    sw.viewsByWebContentsId.set(43, actor as never)
+
+    await expect(viewInitHandler()({ sender: { id: 43 } })).resolves.toEqual({
+      content,
+      options,
+      volume: 1,
+      paused: true,
+    })
+    expect(actor.send).toHaveBeenCalledWith({ type: 'NEXT_VIEW_INIT' })
+    sw.dispose()
+  })
+})
+
 describe('StreamWindow.dispose (issue #629)', () => {
   beforeEach(() => {
     electronStub.windows.length = 0
