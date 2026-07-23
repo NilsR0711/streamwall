@@ -620,6 +620,16 @@ async function main() {
     currentMedia = media
     volumeController = new VolumeController(media, latestVolume)
     if (desiredPaused) {
+      // Announce the park to the page world as well: the bundled HLS player
+      // only stops segment fetching via this document event (issue #384),
+      // and the acquisition that just found this element may come with a
+      // fresh hls.js instance that was never told about the park -- an
+      // initially-paused view (issue #658), or a re-acquisition after an
+      // emptied teardown re-created the player (issue #667). Safe to repeat:
+      // stopLoad() on an already-stopped player is a no-op. Announced only
+      // after findMedia() resolved, so a still-loading acquisition is never
+      // starved of the segments it needs to reach view-loaded.
+      document.dispatchEvent(new CustomEvent(MEDIA_PAUSE_EVENT))
       // Same caveat as the 'pause' handler below: lockdownMediaTags()
       // permanently shadows the element's own `pause` with a no-op, so the
       // native implementation must be called directly.
