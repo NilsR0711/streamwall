@@ -985,3 +985,49 @@ describe('SnapshotController poster object URLs', () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('RotationController', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  async function makeController() {
+    const { RotationController } = await import('./mediaPreload')
+    const video = document.createElement('video')
+    return { controller: new RotationController(video), video }
+  }
+
+  it('applies each supported rotation as its matching class', async () => {
+    const { controller, video } = await makeController()
+    for (const rotation of [0, 90, 180, 270]) {
+      controller.setCustom(rotation)
+      expect(video.className).toBe(`__rot${rotation}__`)
+    }
+  })
+
+  it('normalizes negative rotations into [0, 360) instead of emitting an inert class', async () => {
+    const { controller, video } = await makeController()
+    controller.setCustom(-90)
+    expect(video.className).toBe('__rot270__')
+  })
+
+  it('normalizes rotations >= 360 into [0, 360)', async () => {
+    const { controller, video } = await makeController()
+    controller.setCustom(450)
+    expect(video.className).toBe('__rot90__')
+  })
+
+  it('ignores an invalid rotation and keeps the current rotation class', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { controller, video } = await makeController()
+
+    controller.setCustom(90)
+    expect(video.className).toBe('__rot90__')
+
+    // A bad value (not a multiple of 90) must not clobber the valid 90° class.
+    controller.setCustom(45)
+    expect(video.className).toBe('__rot90__')
+    expect(warn).toHaveBeenCalledWith('ignoring invalid rotation', 45)
+  })
+})

@@ -99,7 +99,7 @@ const pageReady = new Promise((resolve) =>
   document.addEventListener('DOMContentLoaded', resolve, { once: true }),
 )
 
-class RotationController {
+export class RotationController {
   video: HTMLVideoElement
   siteRotation = 0
   customRotation: number
@@ -110,9 +110,14 @@ class RotationController {
   }
 
   _update() {
-    const rotation = this.customRotation % 360
+    // JS `%` keeps the operand's sign, so normalize negatives into [0, 360)
+    // before validating (e.g. -90 -> 270).
+    const rotation = ((this.customRotation % 360) + 360) % 360
     if (![0, 90, 180, 270].includes(rotation)) {
-      console.warn('ignoring invalid rotation', rotation)
+      // Only 0/90/180/270 have CSS rules. Ignore anything else and keep the
+      // current rotation class rather than replacing it with an inert one.
+      console.warn('ignoring invalid rotation', this.customRotation)
+      return
     }
     this.video.className = `__rot${rotation}__`
   }
