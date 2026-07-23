@@ -912,3 +912,76 @@ describe('mediaPreload pause/resume handling (issue #374)', () => {
     expect(() => registeredHandler('resume')()).not.toThrow()
   })
 })
+
+describe('SnapshotController poster object URLs', () => {
+  afterEach(() => {
+    vi.resetModules()
+    vi.restoreAllMocks()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+  })
+
+  function makeSnapshotHarness(controller: {
+    canvas: HTMLCanvasElement
+    snapshotVideo(videoEl: HTMLVideoElement): Promise<void>
+  }) {
+    controller.canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage: vi.fn() }),
+      toBlob: (callback: (blob: Blob) => void) => callback(new Blob(['png'])),
+    } as unknown as HTMLCanvasElement
+
+    let frameCallback: (() => void) | undefined
+    const videoEl = {
+      videoWidth: 640,
+      videoHeight: 360,
+      poster: '',
+      requestVideoFrameCallback: (callback: () => void) => {
+        frameCallback = callback
+      },
+    } as unknown as HTMLVideoElement
+
+    return {
+      videoEl,
+      async snapshotTick() {
+        await controller.snapshotVideo(videoEl)
+        frameCallback!()
+      },
+    }
+  }
+
+  it('revokes the previous poster object URL when a new snapshot replaces it (#616)', async () => {
+    const { SnapshotController } = await import('./mediaPreload')
+
+    let urlCounter = 0
+    const createObjectURL = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockImplementation(() => `blob:snapshot-${++urlCounter}`)
+    const revokeObjectURL = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation(() => {})
+
+    const controller = new SnapshotController()
+    const { videoEl, snapshotTick } = makeSnapshotHarness(controller)
+
+    await snapshotTick()
+    expect(videoEl.poster).toBe('blob:snapshot-1')
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+
+    await snapshotTick()
+    expect(videoEl.poster).toBe('blob:snapshot-2')
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:snapshot-1')
+
+    await snapshotTick()
+    expect(videoEl.poster).toBe('blob:snapshot-3')
+    expect(revokeObjectURL).toHaveBeenLastCalledWith('blob:snapshot-2')
+
+    // One live object URL per tile at any time: each tick creates exactly one
+    // URL and revokes the previous one.
+    expect(createObjectURL).toHaveBeenCalledTimes(3)
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2)
+  })
+})
