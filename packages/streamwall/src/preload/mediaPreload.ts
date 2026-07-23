@@ -101,7 +101,6 @@ const pageReady = new Promise((resolve) =>
 
 export class RotationController {
   video: HTMLVideoElement
-  siteRotation = 0
   customRotation: number
 
   constructor(video: HTMLVideoElement) {
