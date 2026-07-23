@@ -12,13 +12,53 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * constructor test can assert *what* was built and *in which order* without a
  * real Electron runtime.
  */
-const electronStub = vi.hoisted(() => ({
-  windows: [] as Array<InstanceType<typeof import('electron').BrowserWindow>>,
-  webContentsViews: [] as Array<
-    InstanceType<typeof import('electron').WebContentsView>
-  >,
-  ipcMain: { handle: vi.fn(), on: vi.fn() },
-}))
+const electronStub = vi.hoisted(() => {
+  // A stand-in for Electron's process-global `ipcMain`. It tracks which
+  // channels are currently registered and throws on a duplicate `handle`,
+  // mirroring the real runtime, so tests can pin the duplicate-registration
+  // crash (issue #629) and verify `dispose()` releases the channels again.
+  const registeredHandlers = new Set<string>()
+  const registeredListeners = new Map<string, Set<(...args: never[]) => void>>()
+  const handle = vi.fn((channel: string) => {
+    if (registeredHandlers.has(channel)) {
+      throw new Error(`Attempted to register a second handler for '${channel}'`)
+    }
+    registeredHandlers.add(channel)
+  })
+  const removeHandler = vi.fn((channel: string) => {
+    registeredHandlers.delete(channel)
+  })
+  const on = vi.fn((channel: string, listener: (...args: never[]) => void) => {
+    let listeners = registeredListeners.get(channel)
+    if (!listeners) {
+      listeners = new Set()
+      registeredListeners.set(channel, listeners)
+    }
+    listeners.add(listener)
+  })
+  const removeListener = vi.fn(
+    (channel: string, listener: (...args: never[]) => void) => {
+      registeredListeners.get(channel)?.delete(listener)
+    },
+  )
+  return {
+    windows: [] as Array<InstanceType<typeof import('electron').BrowserWindow>>,
+    webContentsViews: [] as Array<
+      InstanceType<typeof import('electron').WebContentsView>
+    >,
+    registeredHandlers,
+    registeredListeners,
+    ipcMain: { handle, on, removeHandler, removeListener },
+    resetIpc() {
+      registeredHandlers.clear()
+      registeredListeners.clear()
+      handle.mockClear()
+      on.mockClear()
+      removeHandler.mockClear()
+      removeListener.mockClear()
+    },
+  }
+})
 
 // StreamWindow pulls in Electron (directly and via ./loadHTML and
 // ./viewStateMachine). Stub the module so the file can be imported without an
@@ -51,6 +91,7 @@ vi.mock('electron', () => {
       send: vi.fn(),
       close: vi.fn(),
       openDevTools: vi.fn(),
+      isDestroyed: vi.fn(() => false),
       session: {},
     }
     setBackgroundColor = vi.fn()
@@ -1385,8 +1426,7 @@ describe('StreamWindow constructor', () => {
   beforeEach(() => {
     electronStub.windows.length = 0
     electronStub.webContentsViews.length = 0
-    electronStub.ipcMain.handle.mockClear()
-    electronStub.ipcMain.on.mockClear()
+    electronStub.resetIpc()
     vi.mocked(loadHTML).mockClear()
   })
 
@@ -1488,5 +1528,93 @@ describe('StreamWindow constructor', () => {
     layerLoad({ sender: {} })
 
     expect(loads).toBe(2)
+  })
+})
+
+describe('StreamWindow.dispose (issue #629)', () => {
+  beforeEach(() => {
+    electronStub.windows.length = 0
+    electronStub.webContentsViews.length = 0
+    electronStub.resetIpc()
+    vi.mocked(loadHTML).mockClear()
+  })
+
+  it('removes every ipcMain handler and listener it registered', () => {
+    const sw = new StreamWindow(makeConfig())
+    expect(electronStub.registeredHandlers.size).toBeGreaterThan(0)
+
+    sw.dispose()
+
+    // Each `handle` channel is removed via removeHandler, each `on` channel
+    // via removeListener -- so `ipcMain` is left with no dangling reference
+    // back into this (now discarded) window.
+    expect(
+      electronStub.ipcMain.removeHandler.mock.calls.map(([ch]) => ch),
+    ).toEqual(['layer:load', 'view-init'])
+    expect(
+      electronStub.ipcMain.removeListener.mock.calls.map(([ch]) => ch),
+    ).toEqual([
+      'view-loaded',
+      'view-stalled',
+      'view-info',
+      'view-error',
+      'devtools-overlay',
+    ])
+    expect(electronStub.registeredHandlers.size).toBe(0)
+  })
+
+  it('lets a second instance construct only after the first is disposed', () => {
+    const first = new StreamWindow(makeConfig())
+
+    // Without teardown, a second StreamWindow crashes the moment it tries to
+    // re-register the already-taken 'layer:load' invoke channel -- the exact
+    // failure a future recreate-on-config-reload path would hit.
+    expect(() => new StreamWindow(makeConfig())).toThrow(/layer:load/)
+
+    first.dispose()
+
+    // Once the channels are released, the same registration succeeds again.
+    const second = new StreamWindow(makeConfig())
+    expect(second).toBeInstanceOf(StreamWindow)
+    second.dispose()
+  })
+
+  it('constructing and disposing twice in a row does not throw', () => {
+    expect(() => {
+      const a = new StreamWindow(makeConfig())
+      a.dispose()
+      const b = new StreamWindow(makeConfig())
+      b.dispose()
+    }).not.toThrow()
+  })
+
+  it('is idempotent: a second dispose removes nothing more', () => {
+    const sw = new StreamWindow(makeConfig())
+    sw.dispose()
+    electronStub.ipcMain.removeHandler.mockClear()
+    electronStub.ipcMain.removeListener.mockClear()
+
+    sw.dispose()
+
+    expect(electronStub.ipcMain.removeHandler).not.toHaveBeenCalled()
+    expect(electronStub.ipcMain.removeListener).not.toHaveBeenCalled()
+  })
+
+  it('devtools-overlay no-ops when the overlay webContents is already destroyed', () => {
+    const sw = new StreamWindow(makeConfig())
+    const devtools = electronStub.ipcMain.on.mock.calls.find(
+      ([channel]) => channel === 'devtools-overlay',
+    )?.[1] as (ev: unknown) => void
+
+    // The handler outlives the window: firing it after the overlay's
+    // webContents is gone must not call (and throw inside) openDevTools.
+    vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(true)
+    devtools({})
+    expect(sw.overlayView.webContents.openDevTools).not.toHaveBeenCalled()
+
+    // While the webContents is alive it still opens devtools as before.
+    vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(false)
+    devtools({})
+    expect(sw.overlayView.webContents.openDevTools).toHaveBeenCalledTimes(1)
   })
 })

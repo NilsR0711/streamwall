@@ -83,6 +83,13 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   // an actor's current one, that view's webContents.id generally differs
   // from the actor's original `context.id`, so routing needs its own map.
   viewsByWebContentsId: Map<number, ViewActor>
+  // Teardown thunks for every ipcMain handler/listener registered by
+  // `setupIpcHandlers`. `ipcMain` is a process-global singleton and
+  // `ipcMain.handle` throws on duplicate channel registration, so these are
+  // used by `dispose()` to release the channels when this window goes away
+  // (otherwise constructing a second StreamWindow -- e.g. a future
+  // recreate-on-config-reload path -- would crash). Filled in the constructor.
+  private ipcTeardowns: Array<() => void> = []
 
   constructor(
     config: StreamWindowConfig,
@@ -187,12 +194,38 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   }
 
   /**
+   * Registers an `ipcMain.handle` invoke handler and records how to remove it
+   * again, so `dispose()` can release the (process-global) channel.
+   */
+  private registerIpcHandle(
+    channel: string,
+    listener: Parameters<typeof ipcMain.handle>[1],
+  ) {
+    ipcMain.handle(channel, listener)
+    this.ipcTeardowns.push(() => ipcMain.removeHandler(channel))
+  }
+
+  /**
+   * Registers an `ipcMain.on` event listener and records how to remove it
+   * again (by the exact listener reference), so `dispose()` can detach it.
+   */
+  private registerIpcOn(
+    channel: string,
+    listener: Parameters<typeof ipcMain.on>[1],
+  ) {
+    ipcMain.on(channel, listener)
+    this.ipcTeardowns.push(() => ipcMain.removeListener(channel, listener))
+  }
+
+  /**
    * Registers the main-process IPC handlers: the chrome layers' load
    * notification, and the per-view messages routed back to the owning actor
-   * via `viewsByWebContentsId`.
+   * via `viewsByWebContentsId`. Every registration is recorded so `dispose()`
+   * can tear it down -- `ipcMain` is a process-global singleton and
+   * `ipcMain.handle` throws on duplicate channel registration.
    */
   private setupIpcHandlers() {
-    ipcMain.handle('layer:load', (ev) => {
+    this.registerIpcHandle('layer:load', (ev) => {
       if (
         ev.sender !== this.backgroundView.webContents &&
         ev.sender !== this.overlayView.webContents
@@ -209,7 +242,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     const isFromNextView = (actor: ViewActor, senderId: number) =>
       actor.getSnapshot().context.next?.view.webContents.id === senderId
 
-    ipcMain.handle('view-init', async (ev) => {
+    this.registerIpcHandle('view-init', async (ev) => {
       const view = this.viewsByWebContentsId.get(ev.sender.id)
       if (!view) {
         return
@@ -222,7 +255,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       })
       return { content, options, volume }
     })
-    ipcMain.on('view-loaded', (ev) => {
+    this.registerIpcOn('view-loaded', (ev) => {
       const view = this.viewsByWebContentsId.get(ev.sender.id)
       if (!view) {
         return
@@ -233,18 +266,18 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
           : 'VIEW_LOADED',
       })
     })
-    ipcMain.on('view-stalled', (ev) => {
+    this.registerIpcOn('view-stalled', (ev) => {
       this.viewsByWebContentsId.get(ev.sender.id)?.send({
         type: 'VIEW_STALLED',
       })
     })
-    ipcMain.on('view-info', (ev, { info }) => {
+    this.registerIpcOn('view-info', (ev, { info }) => {
       this.viewsByWebContentsId.get(ev.sender.id)?.send({
         type: 'VIEW_INFO',
         info,
       })
     })
-    ipcMain.on('view-error', (ev, { error }) => {
+    this.registerIpcOn('view-error', (ev, { error }) => {
       const view = this.viewsByWebContentsId.get(ev.sender.id)
       if (!view) {
         return
@@ -256,9 +289,30 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         error,
       })
     })
-    ipcMain.on('devtools-overlay', () => {
-      this.overlayView.webContents.openDevTools()
+    this.registerIpcOn('devtools-overlay', () => {
+      // The handler outlives the window, so the overlay's webContents may
+      // already be gone by the time this fires; opening devtools on a
+      // destroyed webContents throws.
+      const { webContents } = this.overlayView
+      if (webContents.isDestroyed()) {
+        return
+      }
+      webContents.openDevTools()
     })
+  }
+
+  /**
+   * Releases every process-global `ipcMain` handler/listener registered in the
+   * constructor. Must be called before this window is discarded so a later
+   * StreamWindow can register the same channels again (`ipcMain.handle` throws
+   * on a duplicate `layer:load`/`view-init` registration otherwise).
+   * Idempotent: calling it twice is a no-op.
+   */
+  dispose() {
+    for (const teardown of this.ipcTeardowns) {
+      teardown()
+    }
+    this.ipcTeardowns = []
   }
 
   handleResize() {
