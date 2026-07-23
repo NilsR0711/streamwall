@@ -10,8 +10,13 @@ networking and real layout:
 
 - the invite-link → session-cookie sign-in flow and grid render from injected state,
 - unauthorized access being rejected,
-- a grid-cell edit propagating over the wire to the Streamwall peer (Yjs), and
-- horizontal-overflow layout regressions (issue #225/#239) that no unit test can catch.
+- a grid-cell edit propagating over the wire to the Streamwall peer (Yjs),
+- horizontal-overflow layout regressions (issue #225/#239) that no unit test can catch, and
+- the client connecting via `wss://` from a secure context (issue #617/#639):
+  [tests/tls.spec.ts](tests/tls.spec.ts) fronts the server with a
+  TLS-terminating proxy ([tests/tlsProxy.ts](tests/tlsProxy.ts), self-signed
+  throwaway certificate generated with the system `openssl`) so mixed-content
+  bugs — which browsers only enforce on secure pages — fail in CI.
 
 ## Running
 
