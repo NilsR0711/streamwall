@@ -18,13 +18,44 @@ export function bearerToken(authorization: string | undefined): string | null {
   return match ? match[1] : null
 }
 
+// Bounds on the pre-handler message queue below. The queue only exists for
+// the short window before a route finishes its async connection validation
+// (e.g. the awaited scrypt token check) and attaches a message handler, so
+// legitimate traffic in that window is tiny. A peer exceeding either bound is
+// flooding before auth completed and gets disconnected (issue #623).
+export const WS_QUEUE_MAX_MESSAGES = 256
+export const WS_QUEUE_MAX_BYTES = 1024 * 1024
+
+/** Byte size of an inbound `ws` message payload, across its possible shapes. */
+function dataByteLength(data: WebSocket.Data): number {
+  if (typeof data === 'string') {
+    return Buffer.byteLength(data)
+  }
+  if (Array.isArray(data)) {
+    let total = 0
+    for (const chunk of data) {
+      total += chunk.byteLength
+    }
+    return total
+  }
+  return data.byteLength
+}
+
 /**
  * Helper to immediately watch for and queue incoming websocket messages.
  * This is useful for async validation of the connection before handling messages,
  * because awaiting before adding a message event listener can drop messages.
+ *
+ * The queue is bounded ({@link WS_QUEUE_MAX_MESSAGES} messages /
+ * {@link WS_QUEUE_MAX_BYTES} bytes): a peer that floods frames before the
+ * handler is attached — i.e. before auth has completed — is closed with 1008
+ * and its queued frames are dropped, so an unauthenticated peer cannot buffer
+ * unbounded memory during the validation window.
  */
-export function queueWebSocketMessages(ws: WebSocket) {
+export function queueWebSocketMessages(ws: WebSocket, log: Logger) {
   let queue: WebSocket.Data[] = []
+  let queuedBytes = 0
+  let overflowed = false
   let messageHandler: ((rawData: WebSocket.Data) => void) | null = null
 
   const processQueue = () => {
@@ -33,6 +64,7 @@ export function queueWebSocketMessages(ws: WebSocket) {
       while ((queuedData = queue.shift())) {
         messageHandler(queuedData)
       }
+      queuedBytes = 0
     }
   }
 
@@ -42,12 +74,34 @@ export function queueWebSocketMessages(ws: WebSocket) {
   }
 
   ws.on('message', (rawData) => {
+    if (overflowed) {
+      return
+    }
+    if (messageHandler === null) {
+      const nextBytes = queuedBytes + dataByteLength(rawData)
+      if (
+        queue.length >= WS_QUEUE_MAX_MESSAGES ||
+        nextBytes > WS_QUEUE_MAX_BYTES
+      ) {
+        overflowed = true
+        log.warn(
+          { queuedMessages: queue.length, queuedBytes },
+          'WebSocket message queue overflowed before validation completed, closing connection',
+        )
+        queue = []
+        queuedBytes = 0
+        ws.close(1008, 'message queue overflow')
+        return
+      }
+      queuedBytes = nextBytes
+    }
     queue.push(rawData)
     processQueue()
   })
 
   ws.on('close', () => {
     queue = []
+    queuedBytes = 0
     messageHandler = null
   })
 
