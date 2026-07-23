@@ -17,6 +17,52 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.2](https://github.com/NilsR0711/streamwall/compare/v0.10.1...v0.10.2) (2026-07-23)
+
+
+### Added
+
+* **control-ui:** revalidate /admin/status so long sessions see updates ([#646](https://github.com/NilsR0711/streamwall/issues/646)) ([b8ff2dc](https://github.com/NilsR0711/streamwall/commit/b8ff2dc28a7c60bb6e3c1c29fa279b827f015069)), closes [#624](https://github.com/NilsR0711/streamwall/issues/624)
+
+
+### Fixed
+
+* **control-client:** derive WebSocket scheme from the page protocol ([#638](https://github.com/NilsR0711/streamwall/issues/638)) ([7bbff67](https://github.com/NilsR0711/streamwall/commit/7bbff670fd2185d29a94e29dd2bdcab0ef62f3d6))
+* **control-server:** bound WebSocket memory with maxPayload and a capped pre-auth queue ([#653](https://github.com/NilsR0711/streamwall/issues/653)) ([926bf7f](https://github.com/NilsR0711/streamwall/commit/926bf7f5d23238d7ae6ef8b38ea0a9bac6fab578)), closes [#623](https://github.com/NilsR0711/streamwall/issues/623)
+* **control-server:** respond to delete-token so the client callback resolves ([#647](https://github.com/NilsR0711/streamwall/issues/647)) ([03fc8a0](https://github.com/NilsR0711/streamwall/commit/03fc8a034815dd7a2683ae9a8ff8bfce0fda4264)), closes [#630](https://github.com/NilsR0711/streamwall/issues/630)
+* **control-server:** surface storage write failures from db.update() ([#637](https://github.com/NilsR0711/streamwall/issues/637)) ([860ad01](https://github.com/NilsR0711/streamwall/commit/860ad01e0ade7593adde940bec285947ffbb0045)), closes [#619](https://github.com/NilsR0711/streamwall/issues/619)
+* **control-server:** terminate client sockets that miss pong liveness checks ([#634](https://github.com/NilsR0711/streamwall/issues/634)) ([4303939](https://github.com/NilsR0711/streamwall/commit/430393933b3f29265dcbbfe2e93a9f671a732920))
+* **control-ui:** give each tile's resize handles a unique aria-label ([#644](https://github.com/NilsR0711/streamwall/issues/644)) ([04d98f6](https://github.com/NilsR0711/streamwall/commit/04d98f6a763161dc4dfe0ae9dae52e89d2dbeef3)), closes [#625](https://github.com/NilsR0711/streamwall/issues/625)
+* **streamwall:** announce the park during a paused media acquisition ([#669](https://github.com/NilsR0711/streamwall/issues/669)) ([d27c899](https://github.com/NilsR0711/streamwall/commit/d27c899bcde8efb9f630a50a71238d46d6b121b5))
+* **streamwall:** catch remaining fire-and-forget media load/play rejections ([#659](https://github.com/NilsR0711/streamwall/issues/659)) ([8b4287b](https://github.com/NilsR0711/streamwall/commit/8b4287b3a4b12b2670e39eaa3dd3550f2b0a2b09)), closes [#626](https://github.com/NilsR0711/streamwall/issues/626)
+* **streamwall:** count consecutive stall-reload cycles against the retry budget ([#666](https://github.com/NilsR0711/streamwall/issues/666)) ([d8cd295](https://github.com/NilsR0711/streamwall/commit/d8cd295f7ad59c9047c80d0f017fa1edb9bf8d10))
+* **streamwall:** guard onState layer sends against destroyed webContents ([#661](https://github.com/NilsR0711/streamwall/issues/661)) ([eeac9e5](https://github.com/NilsR0711/streamwall/commit/eeac9e57bffee174a6b30969a82b4e56f53846d9))
+* **streamwall:** ignore invalid rotation instead of clobbering the current one ([#640](https://github.com/NilsR0711/streamwall/issues/640)) ([81ea223](https://github.com/NilsR0711/streamwall/commit/81ea2237670a0ce1d69937456291bb3b43e74fbb)), closes [#627](https://github.com/NilsR0711/streamwall/issues/627)
+* **streamwall:** initialize a fresh view's paused state from view-init ([#668](https://github.com/NilsR0711/streamwall/issues/668)) ([9d9a55a](https://github.com/NilsR0711/streamwall/commit/9d9a55add87803f4e79e47c19f20b15e6eb984b7))
+* **streamwall:** keep rotation and paused state across media re-acquisition ([#657](https://github.com/NilsR0711/streamwall/issues/657)) ([0f6a878](https://github.com/NilsR0711/streamwall/commit/0f6a8781249c87e97da5648b22ec67de44a2db1e)), closes [#620](https://github.com/NilsR0711/streamwall/issues/620) [#621](https://github.com/NilsR0711/streamwall/issues/621)
+* **streamwall:** revoke stale snapshot poster object URLs ([#636](https://github.com/NilsR0711/streamwall/issues/636)) ([9e58abc](https://github.com/NilsR0711/streamwall/commit/9e58abc8971a46b2c9f00b1962da65d933963bd0))
+* **streamwall:** surface an error when a stalled view has no retry budget ([#642](https://github.com/NilsR0711/streamwall/issues/642)) ([cca5c15](https://github.com/NilsR0711/streamwall/commit/cca5c15f1f03dd205c992acd5270ad0832381f98))
+* **streamwall:** tear down StreamWindow ipcMain handlers on dispose ([#648](https://github.com/NilsR0711/streamwall/issues/648)) ([58b2c9a](https://github.com/NilsR0711/streamwall/commit/58b2c9a070d1f8d4227c517232a58b190b6f56bc)), closes [#629](https://github.com/NilsR0711/streamwall/issues/629)
+
+
+### Performance
+
+* **streamwall:** resolve wall-view cells via a byId index ([#654](https://github.com/NilsR0711/streamwall/issues/654)) ([b76dff7](https://github.com/NilsR0711/streamwall/commit/b76dff74c561c92a9733540a267f2ea0c17a191f)), closes [#628](https://github.com/NilsR0711/streamwall/issues/628)
+
+
+### Changed
+
+* **control-server:** extract a shared WS heartbeat helper for both routes ([#663](https://github.com/NilsR0711/streamwall/issues/663)) ([6ee456c](https://github.com/NilsR0711/streamwall/commit/6ee456cd37b0b7b8e81d16139b226055738be1a3))
+* **shared:** share the /admin/status shape via a single zod schema ([#662](https://github.com/NilsR0711/streamwall/issues/662)) ([579d976](https://github.com/NilsR0711/streamwall/commit/579d976fd47cb6a9df52f499f82afcf8b99b137d)), closes [#649](https://github.com/NilsR0711/streamwall/issues/649)
+* **streamwall:** remove dead RotationController.siteRotation field ([#660](https://github.com/NilsR0711/streamwall/issues/660)) ([5e85350](https://github.com/NilsR0711/streamwall/commit/5e85350f49e548f39ab79415b3f35e2a91375cb7))
+* **streamwall:** split main/data.ts into polling, watching, parsing and combining modules ([#614](https://github.com/NilsR0711/streamwall/issues/614)) ([f710923](https://github.com/NilsR0711/streamwall/commit/f7109235c262fa5a6657d19b96625d655d328888))
+
+
+### Documentation
+
+* **control-server:** document the Yjs update size limit env vars ([#665](https://github.com/NilsR0711/streamwall/issues/665)) ([052347e](https://github.com/NilsR0711/streamwall/commit/052347e1027460651976b63e39508f59ed4b9f5c))
+* **readme:** pull the published GHCR image in the self-hosting quick start ([#632](https://github.com/NilsR0711/streamwall/issues/632)) ([a9b10ab](https://github.com/NilsR0711/streamwall/commit/a9b10abd78f26dda37e1e8fd598f1f2152e462b6)), closes [#631](https://github.com/NilsR0711/streamwall/issues/631)
+
 ## [0.10.1](https://github.com/NilsR0711/streamwall/compare/v0.10.0...v0.10.1) (2026-07-22)
 
 
