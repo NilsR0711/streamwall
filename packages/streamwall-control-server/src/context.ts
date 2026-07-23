@@ -3,7 +3,7 @@ import type * as Y from 'yjs'
 
 import { type AuthTokenInfo, stateDiff } from 'streamwall-shared'
 import type { Auth, StateWrapper } from './auth.ts'
-import type { WsMessageLimitConfig } from './config.ts'
+import type { ClientPingConfig, WsMessageLimitConfig } from './config.ts'
 import { identityFields, type Logger } from './logger.ts'
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import type { UpdateChecker } from './updateCheck.ts'
@@ -42,6 +42,7 @@ export interface AppContext {
   expectedOrigin: string
   isSecure: boolean
   wsMessageLimitConfig: WsMessageLimitConfig
+  clientPingConfig: ClientPingConfig
   docUpdateLimits: DocUpdateLimits
   clients: Map<string, Client>
   currentStreamwallWs: WebSocket | null

@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url'
 import { Auth, type ScryptParams } from './auth.ts'
 import runServer from './bootstrap.ts'
 import {
+  type ClientPingConfig,
+  DEFAULT_CLIENT_PING_CONFIG,
   getDocUpdateLimits,
   getRateLimitConfig,
   getWsMessageLimitConfig,
@@ -52,6 +54,7 @@ export interface AppOptions {
 
 export async function initApp({
   baseURL,
+  clientPing: injectedClientPing,
   clientStaticPath,
   db: injectedDb,
   docUpdateLimits: injectedDocUpdateLimits,
@@ -74,6 +77,12 @@ export async function initApp({
   logLevel?: LogLevel
   /** Test-only sink for log output; defaults to pino's stdout destination. */
   logStream?: { write(line: string): void }
+  /**
+   * Overrides the client-socket liveness probing cadence, so specs exercising
+   * the ping/pong path can use short timers instead of the production 20s
+   * interval. Unset fields keep `DEFAULT_CLIENT_PING_CONFIG`.
+   */
+  clientPing?: Partial<ClientPingConfig>
   /**
    * Overrides individual per-IP rate limits, so specs that are not about
    * throttling widen them without writing the process-wide environment (which
@@ -148,6 +157,7 @@ export async function initApp({
     expectedOrigin,
     isSecure,
     wsMessageLimitConfig: getWsMessageLimitConfig(),
+    clientPingConfig: { ...DEFAULT_CLIENT_PING_CONFIG, ...injectedClientPing },
     docUpdateLimits: { ...getDocUpdateLimits(), ...injectedDocUpdateLimits },
     clients,
     currentStreamwallWs: null,

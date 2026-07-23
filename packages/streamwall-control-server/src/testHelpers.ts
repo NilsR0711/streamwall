@@ -18,7 +18,7 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import type { ScryptParams } from './auth.ts'
-import type { RateLimitConfig } from './config.ts'
+import type { ClientPingConfig, RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
@@ -221,6 +221,7 @@ export const TEST_BASE_URL = 'http://localhost:3000'
 
 /** Everything a test may override when building an app instance. */
 export type TestAppOverrides = Partial<AppOptions> & {
+  clientPing?: Partial<ClientPingConfig>
   db?: StorageDB
   docUpdateLimits?: Partial<DocUpdateLimits>
   logs?: LogCapture
@@ -412,6 +413,9 @@ export async function connectStreamwallUplink<T = ControlCommandMessage>(
  *
  * `T` describes the shape of the JSON frames the caller expects to record,
  * defaulting to the real shape the server sends over this connection.
+ *
+ * `wsOptions` is merged into the socket's client options, so a spec can e.g.
+ * pass `autoPong: false` to simulate a peer that no longer answers pings.
  */
 export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
   app: TestApp['app'],
@@ -419,6 +423,7 @@ export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
   port: number,
   baseURL: string,
   role: StreamwallRole = 'admin',
+  wsOptions: WebSocket.ClientOptions = {},
 ) {
   const invite = await auth.createToken({
     kind: 'invite',
@@ -437,6 +442,7 @@ export async function redeemInviteAndConnectClient<T = ServerToClientMessage>(
   ).split(';')[0]
 
   const ws = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
+    ...wsOptions,
     headers: { Cookie: cookie, Origin: baseURL },
   })
   const client = recordJsonMessages<T>(ws)
@@ -464,13 +470,17 @@ export async function startTestServer(overrides: TestAppOverrides = {}) {
   after(() => app.close())
   const port = await listenTestApp(app)
 
-  async function connectClient(role: StreamwallRole = 'admin') {
+  async function connectClient(
+    role: StreamwallRole = 'admin',
+    wsOptions: WebSocket.ClientOptions = {},
+  ) {
     const { ws: clientWs, client } = await redeemInviteAndConnectClient(
       app,
       auth,
       port,
       TEST_BASE_URL,
       role,
+      wsOptions,
     )
     return { clientWs, client }
   }

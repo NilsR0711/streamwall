@@ -96,13 +96,34 @@ export function registerClientRoutes(
         ...identityFields(identity),
       })
 
+      // Liveness check mirroring the uplink route: a peer that vanishes
+      // without a TCP FIN (laptop sleep, NAT idle timeout, network partition)
+      // never fires 'close' on its own, so its registry entry would leak and
+      // keep receiving every broadcast. A missed pong terminates the socket,
+      // which fires 'close' and cleans up (issue #618).
+      const { intervalMs: pingIntervalMs, timeoutMs: pongTimeoutMs } =
+        ctx.clientPingConfig
+      let pongTimeout: NodeJS.Timeout | undefined
       const pingInterval = setInterval(() => {
         ws.ping()
-      }, 20 * 1000)
+        clearTimeout(pongTimeout)
+        pongTimeout = setTimeout(() => {
+          if (ws.readyState === ws.OPEN) {
+            log.warn(
+              `Client timeout: no pong within ${pongTimeoutMs}ms. Closing connection.`,
+            )
+            ws.terminate()
+          }
+        }, pongTimeoutMs)
+      }, pingIntervalMs)
+      ws.on('pong', () => {
+        clearTimeout(pongTimeout)
+      })
 
       ws.on('close', () => {
         ctx.clients.delete(clientId)
         clearInterval(pingInterval)
+        clearTimeout(pongTimeout)
 
         log.info('Client disconnected')
       })
