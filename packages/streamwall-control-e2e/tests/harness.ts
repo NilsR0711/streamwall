@@ -17,6 +17,7 @@ import {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
+import { startTlsProxy } from './tlsProxy.ts'
 
 const COLS = 3
 const ROWS = 3
@@ -91,6 +92,20 @@ const E2E_STATE: StreamwallState = {
   dataSourceHealth: [],
 }
 
+/** Options for {@link startHarness}, exposed to specs via `test.use(...)`. */
+export interface StartHarnessOptions {
+  /**
+   * Front the control server with a TLS-terminating proxy (throwaway
+   * self-signed certificate) and hand the browser an `https://` origin. This
+   * is the only way the suite can exercise the mixed-content class of bugs
+   * (issue #639): browsers only block insecure `ws://` sockets when the page
+   * itself is served from a secure context, so plain-http runs can never
+   * catch a client that fails to open `wss://` (issue #617). Specs using this
+   * must also set Playwright's `ignoreHTTPSErrors`.
+   */
+  tls?: boolean
+}
+
 /** A handle to one running control server + connected fake Streamwall uplink. */
 export interface Harness {
   /** Origin the browser must use (matches the server's expected WS origin). */
@@ -163,7 +178,9 @@ function toUint8Array(data: WebSocket.RawData): Uint8Array {
  * connects a fake Streamwall uplink to it, and seeds a `COLS*ROWS` grid of
  * (empty) view cells into the shared Yjs doc so the browser can edit them.
  */
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(
+  options: StartHarnessOptions = {},
+): Promise<Harness> {
   if (!existsSync(path.join(CLIENT_DIST, 'index.html'))) {
     throw new Error(
       `Control client build not found at ${CLIENT_DIST}. Run ` +
@@ -177,7 +194,15 @@ export async function startHarness(): Promise<Harness> {
   process.env.STREAMWALL_RATE_LIMIT_MAX ??= '100000'
 
   const port = await getFreePort()
-  const baseURL = `http://127.0.0.1:${port}`
+  // With TLS, the browser-facing origin is the proxy: the control server keeps
+  // speaking plain HTTP on `port` (like behind a real reverse proxy), but its
+  // `baseURL` — and with it invite links, the expected WS `Origin`, and the
+  // `Secure` cookie attribute — must be the `https://` origin the browser sees.
+  // The uplink and the seed probe below still dial `port` directly.
+  const tlsProxy = options.tls ? await startTlsProxy(port) : null
+  const baseURL = tlsProxy
+    ? `https://127.0.0.1:${tlsProxy.port}`
+    : `http://127.0.0.1:${port}`
 
   const initialData: StoredData = {
     auth: { salt: null, tokens: [] },
@@ -383,6 +408,7 @@ export async function startHarness(): Promise<Harness> {
   const close = async () => {
     ws.terminate()
     peerDoc.destroy()
+    await tlsProxy?.close()
     await app.close()
   }
 
@@ -399,11 +425,18 @@ export async function startHarness(): Promise<Harness> {
   }
 }
 
-/** Playwright fixture that provides a fresh, isolated harness per test. */
-export const test = base.extend<{ harness: Harness }>({
-  // eslint-disable-next-line no-empty-pattern
-  harness: async ({}, use) => {
-    const harness = await startHarness()
+/**
+ * Playwright fixture that provides a fresh, isolated harness per test. Specs
+ * can reconfigure it via `test.use({ harnessOptions: { ... } })` — see the TLS
+ * spec, which opts into the https/wss proxy this way.
+ */
+export const test = base.extend<{
+  harnessOptions: StartHarnessOptions
+  harness: Harness
+}>({
+  harnessOptions: [{}, { option: true }],
+  harness: async ({ harnessOptions }, use) => {
+    const harness = await startHarness(harnessOptions)
     try {
       await use(harness)
     } finally {
