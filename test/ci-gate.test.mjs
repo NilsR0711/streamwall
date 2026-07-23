@@ -265,3 +265,69 @@ test('the release quality gate makes each platform on its own runner', () => {
     '"Install Linux maker tooling" must be restricted to the Linux leg',
   )
 })
+
+// The three `publish` legs each run electron-forge's GitHub publisher, which
+// looks the release up by tag and creates it when absent (check-then-create).
+// With no draft yet, two legs can pass that check concurrently and each creates
+// its own draft, splitting the release into two — one with the notes and the
+// mac/windows assets, one with just the Linux installers (#671). Creating the
+// draft exactly once before the matrix fans out means every publisher finds it
+// and only appends assets.
+test('a single prepare-release job creates the draft before the publish matrix', () => {
+  const release = readWorkflow('release.yml')
+  const prepare = release.jobs['prepare-release']
+
+  assert.ok(
+    prepare,
+    'release.yml must have a prepare-release job that creates the draft once',
+  )
+
+  // The draft must not be created before the quality gate has passed, or a
+  // failing test leaves an empty draft behind. prepare-release gates on the
+  // same jobs the publish matrix does.
+  const gate = ['checks', 'test', 'build', 'make', 'e2e', 'licenses']
+  for (const job of gate) {
+    assert.ok(
+      prepare.needs.includes(job),
+      `prepare-release must wait for the "${job}" gate job before creating ` +
+        'the draft',
+    )
+  }
+
+  assert.equal(
+    prepare.permissions?.contents,
+    'write',
+    'prepare-release needs contents: write to create the release',
+  )
+
+  // The publish matrix must depend on the draft already existing, otherwise it
+  // races to create it — the very split this job prevents.
+  assert.ok(
+    release.jobs.publish.needs.includes('prepare-release'),
+    'the publish matrix must wait for prepare-release so the draft exists ' +
+      'before any forge publisher looks it up',
+  )
+
+  const createStep = prepare.steps.find((step) =>
+    /gh release create\b/.test(step.run ?? ''),
+  )
+  assert.ok(
+    createStep,
+    'prepare-release must create the release with `gh release create`',
+  )
+  assert.match(
+    createStep.run,
+    /--draft\b/,
+    'the release must be created as a draft so the publishers append to it ' +
+      'before it is published',
+  )
+  // A re-run of an already-handled tag (or one the forge publisher raced to
+  // create first) must not fail the job, so the creation is guarded on the
+  // release not already existing.
+  assert.match(
+    createStep.run,
+    /gh release view\b/,
+    'prepare-release must be idempotent: skip creation when the release ' +
+      'already exists so re-runs do not fail',
+  )
+})
