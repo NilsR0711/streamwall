@@ -123,7 +123,8 @@ class RotationController {
   }
 }
 
-class SnapshotController {
+// Exported for tests only; not part of the module's public surface.
+export class SnapshotController {
   canvas: HTMLCanvasElement
   ctx!: CanvasRenderingContext2D
   latestSnapshotURL: string | null = null
@@ -156,11 +157,15 @@ class SnapshotController {
           return
         }
 
+        // Revoke the previous poster's object URL so its blob can be
+        // collected -- without this, each 1s snapshot tick pins another
+        // full-resolution PNG in renderer memory for the page's lifetime.
         if (this.latestSnapshotURL) {
           URL.revokeObjectURL(this.latestSnapshotURL)
         }
 
         const url = URL.createObjectURL(blob)
+        this.latestSnapshotURL = url
         videoEl.poster = url
       }, 'image/png')
     })
