@@ -174,8 +174,14 @@ TLS:
 ```sh
 cd deploy
 cp .env.example .env   # set your domain, then see docs/self-hosting.md
-docker compose up -d --build
+docker compose up -d   # pulls the published GHCR image
 ```
+
+This pulls the released control-server image
+(`ghcr.io/nilsr0711/streamwall-control-server:latest`, published for both
+`linux/amd64` and `linux/arm64`). To build the image from this checkout
+instead — for unreleased code or a local modification — run
+`docker compose up -d --build`.
 
 CI builds and boots this image (and validates the compose stack) on every
 pull request that touches it, so a deploy-breaking change cannot reach `main`
