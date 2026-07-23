@@ -3,7 +3,12 @@ import { after, describe, test } from 'node:test'
 
 import { initApp, initialInviteCodes } from './index.ts'
 import type { StorageDB } from './storage.ts'
-import { inMemoryDb, makeStaticDir } from './testHelpers.ts'
+import {
+  failingWriteDb,
+  inMemoryDb,
+  makeStaticDir,
+  TEST_SCRYPT_PARAMS,
+} from './testHelpers.ts'
 
 const BASE_URL = 'https://wall.example.com'
 
@@ -142,6 +147,56 @@ describe('initialInviteCodes uplink token', () => {
       streamwallTokens.length,
       1,
       'the superseded uplink token is removed so the old secret stops working',
+    )
+  })
+
+  test('rejects when persisting a freshly minted uplink token id fails', async () => {
+    // A dropped rejection here would strand a token id that exists only in
+    // memory, silently rotating the uplink token on every restart (issue #619).
+    const db = failingWriteDb(new Error('disk full'))
+    const { app, auth } = await initApp({
+      baseURL: BASE_URL,
+      clientStaticPath: makeStaticDir(),
+      db,
+      logLevel: 'silent',
+      scryptParams: TEST_SCRYPT_PARAMS,
+    })
+    after(() => app.close())
+
+    await assert.rejects(
+      initialInviteCodes({ db, auth, baseURL: BASE_URL }),
+      /disk full/,
+    )
+  })
+
+  test('rejects when scrubbing a legacy plaintext secret fails to persist', async () => {
+    // If this write silently fails, the plaintext secret stays on disk while
+    // the server carries on as if it had been scrubbed (issue #619).
+    const db = failingWriteDb(new Error('read-only volume'))
+    const { app, auth } = await initApp({
+      baseURL: BASE_URL,
+      clientStaticPath: makeStaticDir(),
+      db,
+      logLevel: 'silent',
+      scryptParams: TEST_SCRYPT_PARAMS,
+    })
+    after(() => app.close())
+
+    // Recreate the pre-fix on-disk shape: a valid hashed uplink token whose
+    // storage record still carries the plaintext secret it used to hold.
+    const minted = await auth.createToken({
+      kind: 'streamwall',
+      role: 'admin',
+      name: 'Streamwall',
+    })
+    db.data.streamwallToken = {
+      tokenId: minted.tokenId,
+      secret: 'legacy-plaintext-secret',
+    } as StorageDB['data']['streamwallToken']
+
+    await assert.rejects(
+      initialInviteCodes({ db, auth, baseURL: BASE_URL }),
+      /read-only volume/,
     )
   })
 
