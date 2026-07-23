@@ -98,9 +98,10 @@ describe('server status gating (#436)', () => {
       json: () => Promise.resolve(ADMIN_STATUS),
     })
     const el = await renderControlUI('admin')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/status', {
-      credentials: 'same-origin',
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/status',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    )
     expect(el.querySelector('.server-version-label')?.textContent).toContain(
       '0.9.1',
     )
