@@ -191,6 +191,36 @@ describe('combineDataSources', () => {
     }
   })
 
+  test('attaches a byId index to the yielded list for quick lookups', async () => {
+    async function* sourceA() {
+      yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]
+    }
+    const gen = combineDataSources([sourceA()], new StreamIDGenerator())
+    try {
+      const { value } = await gen.next()
+      const stream = value?.[0]
+      expect(stream?._id).toBeTruthy()
+      expect(value?.byId?.get(stream!._id)).toBe(stream)
+    } finally {
+      await gen.return?.(undefined)
+    }
+  })
+
+  test('omits id-less entries from the byId index instead of keying them on undefined', async () => {
+    async function* sourceA() {
+      // No source, label, or link text usable as an id base: the id generator
+      // skips this entry, leaving `_id` unset.
+      yield [{ kind: 'video', link: '' }]
+    }
+    const gen = combineDataSources([sourceA()], new StreamIDGenerator())
+    try {
+      const { value } = await gen.next()
+      expect(value?.byId?.size).toBe(0)
+    } finally {
+      await gen.return?.(undefined)
+    }
+  })
+
   test('assigns stream ids via the provided StreamIDGenerator', async () => {
     async function* sourceA() {
       yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]

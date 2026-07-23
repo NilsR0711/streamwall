@@ -78,6 +78,51 @@ describe('deriveWallViews — normal grid', () => {
   })
 })
 
+describe('deriveWallViews — byId index', () => {
+  it('resolves grid cells through the byId index when the list carries one', () => {
+    const list = streams([{ _id: 'a', link: 'http://a', kind: 'web' }])
+    // Deliberately disagree with the array so the test proves the index is
+    // the lookup actually used, not just present.
+    list.byId = new Map([
+      ['a', { _id: 'a', link: 'http://a-indexed', kind: 'video' }],
+    ]) as NonNullable<StreamList['byId']>
+
+    const result = deriveWallViews({
+      fullscreenViewIdx: null,
+      streams: list,
+      viewsState: viewsStateWith({ '0': 'a' }),
+      cols: 1,
+      rows: 1,
+    })
+
+    expect(result.contentMap.get('0')).toEqual({
+      url: 'http://a-indexed',
+      kind: 'video',
+    })
+  })
+
+  it('resolves the fullscreen stream through the byId index when the list carries one', () => {
+    const list = streams([{ _id: 'b', link: 'http://b', kind: 'web' }])
+    list.byId = new Map([
+      ['b', { _id: 'b', link: 'http://b-indexed', kind: 'video' }],
+    ]) as NonNullable<StreamList['byId']>
+
+    const result = deriveWallViews({
+      fullscreenViewIdx: 0,
+      streams: list,
+      viewsState: viewsStateWith({ '0': 'b' }),
+      cols: 1,
+      rows: 1,
+    })
+
+    expect(result.mode).toBe('fullscreen')
+    expect(result.contentMap.get('0')).toEqual({
+      url: 'http://b-indexed',
+      kind: 'video',
+    })
+  })
+})
+
 describe('deriveWallViews — fullscreen', () => {
   it('fills every cell with the expanded stream', () => {
     const result = deriveWallViews({

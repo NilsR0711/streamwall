@@ -54,9 +54,17 @@ export function deriveWallViews({
   cols,
   rows,
 }: DeriveWallViewsInput): WallViews {
+  // Resolve cell assignments through the id index built alongside the stream
+  // list (issue #628) instead of a per-cell linear scan; fall back to building
+  // it here (still once per call) for lists that don't carry one.
+  const streamsById =
+    streams.byId ?? new Map(streams.map((stream) => [stream._id, stream]))
+  const streamById = (streamId: string | undefined) =>
+    streamId != null ? streamsById.get(streamId) : undefined
+
   if (fullscreenViewIdx != null) {
     const streamId = viewsState.get(String(fullscreenViewIdx))?.get('streamId')
-    const stream = streams.find((s) => s._id === streamId)
+    const stream = streamById(streamId)
     if (stream) {
       return {
         mode: 'fullscreen',
@@ -70,8 +78,7 @@ export function deriveWallViews({
 
   const contentMap: ViewContentMap = new Map()
   for (const [key, viewData] of viewsState) {
-    const streamId = viewData.get('streamId')
-    const stream = streams.find((s) => s._id === streamId)
+    const stream = streamById(viewData.get('streamId'))
     if (!stream) {
       continue
     }

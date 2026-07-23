@@ -145,8 +145,17 @@ export async function* combineDataSources(
 
     const streams = idGen.process([...dataByURL.values()]) as StreamList
 
-    // Retain the index to speed up local lookups
+    // Retain the indexes to speed up local lookups
     streams.byURL = dataByURL
+    const dataById = new Map<string, StreamData>()
+    for (const stream of streams) {
+      // Entries the id generator skipped (no usable id base) have no `_id`;
+      // leave them out rather than keying them on undefined.
+      if (stream._id != null) {
+        dataById.set(stream._id, stream)
+      }
+    }
+    streams.byId = dataById
     yield streams
   }
 }
