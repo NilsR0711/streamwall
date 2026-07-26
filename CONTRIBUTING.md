@@ -435,6 +435,16 @@ breaking change bumps the minor version.
    start [`release.yml`](.github/workflows/release.yml) and no installers would
    be built. That is also why release-please runs with `skip-github-release`.
 
+   Between step 2 and this one, `main` claims a version that has no tag yet.
+   `release-please.yml` deliberately does nothing in that window — it checks
+   for the tag of the manifest version first and skips with a notice when it
+   is missing. Without that check release-please finds no anchor, treats the
+   whole history as unreleased and rewrites the release PR with hundreds of
+   already-shipped entries, which is how #674 came to propose 0.11.0 with 251
+   duplicated changelog lines (#684). Pushing the tag re-runs the workflow, so
+   nothing is lost by the skip — but do not be surprised by a release PR that
+   stays untouched until the tag is up.
+
 4. `release.yml` runs the full quality gate, publishes the installers via
    electron-forge, and then copies the `CHANGELOG.md` section for that version
    into the GitHub Release body (`scripts/changelog-section.mjs`).

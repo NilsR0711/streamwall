@@ -149,6 +149,69 @@ test('the release-please workflow maintains the release PR on main', () => {
   assert.equal(step.with['skip-github-release'], true)
 })
 
+// Merging the release PR and pushing its tag are two steps, and between them
+// `main` claims a version no tag exists for yet. release-please then finds no
+// anchor ("No latest release found ... Considering: 382 commits") and rewrites
+// the release PR from the entire repository history: #674 proposed 0.11.0 with
+// 251 changelog entries that had all shipped long ago. It never retracts such a
+// PR once the tag lands, so the only safe answer is not to write one at all
+// while the released version is untagged (#684).
+test('release-please skips while the released version has no tag (#684)', () => {
+  const job = readWorkflow('release-please.yml').jobs['release-please']
+
+  const anchor = job.steps.find((step) =>
+    /\.release-please-manifest\.json/.test(step.run ?? ''),
+  )
+  assert.ok(
+    anchor?.id,
+    'release-please.yml must check, in an identifiable step, whether the ' +
+      'manifest version is tagged before it writes a release PR',
+  )
+  assert.match(
+    anchor.run,
+    /git\/ref\/tags\/v|refs\/tags\/v/,
+    'the check must look for the vX.Y.Z tag of the manifest version',
+  )
+
+  const step = job.steps.find((candidate) =>
+    candidate.uses?.startsWith('googleapis/release-please-action@'),
+  )
+  assert.match(
+    step.if ?? '',
+    new RegExp(`steps\\.${anchor.id}\\.outputs\\.`),
+    'the release-please step must be gated on that check, or it will rebuild ' +
+      'the release PR from an unanchored history (#684)',
+  )
+})
+
+// Skipping the unanchored run leaves the commits of that window unprocessed,
+// so the tag push itself has to bring release-please back for them.
+test('release-please runs again once the tag lands (#684)', () => {
+  const push = readWorkflow('release-please.yml').on.push
+
+  assert.deepEqual(push.branches, ['main'])
+  assert.ok(
+    push.tags?.some((pattern) => pattern.startsWith('v')),
+    'a tag push must re-run release-please, otherwise the release PR waits ' +
+      'for the next unrelated merge to `main`',
+  )
+})
+
+// Two runs racing on the same release branch clobber each other's changelog.
+// Keying the group on `github.ref` used to be enough because only `main`
+// triggered the workflow; with the tag trigger above, a ref-keyed group would
+// put the tag run and the main run in different groups and let them race.
+test('release-please serialises every run onto one concurrency group (#684)', () => {
+  const { concurrency } = readWorkflow('release-please.yml')
+
+  assert.equal(concurrency['cancel-in-progress'], false)
+  assert.doesNotMatch(
+    concurrency.group,
+    /github\.ref/,
+    'all runs write the same release branch, so they must share one group',
+  )
+})
+
 // The dispatch shim added in #547 was meant to start the required checks for
 // the release PR, whose `pull_request` events GitHub never delivers because
 // the PR is opened with a workflow's GITHUB_TOKEN. It never worked: a

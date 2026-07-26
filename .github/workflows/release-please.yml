@@ -18,17 +18,25 @@ name: Release PR
 # and reopening the release PR raises a real `pull_request` event and is the
 # documented release step (CONTRIBUTING.md, "Releasing"); a PAT or GitHub App
 # token would remove the workaround entirely (#549).
+#
+# The tag trigger is not cosmetic: merging the release PR and pushing its tag
+# are two steps, and the run that fires on the merge is skipped below because
+# the new version has no tag yet (#684). The tag push is what brings
+# release-please back for the commits of that window.
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions: {}
 
 # Two runs racing on the same release branch would clobber each other's
-# changelog; never cancel one mid-write either.
+# changelog; never cancel one mid-write either. The group must not depend on
+# `github.ref`, or the tag run and the `main` run would sit in different groups
+# and race for the same branch.
 concurrency:
-  group: release-please-${{ github.workflow }}-${{ github.ref }}
+  group: release-please-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
@@ -40,7 +48,33 @@ jobs:
       contents: write # commits the version bump and changelog to the release branch
       pull-requests: write # opens, updates and labels the release PR
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # release-please anchors the changelog on the tag matching the version in
+      # its manifest. Right after a release PR merges that tag does not exist
+      # yet — the tag is pushed by hand, because one pushed with GITHUB_TOKEN
+      # would never start release.yml. Running in that window makes
+      # release-please report "No latest release found" and rebuild the release
+      # PR from every commit in the repository: #674 came out of it proposing
+      # 0.11.0 with 251 already-released changelog entries, and release-please
+      # does not retract such a PR once the tag appears. So skip instead; the
+      # tag push re-runs this workflow with the anchor in place (#684).
+      - name: Check that the released version is tagged
+        id: anchor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="$(jq -r '.["."]' .release-please-manifest.json)"
+          if gh api "repos/$REPO/git/ref/tags/v$version" >/dev/null 2>&1; then
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$version is not tagged yet; skipping so the release PR is not rebuilt from an unanchored history (#684)."
+          fi
+      - if: steps.anchor.outputs.tagged == 'true'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
