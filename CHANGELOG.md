@@ -17,6 +17,20 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.4](https://github.com/NilsR0711/streamwall/compare/v0.10.3...v0.10.4) (2026-07-26)
+
+### Build
+
+- bump @fastify/static from 10.1.0 to 10.1.2, which carries the fixes for GHSA-83w8-p2f5-377r and GHSA-8pvw-jcv7-9cmj in the control server's static file handler ([#681](https://github.com/NilsR0711/streamwall/issues/681)) ([3b9ddb0](https://github.com/NilsR0711/streamwall/commit/3b9ddb05fc7a8610379829bacd46c73a3795c724))
+- bump find-my-way from 9.6.0 to 9.7.0 ([#670](https://github.com/NilsR0711/streamwall/issues/670)) ([23359ea](https://github.com/NilsR0711/streamwall/commit/23359eaf79fffc6bf951835b42dbb5a34c6ef57b))
+- bump postcss from 8.5.16 to 8.5.23 ([#680](https://github.com/NilsR0711/streamwall/issues/680)) ([301b2dc](https://github.com/NilsR0711/streamwall/commit/301b2dcf74a082db4a4668242ecdf387765d5867))
+
+### CI
+
+- declare happy-dom as a root devDependency so the test jobs no longer depend on npm hoisting ([#675](https://github.com/NilsR0711/streamwall/issues/675)) ([f82eaa7](https://github.com/NilsR0711/streamwall/commit/f82eaa71a3f726b1b8284724b0ac9276983eb1ed)), closes [#671](https://github.com/NilsR0711/streamwall/issues/671)
+- guard against a vitest environment resolved only by hoisting ([#677](https://github.com/NilsR0711/streamwall/issues/677)) ([a870d78](https://github.com/NilsR0711/streamwall/commit/a870d78bdb567a9aee05ef7f1173fadcc2cf99b3)), closes [#676](https://github.com/NilsR0711/streamwall/issues/676)
+- fail loudly when a test suite executes zero tests ([#679](https://github.com/NilsR0711/streamwall/issues/679)) ([9a7bccc](https://github.com/NilsR0711/streamwall/commit/9a7bcccef7c9d2f8474412ac6d0ca3b488a9b24d)), closes [#678](https://github.com/NilsR0711/streamwall/issues/678)
+
 ## [0.10.3](https://github.com/NilsR0711/streamwall/compare/v0.10.2...v0.10.3) (2026-07-23)
 
 
