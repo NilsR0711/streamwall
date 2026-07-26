@@ -98,6 +98,29 @@ failing assertion. `test/workspace-metadata.test.mjs` keeps the configured
 timeout above a floor that leaves the live-server WebSocket suites room to
 finish under load.
 
+### `npm test` proves that tests actually ran
+
+The root `npm test` goes through `scripts/run-tests.mjs` instead of calling the
+runners directly. It runs the same legs in the same order — the repository
+invariant tests in `test/`, then every workspace with a `test` script, stopping
+at the first failure — but asks each runner for a JUnit report next to its
+usual output and checks that the report contains at least one test case:
+
+```
+✖ streamwall-shared: 0 tests executed - this is a runtime/setup failure, not a
+  test failure. …
+```
+
+A suite that dies at worker startup — a missing test environment package, a
+broken transform, a glob that matches nothing — otherwise looks exactly like a
+failing assertion, because both are just a non-zero exit code (#671, #676,
+#678). A successful run ends with a per-leg count, so a leg that quietly stops
+executing tests cannot pass as green either.
+
+Adding a workspace whose `test` script uses a different runner means teaching
+the wrapper how to get a count out of it; `test/run-tests.test.mjs` fails until
+you do.
+
 ### End-to-end tests
 
 The E2E smoke tests need a browser that is not installed by `npm ci`. They are
