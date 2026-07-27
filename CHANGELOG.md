@@ -17,6 +17,13 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.5](https://github.com/NilsR0711/streamwall/compare/v0.10.4...v0.10.5) (2026-07-27)
+
+
+### Fixed
+
+* **deps:** update brace-expansion to 5.0.8 for CVE-2026-14257 ([#694](https://github.com/NilsR0711/streamwall/issues/694)) ([1816783](https://github.com/NilsR0711/streamwall/commit/181678335745e51ebccb28fff91ec04c746b18e9))
+
 ## [0.10.4](https://github.com/NilsR0711/streamwall/compare/v0.10.3...v0.10.4) (2026-07-26)
 
 ### Build
