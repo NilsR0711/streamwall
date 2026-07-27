@@ -12,7 +12,7 @@
   "author": "Nils Reeh <info@nilsreeh.de>",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.62.0",
     "@tsconfig/node-ts": "^23.6.4",
     "@tsconfig/node22": "^22.0.5",
     "@tsconfig/recommended": "^1.0.13",
@@ -21,7 +21,7 @@
     "streamwall-control-server": "*",
     "streamwall-shared": "*",
     "tsx": "^4.23.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "ws": "^8.21.1",
     "yjs": "^13.6.31"
   }
