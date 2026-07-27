@@ -1,6 +1,7 @@
 import { MakerBase, type MakerOptions } from '@electron-forge/maker-base'
 import type { ForgePlatform } from '@electron-forge/shared-types'
 import type { Configuration, PackagerOptions } from 'app-builder-lib'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { WindowsSigningConfig } from './forge.signing'
 
@@ -17,18 +18,37 @@ import type { WindowsSigningConfig } from './forge.signing'
 export type MakerNsisConfig = Partial<WindowsSigningConfig>
 
 /**
+ * Reads the version of the electron install forge packaged against.
+ *
+ * electron-builder only looks for electron under its own projectDir
+ * (packages/streamwall), so it fails the moment npm hoists electron to the
+ * workspace root: it then sees only the semver range from package.json and
+ * aborts with "version ... is not fixed in project". Whether electron lands in
+ * the root or in the workspace's node_modules is npm's call and flips whenever
+ * the lockfile is regenerated, so the version is resolved the way node does -
+ * walking up into the root - and handed to electron-builder explicitly.
+ */
+export function resolveInstalledElectronVersion(): string {
+  const require = createRequire(import.meta.url)
+  const { version } = require('electron/package.json') as { version: string }
+  return version
+}
+
+/**
  * Derives the electron-builder invocation from forge's make context. Pure, so
  * the mapping is testable without running a build.
  */
 export function buildNsisPackagerOptions(
   options: Pick<MakerOptions, 'dir' | 'makeDir' | 'targetArch'>,
   config: MakerNsisConfig,
+  electronVersion: string,
 ): PackagerOptions & { publish: 'never' } {
   const builderConfig: Configuration = {
     // Freezes electron-builder's documented default: NSIS derives the
     // per-machine install/registry identity from the appId, so it must never
     // drift between releases or updates would install side-by-side.
     appId: 'com.electron.streamwall',
+    electronVersion,
     directories: {
       output: path.join(options.makeDir, 'nsis', options.targetArch),
     },
@@ -75,7 +95,11 @@ export default class MakerNsis extends MakerBase<MakerNsisConfig> {
     const { Arch, Platform, build } = await import('app-builder-lib')
     const arch = Arch[options.targetArch as keyof typeof Arch] ?? Arch.x64
     const artifacts = await build({
-      ...buildNsisPackagerOptions(options, this.config),
+      ...buildNsisPackagerOptions(
+        options,
+        this.config,
+        resolveInstalledElectronVersion(),
+      ),
       targets: Platform.WINDOWS.createTarget('nsis', arch),
     })
     // electron-builder may emit its own latest.yml when it can infer a
