@@ -14,7 +14,7 @@
   "devDependencies": {
     "@playwright/test": "~1.61.1",
     "@tsconfig/node-ts": "^23.6.4",
-    "@tsconfig/node22": "^22.0.5",
+    "@tsconfig/node22": "^22.0.6",
     "@tsconfig/recommended": "^1.0.13",
     "@types/ws": "^8.18.1",
     "lowdb": "^7.0.1",
