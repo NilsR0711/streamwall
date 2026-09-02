@@ -13,7 +13,15 @@ describe('pollDataURL', () => {
   })
 
   async function serveJson(body: unknown): Promise<string> {
+    return serveJsonWithStatus(200, body)
+  }
+
+  async function serveJsonWithStatus(
+    statusCode: number,
+    body: unknown,
+  ): Promise<string> {
     server = createServer((_req, res) => {
+      res.statusCode = statusCode
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify(body))
     })
@@ -73,6 +81,88 @@ describe('pollDataURL', () => {
     try {
       await gen.next()
       expect(onHealth).toHaveBeenCalledWith(false, expect.any(String))
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('reports unhealthy status with the status code on a 4xx response with a JSON body', async () => {
+    const url = await serveJsonWithStatus(429, { error: 'rate limited' })
+    const onHealth = vi.fn()
+    const gen = pollDataURL(url, 999, onHealth)
+    try {
+      const { value } = await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(
+        false,
+        expect.stringContaining('429'),
+      )
+      expect(value).toEqual([])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('reports unhealthy status with the status code on a 5xx response with a JSON body', async () => {
+    const url = await serveJsonWithStatus(500, [
+      { link: 'https://a.example/s', kind: 'video' },
+    ])
+    const onHealth = vi.fn()
+    const gen = pollDataURL(url, 999, onHealth)
+    try {
+      const { value } = await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(
+        false,
+        expect.stringContaining('500'),
+      )
+      expect(value).toEqual([])
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
+  test('keeps serving the last good data when a later poll returns a non-2xx response', async () => {
+    let statusCode = 200
+    let body: unknown = [{ link: 'https://a.example/s', kind: 'video' }]
+    server = createServer((_req, res) => {
+      res.statusCode = statusCode
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(body))
+    })
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    )
+    const { port } = server.address() as AddressInfo
+    const url = `http://127.0.0.1:${port}/`
+
+    const onHealth = vi.fn()
+    const gen = pollDataURL(url, 0.1, onHealth)
+    try {
+      const first = await gen.next()
+      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://a.example/s',
+      ])
+
+      statusCode = 500
+      body = { error: 'server exploded' }
+      const pending = gen.next()
+
+      const stillPending = Symbol('pending')
+      const raceResult = await Promise.race([
+        pending,
+        new Promise((resolve) => setTimeout(() => resolve(stillPending), 150)),
+      ])
+      expect(raceResult).toBe(stillPending)
+      expect(onHealth).toHaveBeenCalledWith(
+        false,
+        expect.stringContaining('500'),
+      )
+
+      statusCode = 200
+      body = [{ link: 'https://b.example/s', kind: 'video' }]
+      const second = await pending
+      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://b.example/s',
+      ])
     } finally {
       await gen.return(undefined)
     }
