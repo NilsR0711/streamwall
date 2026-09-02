@@ -17,6 +17,61 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.7](https://github.com/NilsR0711/streamwall/compare/v0.10.6...v0.10.7) (2026-09-02)
+
+
+### Added
+
+* **control-ui:** key blocked-URL dismissals by the wall's clear generation ([#812](https://github.com/NilsR0711/streamwall/issues/812)) ([e0e8113](https://github.com/NilsR0711/streamwall/commit/e0e8113f804a965b7242e667264d543c94fc29cb)), closes [#810](https://github.com/NilsR0711/streamwall/issues/810)
+* **control-ui:** name a refused layer URL where the operator typed it ([#809](https://github.com/NilsR0711/streamwall/issues/809)) ([439817e](https://github.com/NilsR0711/streamwall/commit/439817e1727ba340c089b7b36d35728210df92b3)), closes [#797](https://github.com/NilsR0711/streamwall/issues/797)
+* **streamwall:** show the operator which layer URLs were blocked ([#798](https://github.com/NilsR0711/streamwall/issues/798)) ([21a360f](https://github.com/NilsR0711/streamwall/commit/21a360f128e800ed45839fd8f685d0d9aa9adc99)), closes [#790](https://github.com/NilsR0711/streamwall/issues/790)
+
+
+### Fixed
+
+* **ci:** publish the release automatically once every asset kind is present ([#760](https://github.com/NilsR0711/streamwall/issues/760)) ([31fbe1f](https://github.com/NilsR0711/streamwall/commit/31fbe1fcbcebdf8d63c2611596eea2a33b6fa786)), closes [#720](https://github.com/NilsR0711/streamwall/issues/720)
+* **ci:** retry transient GitHub API errors in the release asset check ([#757](https://github.com/NilsR0711/streamwall/issues/757)) ([1800b41](https://github.com/NilsR0711/streamwall/commit/1800b41d7ca9c8340ff13134b2b7c167260c79cb)), closes [#721](https://github.com/NilsR0711/streamwall/issues/721)
+* **control-client:** evict unanswered response callbacks and fail fast when disconnected ([#759](https://github.com/NilsR0711/streamwall/issues/759)) ([7fb8cf6](https://github.com/NilsR0711/streamwall/commit/7fb8cf649eef6ed15ac43262365649770ce48c97))
+* **control-server:** create the storage file with owner-only permissions ([#806](https://github.com/NilsR0711/streamwall/issues/806)) ([ac9a194](https://github.com/NilsR0711/streamwall/commit/ac9a194ed7b5fe9077d48c4e4843fab6f4188941))
+* **control-server:** raise test-timing margins found while investigating [#804](https://github.com/NilsR0711/streamwall/issues/804) ([#808](https://github.com/NilsR0711/streamwall/issues/808)) ([a33e39c](https://github.com/NilsR0711/streamwall/commit/a33e39c908e33bb1601ba9ff67e54b8a9ffd1b16))
+* **control-server:** rate-limit every route that runs a scrypt derivation ([#799](https://github.com/NilsR0711/streamwall/issues/799)) ([a303358](https://github.com/NilsR0711/streamwall/commit/a30335857c28a759a5a00e6abf4b13a1eba21f1e))
+* **control-server:** release the uplink slot when the desktop dies during validation ([#772](https://github.com/NilsR0711/streamwall/issues/772)) ([0e671f4](https://github.com/NilsR0711/streamwall/commit/0e671f40cf7cdfdab1b91f5b86482140ee973d7d))
+* **control-server:** shut down gracefully on SIGTERM/SIGINT ([#788](https://github.com/NilsR0711/streamwall/issues/788)) ([4107a84](https://github.com/NilsR0711/streamwall/commit/4107a8455aebc33eb2a4d6f4924447551734e2a0))
+* **control-server:** stop messageCollector throwing on a binary frame ([#807](https://github.com/NilsR0711/streamwall/issues/807)) ([7ef7014](https://github.com/NilsR0711/streamwall/commit/7ef70146cf2b2cf0e4758e82feb1891f663b0b29))
+* **control-ui:** compose caller focus/blur handlers in LazyChangeInput ([#754](https://github.com/NilsR0711/streamwall/issues/754)) ([d04588a](https://github.com/NilsR0711/streamwall/commit/d04588a82e9296c47cf1c72443eb94493b5d07af))
+* **control-ui:** give grid cell inputs an accessible name ([#762](https://github.com/NilsR0711/streamwall/issues/762)) ([bc4a635](https://github.com/NilsR0711/streamwall/commit/bc4a635aa236f6bf0d3b38798db86814de937f5f))
+* **control-ui:** stop the sidebar stream filter matching the literal text undefined ([#766](https://github.com/NilsR0711/streamwall/issues/766)) ([fb7c337](https://github.com/NilsR0711/streamwall/commit/fb7c33725794b57036be398d479988955481527e))
+* **shared-streamwall:** bound the page-controlled document.title before it enters the shared state ([#771](https://github.com/NilsR0711/streamwall/issues/771)) ([71f7d91](https://github.com/NilsR0711/streamwall/commit/71f7d9153d75ff682905f1d0d7ac50c9c5496003)), closes [#734](https://github.com/NilsR0711/streamwall/issues/734)
+* **shared-streamwall:** bound the remaining page-influenced strings in the shared state schema ([#779](https://github.com/NilsR0711/streamwall/issues/779)) ([66897ae](https://github.com/NilsR0711/streamwall/commit/66897aeea78848c07cf3eaf9792ebafa1bfd9e18))
+* **shared:** bound the unbounded stream link field feeding the shared state schema ([#781](https://github.com/NilsR0711/streamwall/issues/781)) ([cc36a95](https://github.com/NilsR0711/streamwall/commit/cc36a95951bb9ff00700acad5a087f16422fdcd1)), closes [#778](https://github.com/NilsR0711/streamwall/issues/778)
+* **shared:** validate releaseUrl as an http(s) URL at the schema boundary ([#793](https://github.com/NilsR0711/streamwall/issues/793)) ([2ce5b3f](https://github.com/NilsR0711/streamwall/commit/2ce5b3f7292565771e2ed47a76632563e5816468))
+* **streamwall:** answer no to synchronous permission checks too ([#801](https://github.com/NilsR0711/streamwall/issues/801)) ([d05fcd6](https://github.com/NilsR0711/streamwall/commit/d05fcd6354350c0bb66e428e794cfb39e5fdb4cd)), closes [#789](https://github.com/NilsR0711/streamwall/issues/789)
+* **streamwall:** guard control:devtools against foreign IPC senders ([#765](https://github.com/NilsR0711/streamwall/issues/765)) ([721b509](https://github.com/NilsR0711/streamwall/commit/721b509e660166cc636a321397d5e1ef14d9bf16)), closes [#736](https://github.com/NilsR0711/streamwall/issues/736)
+* **streamwall:** guard devtools-overlay against foreign IPC senders ([#783](https://github.com/NilsR0711/streamwall/issues/783)) ([f6bf1a0](https://github.com/NilsR0711/streamwall/commit/f6bf1a0ff4876658be3ca98df0bac654bd20e8b6)), closes [#764](https://github.com/NilsR0711/streamwall/issues/764)
+* **streamwall:** harden the session behind the wall's chrome layers ([#792](https://github.com/NilsR0711/streamwall/issues/792)) ([d1ad9ef](https://github.com/NilsR0711/streamwall/commit/d1ad9ef75528fc6925b227a55087a565d682a261)), closes [#733](https://github.com/NilsR0711/streamwall/issues/733)
+* **streamwall:** keep a swap promoted while parked off the wall ([#780](https://github.com/NilsR0711/streamwall/issues/780)) ([735c12a](https://github.com/NilsR0711/streamwall/commit/735c12a0566b463fee6d1ae95981ba478cafa627))
+* **streamwall:** keep the control window on its own UI ([#784](https://github.com/NilsR0711/streamwall/issues/784)) ([f5e9b26](https://github.com/NilsR0711/streamwall/commit/f5e9b2628d97fc9b68ea32df52591d3f55e0205a)), closes [#732](https://github.com/NilsR0711/streamwall/issues/732)
+* **streamwall:** let stream-view sub-frames resolve their own redirects ([#803](https://github.com/NilsR0711/streamwall/issues/803)) ([f30aad2](https://github.com/NilsR0711/streamwall/commit/f30aad2bbd0b7829d8c2d5a2218ca88f77763dda)), closes [#794](https://github.com/NilsR0711/streamwall/issues/794)
+* **streamwall:** mute a view while it is parked behind an expansion ([#775](https://github.com/NilsR0711/streamwall/issues/775)) ([7571084](https://github.com/NilsR0711/streamwall/commit/7571084a8ccb64d9f93cab346a86a99bf9d712a2))
+* **streamwall:** pin the wall's chrome layers to their own pages ([#795](https://github.com/NilsR0711/streamwall/issues/795)) ([d21a347](https://github.com/NilsR0711/streamwall/commit/d21a347ab5e873c8359d19e9999a49663e6da10e)), closes [#776](https://github.com/NilsR0711/streamwall/issues/776)
+* **streamwall:** register the media preload's IPC handlers before view-init ([#786](https://github.com/NilsR0711/streamwall/issues/786)) ([3f90697](https://github.com/NilsR0711/streamwall/commit/3f9069753bd673826600cc58c35cc3e2843b98dd))
+* **streamwall:** remap the fullscreen cell across grid resizes and presets ([#761](https://github.com/NilsR0711/streamwall/issues/761)) ([80dda20](https://github.com/NilsR0711/streamwall/commit/80dda20666753ef7c6abcb07cebb83e768790083)), closes [#739](https://github.com/NilsR0711/streamwall/issues/739)
+* **streamwall:** resolve per-package vitest config for single-file runs ([#802](https://github.com/NilsR0711/streamwall/issues/802)) ([7b7e613](https://github.com/NilsR0711/streamwall/commit/7b7e613baa627e6254d9a219e1c580c29a0d0964))
+* **streamwall:** resume the renderer when RESUME arrives before running ([#758](https://github.com/NilsR0711/streamwall/issues/758)) ([a61c79c](https://github.com/NilsR0711/streamwall/commit/a61c79c93a355ade17ee075c00cc977394f7d0d0)), closes [#738](https://github.com/NilsR0711/streamwall/issues/738)
+* **streamwall:** stop leaking the packaging tmpdir when packaging never completes ([#763](https://github.com/NilsR0711/streamwall/issues/763)) ([558d9a7](https://github.com/NilsR0711/streamwall/commit/558d9a722a8993af96edb48de11d25cb04931e43)), closes [#749](https://github.com/NilsR0711/streamwall/issues/749)
+* **streamwall:** treat non-2xx data-source responses as unhealthy ([#753](https://github.com/NilsR0711/streamwall/issues/753)) ([a855ce8](https://github.com/NilsR0711/streamwall/commit/a855ce824df1c0c1f670989c84503f4206156987)), closes [#742](https://github.com/NilsR0711/streamwall/issues/742)
+* **streamwall:** type-check the package's own test files ([#814](https://github.com/NilsR0711/streamwall/issues/814)) ([b31c636](https://github.com/NilsR0711/streamwall/commit/b31c6362cebbfe99ca9623d06b5ee6084f67247e))
+
+
+### Changed
+
+* **streamwall:** share the dev-server allowance between hardened sessions ([#800](https://github.com/NilsR0711/streamwall/issues/800)) ([7fc0269](https://github.com/NilsR0711/streamwall/commit/7fc026911c91e17d55590c36db2b5c0196a0c3a2)), closes [#791](https://github.com/NilsR0711/streamwall/issues/791)
+
+
+### Documentation
+
+* **contributing:** document how to fix an npm hoisting break ([#767](https://github.com/NilsR0711/streamwall/issues/767)) ([bc1bba4](https://github.com/NilsR0711/streamwall/commit/bc1bba43d16bf6897fa619a56fa765c17617ecdc))
+
 ## [0.10.6](https://github.com/NilsR0711/streamwall/compare/v0.10.5...v0.10.6) (2026-09-02)
 
 
