@@ -33,6 +33,20 @@ function truncate(url: string): string {
 export class BlockedLayerURLTracker {
   private urls: string[] = []
   private linksKey: string | undefined
+  private clearCount = 0
+
+  /**
+   * How often the list has been cleared, broadcast alongside it (issue #810).
+   *
+   * A control client that was disconnected across a clear reconnects to a
+   * snapshot that can already name the same address again, and membership
+   * alone cannot tell that apart from the address never having gone away. The
+   * control UI keys its dismissals by this value, so one made against an
+   * older list never suppresses a newer refusal.
+   */
+  get generation(): number {
+    return this.clearCount
+  }
 
   /** Records one refused URL. */
   report(url: string): string[] | null {
@@ -58,6 +72,11 @@ export class BlockedLayerURLTracker {
    *
    * Learning the links for the first time is not an edit: the reports the
    * guard makes during startup arrive before any state does.
+   *
+   * An edit that finds the list already empty leaves {@link generation} alone
+   * as well: nothing was cleared, and no dismissal can be pointing at a list
+   * that no longer stands, because a dismissal only ever names an address the
+   * desktop was reporting.
    */
   syncLayerLinks(streams: readonly StreamData[]): string[] | null {
     const previous = this.linksKey
@@ -69,6 +88,7 @@ export class BlockedLayerURLTracker {
       return null
     }
     this.urls = []
+    this.clearCount += 1
     return [...this.urls]
   }
 }

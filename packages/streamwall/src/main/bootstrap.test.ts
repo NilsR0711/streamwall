@@ -688,7 +688,39 @@ describe('createBlockedLayerURLReporter', () => {
     )
     const after = syncBlockedLayerURLs(before)
 
-    expect(after).toEqual({ ...before, blockedLayerURLs: [] })
+    expect(after).toEqual({
+      ...before,
+      blockedLayerURLs: [],
+      blockedLayerURLsGeneration: 1,
+    })
+  })
+
+  // Issue #810: a control client that was disconnected across the clear only
+  // ever sees the snapshot after it, so the state has to carry the fact that
+  // a clear happened rather than leaving it to be inferred from the list.
+  it('marks the clear with a bumped generation in the broadcast state', () => {
+    const { report, syncBlockedLayerURLs } = setup()
+    syncBlockedLayerURLs(stateWith([overlay('https://example.com/o')]))
+    report('http://192.168.1.5/overlay')
+
+    const next = syncBlockedLayerURLs(
+      stateWith(
+        [overlay('https://example.com/fixed')],
+        ['http://192.168.1.5/overlay'],
+      ),
+    )
+
+    expect(next.blockedLayerURLsGeneration).toBe(1)
+  })
+
+  it('starts the broadcast state at generation zero', () => {
+    expect(
+      createInitialClientState({
+        config: { width: 0, height: 0, x: 0, y: 0, cols: 2, rows: 2 },
+        layoutPresets: [],
+        favorites: [],
+      }).blockedLayerURLsGeneration,
+    ).toBe(0)
   })
 })
 

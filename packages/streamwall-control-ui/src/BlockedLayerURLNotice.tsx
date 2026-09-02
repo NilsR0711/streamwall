@@ -23,20 +23,38 @@ import { styled } from 'styled-components'
  * Dismissal is per address and forgotten once the desktop stops reporting that
  * address, so a later refusal of a different URL, or of the same one after a
  * clear this client saw, is announced again rather than swallowed by an
- * earlier dismissal. A clear this client did not see -- it was disconnected
- * across the operator's edit and reconnected to a snapshot already naming the
- * same address again -- is indistinguishable from the address never having
- * gone away, and stays dismissed. Telling the two apart would need the
- * desktop to carry a clear generation in the state, which is more machinery
- * than a dismissed notice is worth.
+ * earlier dismissal.
+ *
+ * A clear this client did not see -- it was disconnected across the operator's
+ * edit and reconnected to a snapshot already naming the same address again --
+ * is indistinguishable from the address never having gone away by membership
+ * alone, which used to leave the new refusal silently suppressed for the life
+ * of the page (issue #810). Dismissals are therefore keyed by the clear
+ * generation the desktop broadcasts: one made against an older list never
+ * applies to a newer one, while a dismissal against the list still standing
+ * survives any number of reconnects.
  *
  * The live region itself stays mounted while nothing is refused and only its
  * contents are swapped: `aria-live` announcements are only reliable for
  * changes inside a region that already exists in the accessibility tree
  * (WCAG 4.1.3, issue #463).
  */
-export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
-  const [dismissed, setDismissed] = useState<readonly string[]>([])
+export function BlockedLayerURLNotice({
+  urls,
+  generation,
+}: {
+  urls: readonly string[]
+  /**
+   * How often the desktop has cleared its list (issue #810). Dismissals are
+   * scoped to the value they were made under, so a clear this client was
+   * disconnected across still takes them down.
+   */
+  generation: number
+}) {
+  const [dismissed, setDismissed] = useState<{
+    generation: number
+    urls: readonly string[]
+  }>({ generation, urls: [] })
 
   // A dismissal for an address the desktop no longer reports is forgotten, so
   // the same address being refused again -- after the operator's edit cleared
@@ -45,16 +63,28 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
   // flash of the address the operator dismissed.
   useLayoutEffect(() => {
     setDismissed((previous) => {
-      const next = previous.filter((url) => urls.includes(url))
-      return next.length === previous.length ? previous : next
+      // A clear the desktop reports takes every dismissal with it, whether or
+      // not this client saw the list go empty in between (issue #810).
+      if (previous.generation !== generation) {
+        return { generation, urls: [] }
+      }
+      const next = previous.urls.filter((url) => urls.includes(url))
+      return next.length === previous.urls.length
+        ? previous
+        : { generation, urls: next }
     })
-  }, [urls])
+  }, [urls, generation])
 
-  const visible = urls.filter((url) => !dismissed.includes(url))
+  // Read through the generation rather than trusting the state alone: the
+  // effect above only runs after this render, and a dismissal from an older
+  // list must not suppress anything even for that one pass.
+  const activeDismissals =
+    dismissed.generation === generation ? dismissed.urls : []
+  const visible = urls.filter((url) => !activeDismissals.includes(url))
 
   const handleDismiss = useCallback(() => {
-    setDismissed(urls)
-  }, [urls])
+    setDismissed({ generation, urls })
+  }, [urls, generation])
 
   return (
     <StyledBlockedLayerURLNotice role="status" aria-live="polite">

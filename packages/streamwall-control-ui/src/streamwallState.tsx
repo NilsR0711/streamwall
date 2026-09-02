@@ -69,6 +69,11 @@ export interface StreamwallConnection {
   dataSourceHealth: DataSourceHealth[]
   /** Layer URLs the wall's sessions refused to fetch (issue #797). */
   blockedLayerURLs: string[]
+  /**
+   * How often the wall cleared that list on an operator's layer-link edit
+   * (issue #810) -- what the notice keys its dismissals by.
+   */
+  blockedLayerURLsGeneration: number
 }
 
 export function useStreamwallState(state: StreamwallState | undefined) {
@@ -88,6 +93,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         favorites: [],
         dataSourceHealth: [],
         blockedLayerURLs: [],
+        blockedLayerURLsGeneration: 0,
       }
     }
 
@@ -107,6 +113,10 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       // passing through `streamwallStateSchema` (which would have defaulted
       // it), so an undefined value would reach the sidebar as a crash.
       blockedLayerURLs = [],
+      // Defaulted for the same reason and in the same way as the list above:
+      // a constant, so that a server predating #810 costs its clients the
+      // reconnect fix rather than every dismissal they make (issue #810).
+      blockedLayerURLsGeneration = 0,
     } = state
     const stateIdxMap = new Map<CellIdx, ViewInfo>()
     const views: ViewInfo[] = []
@@ -164,6 +174,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       favorites,
       dataSourceHealth,
       blockedLayerURLs,
+      blockedLayerURLsGeneration,
     }
   }, [state])
 }

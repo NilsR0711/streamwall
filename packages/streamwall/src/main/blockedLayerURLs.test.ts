@@ -164,6 +164,76 @@ describe('BlockedLayerURLTracker', () => {
       ).toBeNull()
     })
 
+    // Issue #810: a control client that was disconnected across the clear
+    // reconnects to a snapshot that can name the same address again, which
+    // membership alone cannot tell apart from the address never having gone
+    // away. The generation is the marker that says a clear happened.
+    it('starts at generation zero', () => {
+      expect(new BlockedLayerURLTracker().generation).toBe(0)
+    })
+
+    it('bumps the generation when an edit clears the list', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+      tracker.report('http://192.168.1.5/a')
+
+      tracker.syncLayerLinks(layers('https://example.com/fixed'))
+
+      expect(tracker.generation).toBe(1)
+    })
+
+    it('bumps the generation once per clear', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+      tracker.report('http://192.168.1.5/a')
+      tracker.syncLayerLinks(layers('https://example.com/second'))
+      tracker.report('http://192.168.1.5/a')
+      tracker.syncLayerLinks(layers('https://example.com/third'))
+
+      expect(tracker.generation).toBe(2)
+    })
+
+    it('leaves the generation alone while the layer links stand still', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+      tracker.report('http://192.168.1.5/a')
+
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+
+      expect(tracker.generation).toBe(0)
+    })
+
+    it('leaves the generation alone when it learns the links for the first time', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.report('http://192.168.1.5/a')
+
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+
+      expect(tracker.generation).toBe(0)
+    })
+
+    // Nothing was cleared, so no dismissal can be pointing at a list that no
+    // longer stands: a dismissal only ever names an address the desktop was
+    // reporting, and an empty list was reporting none.
+    it('leaves the generation alone when an edit clears an empty list', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+
+      tracker.syncLayerLinks(layers('https://example.com/other'))
+
+      expect(tracker.generation).toBe(0)
+    })
+
+    it('leaves the generation alone while collecting reports', () => {
+      const tracker = new BlockedLayerURLTracker()
+      tracker.syncLayerLinks(layers('https://example.com/o'))
+
+      tracker.report('http://192.168.1.5/a')
+      tracker.report('http://192.168.1.5/b')
+
+      expect(tracker.generation).toBe(0)
+    })
+
     it('re-collects reports after an edit cleared them', () => {
       const tracker = new BlockedLayerURLTracker()
       tracker.syncLayerLinks(layers('https://example.com/o'))

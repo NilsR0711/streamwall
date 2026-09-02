@@ -89,6 +89,7 @@ const minimalState: StreamwallState = {
   favorites: [],
   dataSourceHealth: [],
   blockedLayerURLs: [],
+  blockedLayerURLsGeneration: 0,
 }
 
 function stateMessage(state: StreamwallState = minimalState) {

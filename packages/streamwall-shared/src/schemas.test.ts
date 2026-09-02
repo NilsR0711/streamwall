@@ -40,6 +40,7 @@ const VALID_STATE = {
   favorites: [],
   dataSourceHealth: [],
   blockedLayerURLs: [],
+  blockedLayerURLsGeneration: 0,
 }
 
 describe('streamDataInputSchema', () => {
@@ -938,6 +939,45 @@ describe('streamwallStateSchema', () => {
     const result = streamwallStateSchema.safeParse(withoutBlocked)
     expect(result.success).toBe(true)
     expect(result.data?.blockedLayerURLs).toEqual([])
+  })
+
+  // Issue #810: the counter is what tells a control client that the list it is
+  // looking at is not the one its dismissals were made against, so it has to
+  // survive the trip as an exact value -- which for JSON means a safe integer.
+  test('accepts a blocked layer URL generation', () => {
+    const bumped = { ...VALID_STATE, blockedLayerURLsGeneration: 7 }
+    expect(streamwallStateSchema.safeParse(bumped).success).toBe(true)
+  })
+
+  test('rejects a negative blocked layer URL generation', () => {
+    const negative = { ...VALID_STATE, blockedLayerURLsGeneration: -1 }
+    expect(streamwallStateSchema.safeParse(negative).success).toBe(false)
+  })
+
+  test('rejects a fractional blocked layer URL generation', () => {
+    const fractional = { ...VALID_STATE, blockedLayerURLsGeneration: 1.5 }
+    expect(streamwallStateSchema.safeParse(fractional).success).toBe(false)
+  })
+
+  test('rejects a blocked layer URL generation past the safe integer range', () => {
+    const unsafe = {
+      ...VALID_STATE,
+      blockedLayerURLsGeneration: Number.MAX_SAFE_INTEGER + 2,
+    }
+    expect(streamwallStateSchema.safeParse(unsafe).success).toBe(false)
+  })
+
+  // Same version skew as the list itself: a desktop older than #810 sends no
+  // generation, and defaulting it costs that desktop the reconnect fix rather
+  // than its whole state broadcast.
+  test('defaults the blocked layer URL generation when a desktop omits it', () => {
+    const {
+      blockedLayerURLsGeneration: _blockedLayerURLsGeneration,
+      ...withoutGeneration
+    } = VALID_STATE
+    const result = streamwallStateSchema.safeParse(withoutGeneration)
+    expect(result.success).toBe(true)
+    expect(result.data?.blockedLayerURLsGeneration).toBe(0)
   })
 
   test('rejects a state missing the required streams field', () => {

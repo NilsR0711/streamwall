@@ -117,6 +117,7 @@ export function createInitialClientState(
     favorites: deps.favorites,
     dataSourceHealth: [],
     blockedLayerURLs: [],
+    blockedLayerURLsGeneration: 0,
   }
 }
 
@@ -527,7 +528,16 @@ export function createBlockedLayerURLReporter(
   })
   return (state) => {
     const cleared = tracker.syncLayerLinks(state.streams)
-    return cleared ? { ...state, blockedLayerURLs: cleared } : state
+    return cleared
+      ? {
+          ...state,
+          blockedLayerURLs: cleared,
+          // Broadcast with the cleared list, so a control client that was
+          // disconnected across this clear can still tell that its dismissals
+          // were made against a list that no longer stands (issue #810).
+          blockedLayerURLsGeneration: tracker.generation,
+        }
+      : state
   }
 }
 

@@ -115,6 +115,7 @@ export class StateWrapper extends EventEmitter {
       favorites,
       dataSourceHealth,
       blockedLayerURLs,
+      blockedLayerURLsGeneration,
     } = this._value
 
     const state: StreamwallState = {
@@ -136,6 +137,11 @@ export class StateWrapper extends EventEmitter {
       blockedLayerURLs: roleCan(role, 'update-custom-stream')
         ? blockedLayerURLs
         : [],
+      // Passed to every role, unlike the list itself: it is a count of the
+      // operator's own layer-link edits and names no address, and the client
+      // that is told about the list needs it to know which clear that list
+      // belongs to (issue #810).
+      blockedLayerURLsGeneration,
     }
     if (role === 'admin') {
       state.auth = auth

@@ -121,6 +121,7 @@ export function makeConnection(
     favorites: [],
     dataSourceHealth: [],
     blockedLayerURLs: [],
+    blockedLayerURLsGeneration: 0,
     ...overrides,
   }
 }

@@ -79,6 +79,7 @@ async function renderControlUI(role: StreamwallRole): Promise<HTMLDivElement> {
     favorites: [],
     dataSourceHealth: [],
     blockedLayerURLs: [],
+    blockedLayerURLsGeneration: 0,
   }
 
   await act(async () => {
