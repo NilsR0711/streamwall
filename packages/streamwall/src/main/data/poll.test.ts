@@ -4,6 +4,20 @@ import type { StreamDataContent } from 'streamwall-shared'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { computeFetchTimeoutMs, pollDataURL } from './poll'
 
+// Polls a mock's call count via a real `setImmediate` tick rather than a
+// fixed real delay, so tests that fake setTimeout/clearTimeout (see below)
+// can still synchronize with the real loopback response that delivers a
+// given call - however many event-loop turns that takes under load - without
+// reintroducing an artificial wall-clock wait of their own.
+async function waitForCallCount(
+  mockFn: { mock: { calls: unknown[] } },
+  count: number,
+): Promise<void> {
+  while (mockFn.mock.calls.length < count) {
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+}
+
 describe('pollDataURL', () => {
   let server: Server | undefined
 
@@ -120,93 +134,127 @@ describe('pollDataURL', () => {
     }
   })
 
+  // This test (and the next) used to pace itself with real setTimeout races
+  // (a 100ms poll interval plus a 150ms "still pending" probe window). That
+  // real-time budget stacks with a real timer *inside* pollDataURL itself:
+  // fetchWithTimeout's abort floors at MIN_FETCH_TIMEOUT_MS = 5s regardless
+  // of this test's short interval (see poll.ts), so a loopback response that
+  // is merely slow to be scheduled - not actually hung - under the CPU
+  // contention of the full parallel `npm run test` run could brush against
+  // that real 5s abort and blow the whole per-test budget (issue #774).
+  // Faking setTimeout/clearTimeout removes both real timers from the
+  // equation; only setImmediate/process.nextTick stay real, so the actual
+  // loopback response is still delivered and `waitForCallCount` above can
+  // synchronize with it deterministically instead of racing a fixed delay.
   test('keeps serving the last good data when a later poll returns a non-2xx response', async () => {
-    let statusCode = 200
-    let body: unknown = [{ link: 'https://a.example/s', kind: 'video' }]
-    server = createServer((_req, res) => {
-      res.statusCode = statusCode
-      res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify(body))
-    })
-    await new Promise<void>((resolve) =>
-      server!.listen(0, '127.0.0.1', resolve),
-    )
-    const { port } = server.address() as AddressInfo
-    const url = `http://127.0.0.1:${port}/`
-
-    const onHealth = vi.fn()
-    const gen = pollDataURL(url, 0.1, onHealth)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
-      const first = await gen.next()
-      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
-        'https://a.example/s',
-      ])
-
-      statusCode = 500
-      body = { error: 'server exploded' }
-      const pending = gen.next()
-
-      const stillPending = Symbol('pending')
-      const raceResult = await Promise.race([
-        pending,
-        new Promise((resolve) => setTimeout(() => resolve(stillPending), 150)),
-      ])
-      expect(raceResult).toBe(stillPending)
-      expect(onHealth).toHaveBeenCalledWith(
-        false,
-        expect.stringContaining('500'),
+      let statusCode = 200
+      let body: unknown = [{ link: 'https://a.example/s', kind: 'video' }]
+      server = createServer((_req, res) => {
+        res.statusCode = statusCode
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify(body))
+      })
+      await new Promise<void>((resolve) =>
+        server!.listen(0, '127.0.0.1', resolve),
       )
+      const { port } = server.address() as AddressInfo
+      const url = `http://127.0.0.1:${port}/`
 
-      statusCode = 200
-      body = [{ link: 'https://b.example/s', kind: 'video' }]
-      const second = await pending
-      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
-        'https://b.example/s',
-      ])
+      const onHealth = vi.fn()
+      const gen = pollDataURL(url, 0.1, onHealth)
+      try {
+        const first = await gen.next()
+        expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://a.example/s',
+        ])
+
+        statusCode = 500
+        body = { error: 'server exploded' }
+        const pending = gen.next()
+        let pendingSettled = false
+        pending.then(() => {
+          pendingSettled = true
+        })
+
+        // Advance past the inter-poll sleep so the failing request goes out,
+        // then confirm it was reported unhealthy without resolving
+        // `pending` - the cached data must not be dropped on one bad poll.
+        await vi.advanceTimersByTimeAsync(100)
+        await waitForCallCount(onHealth, 2)
+        expect(onHealth).toHaveBeenCalledWith(
+          false,
+          expect.stringContaining('500'),
+        )
+        expect(pendingSettled).toBe(false)
+
+        statusCode = 200
+        body = [{ link: 'https://b.example/s', kind: 'video' }]
+        await vi.advanceTimersByTimeAsync(100)
+        const second = await pending
+        expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://b.example/s',
+        ])
+      } finally {
+        await gen.return(undefined)
+      }
     } finally {
-      await gen.return(undefined)
+      vi.useRealTimers()
     }
   })
 
   test('retains the last successful batch and keeps polling after an empty response', async () => {
-    let body: unknown[] = [{ link: 'https://a.example/s', kind: 'video' }]
-    server = createServer((_req, res) => {
-      res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify(body))
-    })
-    await new Promise<void>((resolve) =>
-      server!.listen(0, '127.0.0.1', resolve),
-    )
-    const { port } = server.address() as AddressInfo
-    const url = `http://127.0.0.1:${port}/`
-
-    const gen = pollDataURL(url, 0.1)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
-      const first = await gen.next()
-      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
-        'https://a.example/s',
-      ])
+      let body: unknown[] = [{ link: 'https://a.example/s', kind: 'video' }]
+      server = createServer((_req, res) => {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify(body))
+      })
+      await new Promise<void>((resolve) =>
+        server!.listen(0, '127.0.0.1', resolve),
+      )
+      const { port } = server.address() as AddressInfo
+      const url = `http://127.0.0.1:${port}/`
 
-      // The endpoint now returns no streams. The cached batch must not be
-      // surfaced as wiped out; the outstanding next() should still be
-      // unresolved while polling continues in the background.
-      body = []
-      const pending = gen.next()
+      // onHealth isn't asserted on here; it exists purely so
+      // waitForCallCount can detect that the empty-response poll cycle has
+      // completed (pollDataURL calls it on every successful fetch,
+      // regardless of how many entries the response carries).
+      const onHealth = vi.fn()
+      const gen = pollDataURL(url, 0.1, onHealth)
+      try {
+        const first = await gen.next()
+        expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://a.example/s',
+        ])
 
-      const stillPending = Symbol('pending')
-      const raceResult = await Promise.race([
-        pending,
-        new Promise((resolve) => setTimeout(() => resolve(stillPending), 150)),
-      ])
-      expect(raceResult).toBe(stillPending)
+        // The endpoint now returns no streams. The cached batch must not be
+        // surfaced as wiped out; the outstanding next() should still be
+        // unresolved while polling continues in the background.
+        body = []
+        const pending = gen.next()
+        let pendingSettled = false
+        pending.then(() => {
+          pendingSettled = true
+        })
 
-      body = [{ link: 'https://b.example/s', kind: 'video' }]
-      const second = await pending
-      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
-        'https://b.example/s',
-      ])
+        await vi.advanceTimersByTimeAsync(100)
+        await waitForCallCount(onHealth, 2)
+        expect(pendingSettled).toBe(false)
+
+        body = [{ link: 'https://b.example/s', kind: 'video' }]
+        await vi.advanceTimersByTimeAsync(100)
+        const second = await pending
+        expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
+          'https://b.example/s',
+        ])
+      } finally {
+        await gen.return(undefined)
+      }
     } finally {
-      await gen.return(undefined)
+      vi.useRealTimers()
     }
   })
 
