@@ -42,10 +42,14 @@ FROM node:22-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# The storage volume holds the auth salt and every token hash, so it is
+# owner-only: a new named volume inherits this mode from the image, and the
+# server keeps the file inside it at 0600 regardless (issue #737).
 RUN groupadd --system --gid 1001 streamwall \
   && useradd --system --uid 1001 --gid streamwall --home-dir /app --shell /usr/sbin/nologin streamwall \
   && mkdir -p /data \
-  && chown -R streamwall:streamwall /data /app
+  && chown -R streamwall:streamwall /data /app \
+  && chmod 700 /data
 
 COPY --from=build --chown=streamwall:streamwall /app/node_modules ./node_modules
 COPY --from=build --chown=streamwall:streamwall /app/package.json ./package.json

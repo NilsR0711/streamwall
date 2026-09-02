@@ -69,9 +69,11 @@ Auth-token storage (`storage.json`) lives on the `control-server-data` named
 volume, so it survives container restarts/rebuilds; back that volume up like
 you would any other persistent data. It holds credentials — the auth salt and
 every token's scrypt hash, id and operator-chosen name — so the server keeps
-the file at `0600`, and the directory at `0700` where that directory is its
-own, re-applying both on startup. Keep those permissions on any copy you make:
-treat a backup of it the way you would treat a key file.
+the file at `0600` and re-applies that on startup. The image creates `/data`
+owner-only, which a freshly created volume inherits; a volume from an older
+release keeps the mode it has, and the file's own `0600` protects the
+credentials there. Keep those permissions on any copy you make: treat a backup
+of it the way you would treat a key file.
 
 CI covers this path: every pull request that touches the server, the web
 control client, the shared packages or `deploy/` builds the image on both
