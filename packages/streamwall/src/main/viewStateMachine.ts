@@ -574,8 +574,29 @@ const viewStateMachine = setup({
             UNBACKGROUND: { actions: assign({ desiredAudio: 'muted' }) },
             BLUR: { actions: assign({ desiredBlurred: true }) },
             UNBLUR: { actions: assign({ desiredBlurred: false }) },
+            // PAUSE stays deferred: the renderer's 'pause' handler also
+            // stops HLS segment fetching, which would starve an acquisition
+            // that has not reached view-loaded yet; `running.pause.unpaused`'s
+            // `always` guard applies it as soon as the view is running.
             PAUSE: { actions: assign({ desiredPaused: true }) },
-            RESUME: { actions: assign({ desiredPaused: false }) },
+            // RESUME, unlike the events above, cannot wait for `running`: a
+            // reload of an already-paused cell comes back up paused (the
+            // `view-init` reply carries `paused: desiredPaused`), and
+            // `running.pause` re-enters in `unpaused`, whose `always` guard
+            // no longer matches once the desire has been cleared -- so
+            // nothing would ever tell the renderer to play again and the
+            // tile stays frozen (issue #738). Sending the IPC mid-load is
+            // safe: the renderer clears its own `desiredPaused` before
+            // touching any media element, so an acquisition still in flight
+            // comes up playing, and unlike 'pause' it never stops segment
+            // fetching. A resume that lands before the renderer registered
+            // its handlers is simply dropped, but then the `view-init` reply
+            // (which carries `paused: desiredPaused`) has not been sent yet
+            // either, so the fresh view starts unpaused anyway -- except for
+            // the sub-tick window tracked in #756.
+            RESUME: {
+              actions: [assign({ desiredPaused: false }), 'sendViewResume'],
+            },
           },
           // If the whole loading phase stalls (e.g. the renderer never sends
           // VIEW_INIT/VIEW_LOADED), fail the view instead of hanging forever.
@@ -982,7 +1003,11 @@ const viewStateMachine = setup({
             BLUR: { actions: assign({ desiredBlurred: true }) },
             UNBLUR: { actions: assign({ desiredBlurred: false }) },
             PAUSE: { actions: assign({ desiredPaused: true }) },
-            RESUME: { actions: assign({ desiredPaused: false }) },
+            // Mirrored to the renderer immediately for the same reason as in
+            // `loading` above (issue #738).
+            RESUME: {
+              actions: [assign({ desiredPaused: false }), 'sendViewResume'],
+            },
           },
           // Automatically reload after the backoff delay until the retry budget
           // is spent; then this is a terminal state surfaced to the operator.
