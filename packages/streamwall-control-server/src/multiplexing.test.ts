@@ -424,5 +424,7 @@ test('releases the uplink slot when the desktop dies during token validation', a
     null,
     'the reconnecting uplink must not be refused: the slot must have been released',
   )
+  // Not being refused is only half of it: the reconnect has to complete.
+  await logs.waitForMessage('Streamwall connected')
   assert.equal(secondWs.readyState, WebSocket.OPEN)
 })
