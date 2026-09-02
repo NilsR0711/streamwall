@@ -20,12 +20,24 @@ type PermissionHandler = (
   callback: (granted: boolean) => void,
 ) => void
 
+// Electron's synchronous counterpart: it returns the answer rather than
+// calling back, and is consulted for checks that raise no prompt.
+type PermissionCheckHandler = (
+  webContents: unknown,
+  permission: string,
+  requestingOrigin: string,
+) => boolean
+
 function fakeSession() {
   let handler: PermissionHandler | null = null
+  let checkHandler: PermissionCheckHandler | null = null
   let requestListener: RequestListener | null = null
   return {
     setPermissionRequestHandler(next: PermissionHandler | null) {
       handler = next
+    },
+    setPermissionCheckHandler(next: PermissionCheckHandler | null) {
+      checkHandler = next
     },
     webRequest: {
       onBeforeRequest(listener: RequestListener) {
@@ -37,6 +49,13 @@ function fakeSession() {
     resolveHost: async (): Promise<{
       endpoints: { address: string; family: 'ipv4' | 'ipv6' }[]
     }> => ({ endpoints: [{ address: '93.184.216.34', family: 'ipv4' }] }),
+    check(permission: string): boolean {
+      assert.ok(checkHandler, 'a permission check handler must be registered')
+      return checkHandler({}, permission, 'https://example.com')
+    },
+    hasCheckHandler(): boolean {
+      return checkHandler !== null
+    },
     request(permission: string): boolean {
       assert.ok(handler, 'a permission request handler must be registered')
       let granted: boolean | undefined
@@ -330,4 +349,52 @@ test('hardenSession passes the blocked-request reporter through', async () => {
   await session.requestURL('http://169.254.169.254/latest/meta-data/')
 
   assert.deepEqual(blocked, ['http://169.254.169.254/latest/meta-data/'])
+})
+
+// The request handler covers the prompt path; Chromium consults the check
+// handler on its own for `navigator.permissions.query`, device enumeration and
+// other capability probes that never raise a prompt (#789).
+test('hardenSession registers a permission check handler', () => {
+  const session = fakeSession()
+  hardenSession(session)
+  assert.ok(
+    session.hasCheckHandler(),
+    'hardenSession must register a permission check handler',
+  )
+})
+
+test('hardened session answers no to every permission check', () => {
+  // Electron's `setPermissionCheckHandler` union, which is not the request
+  // handler's: `hid`, `serial`, `usb` and `deprecated-sync-clipboard-read` are
+  // check-only, while `display-capture`, `keyboardLock`, `speaker-selection`
+  // and `window-management` are request-only.
+  const session = fakeSession()
+  hardenSession(session)
+  for (const permission of [
+    'media',
+    'mediaKeySystem',
+    'geolocation',
+    'notifications',
+    'midi',
+    'midiSysex',
+    'clipboard-read',
+    'clipboard-sanitized-write',
+    'deprecated-sync-clipboard-read',
+    'fileSystem',
+    'fullscreen',
+    'openExternal',
+    'serial',
+    'hid',
+    'usb',
+    'idle-detection',
+    'storage-access',
+    'top-level-storage-access',
+    'pointerLock',
+  ]) {
+    assert.equal(
+      session.check(permission),
+      false,
+      `permission check "${permission}" must be denied`,
+    )
+  }
 })
