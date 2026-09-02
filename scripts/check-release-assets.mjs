@@ -9,7 +9,9 @@
 //   - one leg of `release.yml`'s three-platform publish matrix failed, so the
 //     GitHub Release is missing that platform's installers (#453),
 //   - `release.yml` never ran for the tag at all — pushed from a workflow
-//     token, or the run was cancelled — so there is no release behind the tag.
+//     token, or the run was cancelled — so there is no release behind the tag,
+//   - the release was built but never taken out of draft (#698), so nothing
+//     outside the maintainer's releases page can see it.
 //
 // Both point self-hosters and the app's updater at a release that cannot be
 // installed, and neither shows up anywhere. The expected artifact kinds are
@@ -145,7 +147,7 @@ export function formatReport({ status, tag, missing }) {
     return (
       `::error::${tag} has no GitHub Release, so the tag shipped no ` +
       'installers. Re-run release.yml for the tag (Actions → Release → Run ' +
-      `workflow) or delete and re-push ${tag}.`
+      'workflow); the tag stays, it is the record of what was released.'
     )
   }
   if (status === 'draft') {
@@ -166,30 +168,72 @@ async function git(args) {
   return stdout
 }
 
-// The releases endpoint answers 404 both for an unknown tag and for a draft
-// release that the token may not read — hence the token, which the workflow
-// passes in and which also lifts the anonymous rate limit.
-async function fetchReleaseByTag({ repository, tag, token }) {
-  const response = await fetch(
-    `https://api.github.com/repos/${repository}/releases/tags/${tag}`,
-    {
-      headers: {
-        accept: 'application/vnd.github+json',
-        'x-github-api-version': '2022-11-28',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-    },
-  )
+// A draft release carries its `tag_name` but is not attached to the tag yet,
+// so `GET /releases/tags/<tag>` answers 404 for one no matter how privileged
+// the token is (#698). Reading the listing instead is the only way to see a
+// draft — and the listing only includes drafts for a token with push access,
+// which is why the workflow's job runs with `contents: write`.
+export function findReleaseByTag(releases, tag) {
+  const matches = releases.filter((release) => release.tag_name === tag)
 
-  if (response.status === 404) {
+  if (matches.length === 0) {
     return null
   }
-  if (!response.ok) {
-    throw new Error(
-      `GitHub API returned ${response.status} for the release of ${tag}.`,
+  // One tag has carried two releases here before: with no draft present yet,
+  // two publish legs each created their own (#671). The published one is what
+  // the updater and a self-hoster see, so it decides the verdict whatever
+  // order the listing returns them in.
+  return matches.find((release) => !release.draft) ?? matches[0]
+}
+
+// Paged rather than asked for by tag, for the reason above. The release this
+// check is after is the newest one and the listing is newest-first, so the
+// first page all but always answers it; the later pages cover a release
+// published out of order. Exhausting them without a match is reported as its
+// own error rather than as "no release": blaming a paging limit on a missing
+// release would be the same misdiagnosis this check exists to avoid.
+//
+// The token the workflow passes in also lifts the anonymous rate limit.
+export async function fetchReleaseByTag({
+  repository,
+  tag,
+  token,
+  fetchImpl = fetch,
+  perPage = 100,
+  maxPages = 5,
+}) {
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await fetchImpl(
+      `https://api.github.com/repos/${repository}/releases` +
+        `?per_page=${perPage}&page=${page}`,
+      {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+      },
     )
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API returned ${response.status} for the releases of ${repository}.`,
+      )
+    }
+    const batch = await response.json()
+    const release = findReleaseByTag(batch, tag)
+
+    if (release !== null) {
+      return release
+    }
+    if (batch.length < perPage) {
+      return null
+    }
   }
-  return response.json()
+  throw new Error(
+    `${tag} is not among the ${maxPages * perPage} most recent releases of ` +
+      `${repository}, so this check cannot tell what it produced.`,
+  )
 }
 
 async function main() {

@@ -470,18 +470,24 @@ up to date. Run it from the Actions tab, or locally:
 node scripts/check-release-tag.mjs
 ```
 
-The same job then checks what that tag actually produced: a tag can exist while
-its release is still broken — a publish leg of `release.yml` failed and left a
+A second job checks what that tag actually produced: a tag can exist while its
+release is still broken — a publish leg of `release.yml` failed and left a
 partially populated release behind (#453), the workflow never ran for the tag,
-or the release was never taken out of draft. The check asks the GitHub API for
-the release of the version on `main` and asserts the artifact kinds the `make`
-job builds (`*.deb`, `*.rpm`, `*-setup-*.exe`, `latest.yml`, `*.zip`,
-`latest-mac.yml`). Releases before v0.9.2 carry Squirrel's artifact names and
-are skipped.
+or the release was never taken out of draft (#698). The check reads the
+repository's release listing, picks the release of the version on `main` and
+asserts the artifact kinds the `make` job builds (`*.deb`, `*.rpm`,
+`*-setup-*.exe`, `latest.yml`, `*.zip`, `latest-mac.yml`). Releases before
+v0.9.2 carry Squirrel's artifact names and are skipped.
 
 ```sh
-node scripts/check-release-assets.mjs
+GH_TOKEN=$(gh auth token) node scripts/check-release-assets.mjs
 ```
+
+The token is not optional for a local run: GitHub returns draft releases only
+to a token with push access, and without one an unpublished release looks
+exactly like a tag that produced nothing at all. That is why the job runs with
+`contents: write` — it writes nothing — while the tag check above stays
+read-only.
 
 Both checks anchor on the version the manifest claims rather than on the
 highest `vX.Y.Z` tag they can find. A higher tag is not proof of a newer
