@@ -133,6 +133,7 @@ export function logBootstrap({
 /** The slice of `process` the shutdown wiring uses, so specs can inject one. */
 export interface ProcessLike {
   on(signal: 'SIGTERM' | 'SIGINT', listener: () => void): unknown
+  off(signal: 'SIGTERM' | 'SIGINT', listener: () => void): unknown
   exit(code?: number): void
 }
 
@@ -166,18 +167,22 @@ export const DEFAULT_FORCE_EXIT_MS = 8_000
  * `beforeClose` lets the caller finish work the instance knows nothing about
  * (the boot, which is still minting and persisting tokens) before the teardown
  * runs; a rejection there is ignored, since a failed boot must not keep the
- * process alive. The force-exit timer bounds that wait too.
+ * process alive. `flush` then persists whatever that work left queued, ahead of
+ * draining connections and — unlike a Fastify hook — genuinely awaited. The
+ * force-exit timer bounds both waits.
  */
 export function registerShutdownHandlers({
   app,
   process: proc,
   forceExitAfterMs = DEFAULT_FORCE_EXIT_MS,
   beforeClose,
+  flush,
 }: {
   app: ClosableApp
   process: ProcessLike
   forceExitAfterMs?: number
   beforeClose?: () => Promise<unknown>
+  flush?: () => Promise<void>
 }): {
   isShuttingDown: () => boolean
   shutdown: (signal: 'SIGTERM' | 'SIGINT') => void
@@ -211,6 +216,9 @@ export function registerShutdownHandlers({
           // still runs — but the process must not report a clean stop for it.
           bootError = err
         }
+      }
+      if (flush) {
+        await flush()
       }
       await app.close()
     })()
@@ -287,16 +295,19 @@ export default async function runServer({
   // and a second signal in that window gives up immediately — nothing has been
   // built yet that could be flushed.
   let signalDuringInit: 'SIGTERM' | 'SIGINT' | null = null
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    proc.on(signal, () => {
+  let initDeadline: ReturnType<typeof setTimeout> | undefined
+  const initListeners = (['SIGTERM', 'SIGINT'] as const).map((signal) => {
+    const listener = () => {
       if (signalDuringInit !== null) {
         proc.exit(1)
         return
       }
       signalDuringInit = signal
-      setTimeout(() => proc.exit(1), DEFAULT_FORCE_EXIT_MS)
-    })
-  }
+      initDeadline = setTimeout(() => proc.exit(1), DEFAULT_FORCE_EXIT_MS)
+    }
+    proc.on(signal, listener)
+    return { signal, listener }
+  })
 
   // The startup diagnostics below run *after* `initApp` purely so they can go
   // through `app.log`: they belong in the structured stream like every other
@@ -326,21 +337,22 @@ export default async function runServer({
   // storage writes are serialized, so one more write drains whatever is still
   // queued instead of letting a shutdown truncate it.
   //
-  // It runs in `preClose`, before connections are drained, rather than in
-  // `onClose` after them: a peer whose TCP path is already dead can hold the
-  // drain open for the WebSocket close timeout, and the force-exit timer would
-  // then fire before a flush placed behind it ever ran — losing exactly the
-  // write this exists to save. A storage that is already failing must not turn
-  // an orderly shutdown into a crash, so it is reported the same way the
-  // fire-and-forget writes are.
-  app.addHook('preClose', async () => {
+  // It is driven from the shutdown path rather than from a Fastify hook: an
+  // `onClose` hook runs only after connections have drained, which a peer with
+  // a dead TCP path can stall past the force-exit budget, and a `preClose` hook
+  // is not reliably awaited — `@fastify/websocket`'s own `preClose` calls its
+  // `done` twice, letting `app.close()` resolve while a later hook is still
+  // running. A storage that is already failing must not turn an orderly
+  // shutdown into a crash, so it is reported the way the fire-and-forget writes
+  // are.
+  const flushStorage = async () => {
     try {
       await db.write()
     } catch (err) {
       app.log.error({ err }, 'Failed to flush storage during shutdown')
       reportCaughtError(err)
     }
-  })
+  }
 
   // The rest of the boot runs as one awaitable unit so the shutdown handlers
   // can be armed before it starts: a stop signal arriving during a slow start
@@ -356,7 +368,16 @@ export default async function runServer({
     app,
     process: proc,
     beforeClose: () => boot,
+    flush: flushStorage,
   })
+
+  // Every signal now goes through the single idempotent handler above; leaving
+  // the init-window listeners in place would let a second one hard-exit on top
+  // of the teardown they were only ever meant to bridge to.
+  for (const { signal, listener } of initListeners) {
+    proc.off(signal, listener)
+  }
+  clearTimeout(initDeadline)
 
   if (signalDuringInit !== null) {
     shutdown(signalDuringInit)

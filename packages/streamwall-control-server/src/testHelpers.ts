@@ -53,6 +53,10 @@ export function fakeProcess() {
       emitter.on(signal, listener)
       return proc
     },
+    off(signal, listener) {
+      emitter.off(signal, listener)
+      return proc
+    },
     exit(code) {
       exitCodes.push(code)
     },

@@ -249,18 +249,31 @@ describe('runServer shutdown wiring', () => {
     assert.deepEqual(exitCodes, [0])
   })
 
-  test('closing flushes storage, so a queued auth write cannot be lost', async () => {
+  test('the storage flush completes before the process exits', async () => {
+    // Starting the flush is not enough: auth persistence is fire-and-forget, so
+    // a shutdown that exits while the write is still in flight truncates
+    // exactly the state it was supposed to save.
     const db = inMemoryDb() as StorageDB
-    let writes = 0
+    const { proc, exitCodes } = fakeProcess()
+    const events: string[] = []
     const realWrite = db.write.bind(db)
+    let booted = false
     db.write = async () => {
-      writes += 1
-      await delay(5)
+      if (booted) {
+        events.push('flush:start')
+        await delay(50)
+        await realWrite()
+        events.push('flush:done')
+        return
+      }
       return realWrite()
+    }
+    proc.exit = (code) => {
+      events.push(`exit:${code}`)
+      exitCodes.push(code)
     }
 
     const logs = captureLogs()
-    const { proc } = fakeProcess()
     const { server } = await runServer({
       baseURL: 'http://127.0.0.1:0',
       clientStaticPath: import.meta.dirname,
@@ -271,81 +284,92 @@ describe('runServer shutdown wiring', () => {
       process: proc,
     })
     after(() => server.close())
+    booted = true
 
-    const before = writes
     proc.emit('SIGTERM')
     await logs.waitForMessage('Shutdown complete', 10000)
 
-    assert.ok(
-      writes > before,
-      'shutdown must flush storage rather than leave a fire-and-forget write in flight',
+    assert.deepEqual(
+      events,
+      ['flush:start', 'flush:done', 'exit:0'],
+      'the flush must have landed before the process exited',
     )
   })
 })
 
-test('a real SIGTERM to the entry point exits 0 and leaves storage intact', async () => {
-  // The specs above inject a fake process, which is what keeps the handlers off
-  // the test runner — but that also means nothing exercises the default
-  // binding to the real `process`, or the real `process.exit`. This one boots
-  // the entry point as a child and signals it the way a container stop does.
-  const dataDir = mkdtempSync(path.join(tmpdir(), 'sw-shutdown-'))
-  const dbPath = path.join(dataDir, 'storage.json')
-  // Launched exactly the way the image's CMD does — `node <entry>`, on Node's
-  // own type stripping — so this covers the same invocation a container stops.
-  const child = spawn(
-    process.execPath,
-    [path.join(import.meta.dirname, 'index.ts')],
-    {
-      env: {
-        ...process.env,
-        DB_PATH: dbPath,
-        LOG_LEVEL: 'info',
-        STREAMWALL_CONTROL_URL: 'http://127.0.0.1:0',
-        STREAMWALL_CONTROL_STATIC: makeStaticDir(),
-        STREAMWALL_UPDATE_CHECK: 'false',
+test(
+  'a real SIGTERM to the entry point exits 0 and leaves storage intact',
+  {
+    // Windows has no POSIX signals: `kill('SIGTERM')` there is an unconditional
+    // TerminateProcess, so there is no graceful path to observe.
+    skip: process.platform === 'win32' ? 'POSIX signals only' : false,
+  },
+  async () => {
+    // The specs above inject a fake process, which is what keeps the handlers off
+    // the test runner — but that also means nothing exercises the default
+    // binding to the real `process`, or the real `process.exit`. This one boots
+    // the entry point as a child and signals it the way a container stop does.
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'sw-shutdown-'))
+    const dbPath = path.join(dataDir, 'storage.json')
+    // Launched exactly the way the image's CMD does — `node <entry>`, on Node's
+    // own type stripping — so this covers the same invocation a container stops.
+    const child = spawn(
+      process.execPath,
+      [path.join(import.meta.dirname, 'index.ts')],
+      {
+        env: {
+          ...process.env,
+          DB_PATH: dbPath,
+          LOG_LEVEL: 'info',
+          STREAMWALL_CONTROL_URL: 'http://127.0.0.1:0',
+          STREAMWALL_CONTROL_STATIC: makeStaticDir(),
+          STREAMWALL_UPDATE_CHECK: 'false',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  )
-  after(() => {
-    child.kill('SIGKILL')
-    rmSync(dataDir, { recursive: true, force: true })
-  })
-
-  // Both streams are drained: an unread pipe blocks the child once it fills,
-  // and stderr is what says why a boot died.
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
-  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
-
-  // The credential banner is the last thing the boot prints, so seeing it
-  // means the server is up and the signal lands on a running process. Matched
-  // against everything received so far, since a pipe splits where it likes.
-  await new Promise<void>((resolve, reject) => {
-    const fail = (reason: string) =>
-      reject(new Error(`${reason}\nstdout: ${stdout}\nstderr: ${stderr}`))
-    const timer = setTimeout(
-      () => fail('the server never finished booting'),
-      30000,
     )
-    child.on('error', (err) => fail(`the server could not be spawned: ${err}`))
-    child.on('exit', (code) => fail(`the server exited early with ${code}`))
-    child.stdout.on('data', () => {
-      if (stdout.includes('Admin invite')) {
-        clearTimeout(timer)
-        resolve()
-      }
+    after(() => {
+      child.kill('SIGKILL')
+      rmSync(dataDir, { recursive: true, force: true })
     })
-  })
 
-  child.removeAllListeners('exit')
-  child.kill('SIGTERM')
-  const [code] = (await once(child, 'exit')) as [number | null, string | null]
+    // Both streams are drained: an unread pipe blocks the child once it fills,
+    // and stderr is what says why a boot died.
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
 
-  assert.equal(code, 0, `a stop signal must produce a clean exit\n${stderr}`)
-  assert.doesNotThrow(
-    () => JSON.parse(readFileSync(dbPath, 'utf8')),
-    'the storage file must survive the shutdown intact',
-  )
-})
+    // The credential banner is the last thing the boot prints, so seeing it
+    // means the server is up and the signal lands on a running process. Matched
+    // against everything received so far, since a pipe splits where it likes.
+    await new Promise<void>((resolve, reject) => {
+      const fail = (reason: string) =>
+        reject(new Error(`${reason}\nstdout: ${stdout}\nstderr: ${stderr}`))
+      const timer = setTimeout(
+        () => fail('the server never finished booting'),
+        30000,
+      )
+      child.on('error', (err) =>
+        fail(`the server could not be spawned: ${err}`),
+      )
+      child.on('exit', (code) => fail(`the server exited early with ${code}`))
+      child.stdout.on('data', () => {
+        if (stdout.includes('Admin invite')) {
+          clearTimeout(timer)
+          resolve()
+        }
+      })
+    })
+
+    child.removeAllListeners('exit')
+    child.kill('SIGTERM')
+    const [code] = (await once(child, 'exit')) as [number | null, string | null]
+
+    assert.equal(code, 0, `a stop signal must produce a clean exit\n${stderr}`)
+    assert.doesNotThrow(
+      () => JSON.parse(readFileSync(dbPath, 'utf8')),
+      'the storage file must survive the shutdown intact',
+    )
+  },
+)
