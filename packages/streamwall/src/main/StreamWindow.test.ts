@@ -1967,6 +1967,17 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     expect(other.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
   })
 
+  it('keeps background listening recorded across a re-applied expansion', () => {
+    const { other, expand, collapse } = setupExpansion('background')
+
+    expand()
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'BACKGROUND' })
+  })
+
   it('keeps a listen selection made while parked across a re-applied expansion', () => {
     const { sw, other, expand, collapse } = setupExpansion('muted')
 
