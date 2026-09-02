@@ -395,4 +395,12 @@ test('releases the uplink slot when the desktop dies during token validation', a
     'the reconnecting uplink must not be refused: the slot must have been released',
   )
   assert.equal(secondWs.readyState, WebSocket.OPEN)
+  // Pin the premise: the first socket really did die inside the validation
+  // window. Without this the spec would silently degrade into a no-op should
+  // the race window ever close (a faster host, cheaper scrypt params, or the
+  // `await` moving), because that timeline passes even unfixed.
+  assert.ok(
+    logs.hasMessage('Streamwall uplink closed during authorization'),
+    'the first uplink must have closed while its token was still being validated',
+  )
 })
