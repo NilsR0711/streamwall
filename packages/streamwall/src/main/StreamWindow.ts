@@ -215,6 +215,8 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     })
     secureAppWindow(layerView.webContents, {
       appPageURL: () => rendererPageURL(page),
+      openExternal: null,
+      allowSubframeNavigation: true,
     })
     hardenSession(layerView.webContents.session, {
       // In development the layer page and its assets are served from the Vite

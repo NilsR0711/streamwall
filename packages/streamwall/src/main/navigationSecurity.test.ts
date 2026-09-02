@@ -366,11 +366,15 @@ test('secureAppWindow blocks a remote navigation even before anything has commit
 function secureFakeLayer(currentURL = APP_PAGE) {
   vi.spyOn(log, 'info').mockImplementation(() => undefined)
   const wc = new FakeWebContents(currentURL)
-  secureAppWindow(asWebContents(wc), { appPageURL: () => APP_PAGE })
+  secureAppWindow(asWebContents(wc), {
+    appPageURL: () => APP_PAGE,
+    openExternal: null,
+    allowSubframeNavigation: true,
+  })
   return { wc }
 }
 
-test('secureAppWindow without an openExternal denies every popup and launches nothing', () => {
+test('secureAppWindow with a null openExternal denies every popup and launches nothing', () => {
   const { wc } = secureFakeLayer()
 
   assert.ok(wc.windowOpenHandler, 'a window-open handler must be registered')
@@ -383,16 +387,7 @@ test('secureAppWindow without an openExternal denies every popup and launches no
   }
 })
 
-test('secureAppWindow without an openExternal still blocks navigation away', () => {
-  const { wc } = secureFakeLayer()
-
-  assert.equal(
-    wc.dispatchNavigation('will-navigate', 'https://evil.example/', true),
-    true,
-  )
-})
-
-test('secureAppWindow lets a subframe resolve its own redirects', () => {
+test('secureAppWindow lets a subframe resolve its own redirects where the caller opts in', () => {
   // `will-redirect` fires for sub-frames as well, and the chrome layers exist to
   // host third-party iframes whose own 302s (shortlinks, http->https, CDNs) must
   // resolve. Those requests are governed at the network layer by the session's
@@ -414,6 +409,18 @@ test('secureAppWindow still blocks a main-frame redirect', () => {
 
   assert.equal(
     wc.dispatchNavigation('will-redirect', 'https://evil.example/', true),
+    true,
+  )
+})
+
+test('secureAppWindow blocks a subframe redirect where the caller has not opted in', () => {
+  // The control window renders no iframe, and relaxing it would leave
+  // control.html's <meta> CSP as the only thing between a future embed and
+  // remote content.
+  const { wc } = secureFakeAppWindow()
+
+  assert.equal(
+    wc.dispatchNavigation('will-redirect', 'https://evil.example/', false),
     true,
   )
 })

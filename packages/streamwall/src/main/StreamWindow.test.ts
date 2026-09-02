@@ -1680,13 +1680,18 @@ describe('StreamWindow constructor', () => {
     ])
   })
 
-  it("gives the layers no way to open a link in the operator's browser", () => {
+  it("gives the layers no way to open a link in the operator's browser, but lets their iframes redirect", () => {
     new StreamWindow(makeConfig())
 
-    for (const [, options] of vi.mocked(secureAppWindow).mock.calls) {
-      expect(options.openExternal).toBeUndefined()
-    }
-    expect(vi.mocked(secureAppWindow)).toHaveBeenCalledTimes(2)
+    expect(
+      vi.mocked(secureAppWindow).mock.calls.map(([, options]) => ({
+        openExternal: options.openExternal,
+        allowSubframeNavigation: options.allowSubframeNavigation,
+      })),
+    ).toEqual([
+      { openExternal: null, allowSubframeNavigation: true },
+      { openExternal: null, allowSubframeNavigation: true },
+    ])
   })
 
   it('starts with empty view bookkeeping', () => {
