@@ -183,6 +183,35 @@ describe('overlay blocked-URL rendering', () => {
     expect(root.textContent).toContain('not a public address')
   })
 
+  test('remounts every layer frame when any layer link is edited', () => {
+    // A refused frame is requested exactly once, so a layer that is still
+    // blocked has to be re-requested to report itself again once the operator's
+    // edit has cleared the notice -- including a layer they did not touch.
+    const untouched = makeOverlayStream('https://untouched.example/overlay')
+    const root = renderOverlayStreams([
+      untouched,
+      makeOverlayStream('http://192.168.1.50/overlay'),
+    ])
+    const frameBefore = root.querySelectorAll('iframe')[0]
+
+    act(() => {
+      render(
+        <Overlay
+          config={makeConfig(1)}
+          views={[]}
+          streams={[untouched, makeOverlayStream('https://fixed.example/x')]}
+        />,
+        root,
+      )
+    })
+
+    const frameAfter = root.querySelectorAll('iframe')[0]
+    expect(frameAfter.getAttribute('src')).toBe(
+      'https://untouched.example/overlay',
+    )
+    expect(frameAfter).not.toBe(frameBefore)
+  })
+
   test('leaves every frame mounted, so a URL refused once can still succeed', () => {
     const root = renderOverlayStreams(
       [

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { StreamList } from 'streamwall-shared'
 
 /** Subscribes to the layer's blocked-URL reports; returns an unsubscribe. */
@@ -22,6 +22,17 @@ export function layerLinksKey(streams: StreamList): string {
     .filter((s) => s.kind === 'overlay' || s.kind === 'background')
     .map((s) => s.link)
     .join('\n')
+}
+
+/**
+ * The `key` a layer's iframe must carry. Keyed by the whole link set rather
+ * than by the stream alone, so that editing *any* layer link remounts *every*
+ * layer frame: a refused frame is requested exactly once, so a layer that is
+ * still blocked has to be re-requested to report itself again once the edit has
+ * cleared the notice (#790).
+ */
+export function layerFrameKey(linksKey: string, id: string): string {
+  return `${linksKey}:${id}`
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -87,7 +98,11 @@ export function useBlockedLayerURLs(
     }
   }, [subscribe])
 
-  useEffect(() => {
+  // Layout, not passive: the frames are remounted at the same commit, and a
+  // remounted frame whose address needs no DNS lookup can be refused -- and
+  // reported -- before a passive effect would have run, which would drop the
+  // very report the remount exists to produce.
+  useLayoutEffect(() => {
     if (resetKey === undefined) {
       return
     }
