@@ -45,6 +45,13 @@ describe('blocked layer URL placement', () => {
     )
 
     expect(shownURLs(root)).toEqual([BLOCKED])
+    // Not merely somewhere on screen: the notice is about the link the
+    // operator typed, so it belongs in the same section as the input it was
+    // typed into.
+    const notice = root.querySelector('.blocked-layer-url')!.parentElement!
+    expect(
+      notice.parentElement?.querySelector('input[aria-label="Stream URL"]'),
+    ).not.toBeNull()
   })
 
   test('renders no notice while nothing was refused', () => {

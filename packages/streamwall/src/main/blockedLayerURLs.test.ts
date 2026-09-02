@@ -16,14 +16,18 @@ function layers(...links: string[]): StreamData[] {
 
 describe('BlockedLayerURLTracker', () => {
   // The returned list is stored as the broadcast state, so handing out the
-  // tracker's own array would let a later mutation rewrite a state already
-  // sent.
+  // tracker's own array would tie an already-sent state to whatever happens to
+  // it next.
   it('hands out a list of its own', () => {
     const tracker = new BlockedLayerURLTracker()
-    const first = tracker.report('http://192.168.1.5/a')
-    tracker.report('http://192.168.1.5/b')
+    const first = tracker.report('http://192.168.1.5/a')!
 
-    expect(first).toEqual(['http://192.168.1.5/a'])
+    first.push('http://192.168.1.5/not-refused')
+
+    expect(tracker.report('http://192.168.1.5/b')).toEqual([
+      'http://192.168.1.5/a',
+      'http://192.168.1.5/b',
+    ])
   })
 
   it('collects refused URLs in the order they were reported', () => {
