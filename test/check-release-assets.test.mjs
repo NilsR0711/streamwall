@@ -8,10 +8,13 @@ import { fileURLToPath } from 'node:url'
 import {
   EXPECTED_ASSET_PATTERNS,
   FIRST_CHECKED_VERSION,
+  TRANSIENT_EXIT_CODE,
+  classifyFetchError,
   evaluateReleaseAssets,
   fetchReleaseByTag,
   findReleaseByTag,
   formatReport,
+  isTransientResponse,
   parseRepository,
   selectReleaseTag,
 } from '../scripts/check-release-assets.mjs'
@@ -352,10 +355,169 @@ test('fetchReleaseByTag fails on an API error rather than reading it as absent',
     fetchReleaseByTag({
       repository: 'streamwallhq/streamwall',
       tag: 'v0.9.1',
-      fetchImpl: async () => ({ ok: false, status: 503 }),
+      // A single attempt: this test is about the error message, not retries,
+      // which are covered separately below.
+      retries: 1,
+      fetchImpl: async () => ({ ok: false, status: 503, headers: noHeaders }),
     }),
     /503/,
   )
+})
+
+// A 5xx, a 429, or a 403 carrying `retry-after` says nothing about whether
+// the release is broken — only that the API had a bad moment. A plain 403
+// (no `retry-after`) is a permissions problem and must not be treated the
+// same way, or a bad token would retry forever instead of failing loudly.
+test('isTransientResponse recognizes retryable GitHub API responses', () => {
+  assert.equal(isTransientResponse({ status: 500, headers: noHeaders }), true)
+  assert.equal(isTransientResponse({ status: 502, headers: noHeaders }), true)
+  assert.equal(isTransientResponse({ status: 429, headers: noHeaders }), true)
+  assert.equal(
+    isTransientResponse({ status: 403, headers: retryAfterHeaders('30') }),
+    true,
+  )
+  assert.equal(isTransientResponse({ status: 403, headers: noHeaders }), false)
+  assert.equal(isTransientResponse({ status: 404, headers: noHeaders }), false)
+})
+
+function noSleep() {
+  return Promise.resolve()
+}
+
+const noHeaders = { get: () => null }
+
+function retryAfterHeaders(value) {
+  return { get: (name) => (name === 'retry-after' ? value : null) }
+}
+
+test('fetchReleaseByTag retries a transient response and succeeds once it recovers', async () => {
+  const draft = { tag_name: 'v0.9.1', draft: false, assets: [] }
+  let calls = 0
+  const delays = []
+
+  const release = await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    retries: 3,
+    sleep: async (ms) => {
+      delays.push(ms)
+    },
+    fetchImpl: async () => {
+      calls += 1
+      if (calls < 3) {
+        return { ok: false, status: 503, headers: noHeaders }
+      }
+      return listingResponse([draft])
+    },
+  })
+
+  assert.equal(release, draft)
+  assert.equal(calls, 3)
+  assert.equal(delays.length, 2)
+})
+
+test('fetchReleaseByTag honours a Retry-After header when backing off', async () => {
+  let calls = 0
+  const delays = []
+
+  await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    retries: 2,
+    sleep: async (ms) => {
+      delays.push(ms)
+    },
+    fetchImpl: async () => {
+      calls += 1
+      if (calls === 1) {
+        return { ok: false, status: 429, headers: retryAfterHeaders('7') }
+      }
+      return listingResponse([])
+    },
+  })
+
+  assert.deepEqual(delays, [7000])
+})
+
+// A network failure (DNS, connection reset, timeout) throws out of `fetch`
+// itself rather than returning a response, and is just as much a blip as a
+// 503 — it must be retried the same way.
+test('fetchReleaseByTag retries a network error thrown by fetch', async () => {
+  let calls = 0
+
+  const release = await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    retries: 2,
+    sleep: noSleep,
+    fetchImpl: async () => {
+      calls += 1
+      if (calls === 1) {
+        throw new Error('getaddrinfo ENOTFOUND api.github.com')
+      }
+      return listingResponse([])
+    },
+  })
+
+  assert.equal(release, null)
+  assert.equal(calls, 2)
+})
+
+test('fetchReleaseByTag marks the error transient once retries are exhausted', async () => {
+  await assert.rejects(
+    fetchReleaseByTag({
+      repository: 'streamwallhq/streamwall',
+      tag: 'v0.9.1',
+      retries: 3,
+      sleep: noSleep,
+      fetchImpl: async () => ({ ok: false, status: 503, headers: noHeaders }),
+    }),
+    (error) => {
+      assert.match(error.message, /503/)
+      assert.equal(error.transient, true)
+      return true
+    },
+  )
+})
+
+// A non-transient failure (a bad token, a repository that does not exist) is
+// a real problem, not a blip — retrying it would only delay the report.
+test('fetchReleaseByTag does not retry a non-transient API error', async () => {
+  let calls = 0
+
+  await assert.rejects(
+    fetchReleaseByTag({
+      repository: 'streamwallhq/streamwall',
+      tag: 'v0.9.1',
+      retries: 3,
+      sleep: noSleep,
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 404, headers: noHeaders }
+      },
+    }),
+    (error) => {
+      assert.match(error.message, /404/)
+      assert.ok(!error.transient)
+      return true
+    },
+  )
+  assert.equal(calls, 1)
+})
+
+test('classifyFetchError describes a transient failure as inconclusive rather than broken', () => {
+  const error = new Error('GitHub API returned 503 for the releases of x/y.')
+  error.transient = true
+
+  const classified = classifyFetchError(error)
+
+  assert.equal(classified.exitCode, TRANSIENT_EXIT_CODE)
+  assert.match(classified.message, /^::warning::/)
+  assert.match(classified.message, /503/)
+})
+
+test('classifyFetchError leaves a non-transient error for the caller to rethrow', () => {
+  assert.equal(classifyFetchError(new Error('boom')), null)
 })
 
 // "Delete and re-push the tag" throws away the only record of what shipped
@@ -417,4 +579,37 @@ test('the release tag workflow also checks the release assets', () => {
   assert.equal(checkout.with['fetch-depth'], 0)
   // Both failures have to reach the issue the scheduled report files.
   assert.deepEqual(workflow.jobs.report.needs, ['check', 'assets'])
+})
+
+// A transient GitHub API error (#721) exits `scripts/check-release-assets.mjs`
+// with a dedicated code rather than the generic failure code. The step must
+// translate that into a job outcome the report step can tell apart from a
+// real failure, or a network blip would still open "the release is broken".
+test('the asset check step turns a transient exit code into an inconclusive outcome', () => {
+  const workflow = load(
+    readFileSync(join(rootDir, '.github/workflows/release-tag.yml'), 'utf8'),
+  )
+  const job = workflow.jobs.assets
+  const step = job.steps.find((candidate) =>
+    candidate.run?.includes('scripts/check-release-assets.mjs'),
+  )
+
+  assert.equal(step.id, 'assets')
+  assert.match(step.run, /\$GITHUB_OUTPUT/)
+  assert.match(
+    step.run,
+    /\b2\b/,
+    'the step must check for the transient exit code',
+  )
+
+  const report = workflow.jobs.report
+  // The base condition still has to cover every job's real result, or a new
+  // job could fail silently; the inconclusive outcome only narrows the
+  // "success" branch so a transient run neither files nor closes a report.
+  assert.match(String(report.with.result), /needs\.\*\.result/)
+  assert.match(
+    String(report.with.result),
+    /needs\.assets\.outputs\.outcome/,
+    'a transient run must not be reported as success',
+  )
 })

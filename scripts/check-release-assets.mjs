@@ -89,6 +89,70 @@ export function selectReleaseTag({ version, tags }) {
   return { status: 'check', tag }
 }
 
+// A transient GitHub API error (a 5xx, a rate limit, or a plain network
+// failure) says nothing about whether the release is actually broken. Retried
+// a few times it usually clears on its own; if it still has not after that,
+// this script exits with this dedicated code so the workflow can treat the
+// run as inconclusive instead of reporting "the release is broken" over a
+// blip in GitHub's API (#721).
+export const TRANSIENT_EXIT_CODE = 2
+
+const DEFAULT_RETRIES = 3
+const DEFAULT_BASE_DELAY_MS = 500
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+// A 5xx or a 429 is GitHub having a bad moment; a 403 carrying `retry-after`
+// is its secondary rate limit, which behaves the same way. A plain 403 with
+// no such header is a permissions problem instead — retrying that would only
+// hide a bad token behind a few seconds of silence.
+export function isTransientResponse(response) {
+  if (response.status === 429 || response.status >= 500) {
+    return true
+  }
+  if (response.status === 403) {
+    return response.headers?.get?.('retry-after') != null
+  }
+  return false
+}
+
+function backoffDelayMs(response, attempt, baseDelayMs) {
+  const retryAfter = response?.headers?.get?.('retry-after')
+  if (retryAfter != null) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return seconds * 1000
+    }
+  }
+  return baseDelayMs * 2 ** (attempt - 1)
+}
+
+function markTransient(error) {
+  error.transient = true
+  return error
+}
+
+// Translates a `fetchReleaseByTag` failure into what the CLI should do about
+// it: `null` for anything that is a real problem and must keep failing loudly
+// (a bad token, an exhausted page limit), or the exit code and message for a
+// transient one that could not be resolved even after retrying.
+export function classifyFetchError(error) {
+  if (!error?.transient) {
+    return null
+  }
+  return {
+    exitCode: TRANSIENT_EXIT_CODE,
+    message:
+      `::warning::${error.message} Retried and still could not reach the ` +
+      'GitHub API, so this run cannot tell whether the release is complete ' +
+      '— treating it as inconclusive rather than reporting a broken release.',
+  }
+}
+
 export function parseRepository(remoteUrl) {
   const match = /github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(
     remoteUrl.trim(),
@@ -194,6 +258,11 @@ export function findReleaseByTag(releases, tag) {
 // release would be the same misdiagnosis this check exists to avoid.
 //
 // The token the workflow passes in also lifts the anonymous rate limit.
+//
+// Each page request is retried on a transient failure (#721): GitHub having a
+// bad moment does not mean the release is broken, so a 5xx, a rate limit, or
+// a plain network error gets a few attempts with backoff before this gives
+// up and marks the error transient for the caller to report as inconclusive.
 export async function fetchReleaseByTag({
   repository,
   tag,
@@ -201,26 +270,21 @@ export async function fetchReleaseByTag({
   fetchImpl = fetch,
   perPage = 100,
   maxPages = 5,
+  retries = DEFAULT_RETRIES,
+  baseDelayMs = DEFAULT_BASE_DELAY_MS,
+  sleep = defaultSleep,
 }) {
   for (let page = 1; page <= maxPages; page += 1) {
-    const response = await fetchImpl(
-      `https://api.github.com/repos/${repository}/releases` +
-        `?per_page=${perPage}&page=${page}`,
-      {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28',
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
-      },
-    )
-
-    if (!response.ok) {
-      throw new Error(
-        `GitHub API returned ${response.status} for the releases of ${repository}.`,
-      )
-    }
-    const batch = await response.json()
+    const batch = await fetchReleasesPage({
+      repository,
+      page,
+      perPage,
+      token,
+      fetchImpl,
+      retries,
+      baseDelayMs,
+      sleep,
+    })
     const release = findReleaseByTag(batch, tag)
 
     if (release !== null) {
@@ -234,6 +298,62 @@ export async function fetchReleaseByTag({
     `${tag} is not among the ${maxPages * perPage} most recent releases of ` +
       `${repository}, so this check cannot tell what it produced.`,
   )
+}
+
+async function fetchReleasesPage({
+  repository,
+  page,
+  perPage,
+  token,
+  fetchImpl,
+  retries,
+  baseDelayMs,
+  sleep,
+}) {
+  const url =
+    `https://api.github.com/repos/${repository}/releases` +
+    `?per_page=${perPage}&page=${page}`
+  const init = {
+    headers: {
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  }
+
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let response
+    try {
+      response = await fetchImpl(url, init)
+    } catch (networkError) {
+      if (attempt === retries) {
+        throw markTransient(
+          new Error(
+            `Could not reach the GitHub API for the releases of ` +
+              `${repository}: ${networkError.message}`,
+          ),
+        )
+      }
+      await sleep(baseDelayMs * 2 ** (attempt - 1))
+      continue
+    }
+
+    if (response.ok) {
+      return response.json()
+    }
+
+    const message = `GitHub API returned ${response.status} for the releases of ${repository}.`
+    if (!isTransientResponse(response)) {
+      throw new Error(message)
+    }
+    if (attempt === retries) {
+      throw markTransient(new Error(message))
+    }
+    await sleep(backoffDelayMs(response, attempt, baseDelayMs))
+  }
+  // Unreachable: `retries` is always at least 1, so the loop above either
+  // returns or throws before falling out the bottom.
+  throw new Error(`Could not fetch the releases of ${repository}.`)
 }
 
 async function main() {
@@ -258,14 +378,24 @@ async function main() {
     process.env.GITHUB_REPOSITORY ||
     parseRepository(await git(['remote', 'get-url', 'origin']))
 
-  const result = evaluateReleaseAssets({
-    tag,
-    release: await fetchReleaseByTag({
+  let release
+  try {
+    release = await fetchReleaseByTag({
       repository,
       tag,
       token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
-    }),
-  })
+    })
+  } catch (error) {
+    const classified = classifyFetchError(error)
+    if (!classified) {
+      throw error
+    }
+    console.log(classified.message)
+    process.exitCode = classified.exitCode
+    return
+  }
+
+  const result = evaluateReleaseAssets({ tag, release })
 
   console.log(formatReport(result))
   if (result.status !== 'complete') {
