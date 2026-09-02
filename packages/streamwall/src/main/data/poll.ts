@@ -84,6 +84,11 @@ export async function* pollDataURL(
     let data: StreamDataContent[] = []
     try {
       const resp = await fetchWithTimeout(url, fetchTimeout)
+      if (!resp.ok) {
+        throw new Error(
+          `received HTTP ${resp.status} ${resp.statusText} from ${url}`,
+        )
+      }
       data = parseStreamEntries(await resp.json(), `from ${url}`)
       onHealth?.(true)
     } catch (err) {
