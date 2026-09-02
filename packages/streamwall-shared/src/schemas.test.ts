@@ -61,6 +61,24 @@ describe('streamDataInputSchema', () => {
     expect(streamDataInputSchema.safeParse({ link: 42 }).success).toBe(false)
   })
 
+  // Issue #778: `link` feeds `viewContentSchema.url` (issue #770) one hop
+  // downstream, so an unbounded link would let a data source produce a state
+  // update that fails that bounded schema and gets rejected wholesale.
+  test('rejects a link over MAX_URL_LENGTH', () => {
+    expect(
+      streamDataInputSchema.safeParse({
+        link: 'https://example.com/' + 'x'.repeat(MAX_URL_LENGTH),
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts a link at exactly MAX_URL_LENGTH', () => {
+    expect(
+      streamDataInputSchema.safeParse({ link: 'x'.repeat(MAX_URL_LENGTH) })
+        .success,
+    ).toBe(true)
+  })
+
   test('strips internal identity fields from untrusted input', () => {
     const result = streamDataInputSchema.safeParse({
       link: 'https://example.com/s',
@@ -129,6 +147,19 @@ describe('parseStreamList', () => {
     expect(errors.map((e) => e.index)).toEqual([1, 2])
   })
 
+  // Issue #778: an oversized link from a data source must be dropped like any
+  // other invalid entry, not allowed through to later break the downstream
+  // bounded viewContentSchema.url and reject the whole state broadcast.
+  test('drops an entry whose link exceeds MAX_URL_LENGTH but keeps the rest', () => {
+    const { streams, errors } = parseStreamList([
+      { link: 'a' },
+      { link: 'https://example.com/' + 'x'.repeat(MAX_URL_LENGTH) },
+      { link: 'c' },
+    ])
+    expect(streams.map((s) => s.link)).toEqual(['a', 'c'])
+    expect(errors.map((e) => e.index)).toEqual([1])
+  })
+
   test('returns an empty list for non-array input', () => {
     expect(parseStreamList('nope').streams).toEqual([])
     expect(parseStreamList(null).streams).toEqual([])
@@ -149,6 +180,26 @@ describe('localStreamDataSchema', () => {
     expect(
       localStreamDataSchema.safeParse({ link: '', kind: 'video' }).success,
     ).toBe(false)
+  })
+
+  // Issue #778: same bound as streamDataInputSchema.link, for the
+  // update-custom-stream command payload.
+  test('rejects a link over MAX_URL_LENGTH', () => {
+    expect(
+      localStreamDataSchema.safeParse({
+        link: 'https://example.com/' + 'x'.repeat(MAX_URL_LENGTH),
+        kind: 'video',
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts a link at exactly MAX_URL_LENGTH', () => {
+    expect(
+      localStreamDataSchema.safeParse({
+        link: 'x'.repeat(MAX_URL_LENGTH),
+        kind: 'video',
+      }).success,
+    ).toBe(true)
   })
 })
 
