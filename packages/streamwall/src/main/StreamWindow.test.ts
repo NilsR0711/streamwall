@@ -614,6 +614,12 @@ function makeReuseTestActor(opts: {
   content: ViewContent | null
   spaces: number[]
   running: boolean
+  /**
+   * Whether the actor is in `displaying` at all. Independent of `running`:
+   * `displaying` also covers `loading` and `error`, which is what
+   * `setListeningView` checks for. Defaults to true.
+   */
+  displaying?: boolean
   desiredAudio?: 'muted' | 'listening' | 'background'
 }) {
   // Mirrors viewStateMachine's `audio` region closely enough for the park
@@ -658,10 +664,9 @@ function makeReuseTestActor(opts: {
       // Accepts both shapes the production code uses: the plain 'displaying'
       // string (setListeningView) and the nested running query (reuse).
       matches: (query: string | { displaying: string }) =>
-        opts.running &&
-        (typeof query === 'string'
-          ? query === 'displaying'
-          : query.displaying === 'running'),
+        typeof query === 'string'
+          ? query === 'displaying' && (opts.displaying ?? true)
+          : opts.running && query.displaying === 'running',
     }),
     send,
     stop,
@@ -1923,9 +1928,11 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     sw.setListeningView(2)
 
     // The live view is muted as usual, proving the selection was applied at
-    // all -- but the parked one is left alone rather than made audible.
+    // all -- but the parked one is only recorded, never made audible while it
+    // is invisible.
     expect(expanding.send).toHaveBeenCalledWith({ type: 'MUTE' })
     expect(other.send).not.toHaveBeenCalled()
+    expect(sw.parkedAudio.get(2)).toBe('listening')
   })
 
   it('drops the recorded audio state of a parked view when another view is selected', () => {
@@ -1937,6 +1944,7 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     // come back audible and make two streams play at once.
     sw.setListeningView(1)
     expect(expanding.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
+    expect(sw.parkedAudio.get(2)).toBe('muted')
     other.send.mockClear()
     collapse()
 
