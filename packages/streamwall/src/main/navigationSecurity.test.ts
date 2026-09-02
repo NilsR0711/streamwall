@@ -156,6 +156,9 @@ const isAppURL = (url: string) => url.startsWith(APP_ROOT)
 // Builds a control-window-style guard set over a fake webContents, returning
 // the double and the injected `openExternal` spy.
 function secureFakeAppWindow(currentURL = APP_PAGE) {
+  // Silence the guard's breadcrumbs so test output stays clean.
+  vi.spyOn(log, 'info').mockImplementation(() => undefined)
+  vi.spyOn(log, 'warn').mockImplementation(() => undefined)
   const wc = new FakeWebContents(currentURL)
   const openExternal = vi.fn()
   secureAppWindow(asWebContents(wc), { isAppURL, openExternal })

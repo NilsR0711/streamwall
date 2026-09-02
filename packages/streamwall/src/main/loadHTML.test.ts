@@ -2,7 +2,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { isAppPageURL } from './loadHTML'
+import { isAppPageURL, loadHTML } from './loadHTML'
 
 // `MAIN_WINDOW_VITE_DEV_SERVER_URL` and `MAIN_WINDOW_VITE_NAME` are injected by
 // the Forge/Vite plugin at build time; under test they are stubbed per case.
@@ -26,6 +26,33 @@ describe('isAppPageURL in a packaged build', () => {
     packaged()
 
     expect(isAppPageURL(appPage)).toBe(true)
+  })
+
+  // Ties the allowlist to the loader: whatever `loadHTML` actually puts in the
+  // window must be an app page, and its parent directory must not be. Without
+  // this, a wrong renderer root in `isAppPageURL` (say one segment too high,
+  // allowlisting everything under `src/`) would leave every other case here
+  // green because they all derive their fixtures from the same expression.
+  it('accepts exactly what loadHTML loads, and not the directory above it', async () => {
+    packaged()
+    let loaded = ''
+    const webContents = {
+      loadFile: (filePath: string) => {
+        loaded = filePath
+        return Promise.resolve()
+      },
+      loadURL: () => Promise.resolve(),
+    }
+
+    await loadHTML(webContents as never, 'control')
+
+    expect(isAppPageURL(pathToFileURL(loaded).href)).toBe(true)
+    // `src/renderer/control.html` -> `src/renderer` -> `src` -> the renderer
+    // root itself, whose parent is outside the bundle.
+    const outside = path.resolve(loaded, '../../../..')
+    expect(isAppPageURL(pathToFileURL(path.join(outside, 'x.html')).href)).toBe(
+      false,
+    )
   })
 
   it('rejects a file URL outside the renderer directory', () => {

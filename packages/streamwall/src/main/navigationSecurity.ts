@@ -100,9 +100,16 @@ export function secureAppWindow(
   // app's privileges. An app page reached this way is dropped instead: opening
   // a second copy of the control UI in a browser is not what a click meant.
   const openAway = (url: string) => {
-    if (!isAppURL(url) && isExternallyOpenable(url)) {
-      openExternal(url)
+    if (isAppURL(url)) {
+      return
     }
+    if (!isExternallyOpenable(url)) {
+      // Leaves a breadcrumb: a link that neither navigates nor opens anywhere
+      // is otherwise a silent dead click.
+      log.warn('Dropping link with a non-externally-openable scheme:', url)
+      return
+    }
+    openExternal(url)
   }
 
   webContents.setWindowOpenHandler(({ url }) => {
@@ -114,6 +121,7 @@ export function secureAppWindow(
     if (isAppURL(event.url)) {
       return
     }
+    log.info('Blocking navigation away from an app page:', event.url)
     event.preventDefault()
     openAway(event.url)
   }
