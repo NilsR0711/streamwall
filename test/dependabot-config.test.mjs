@@ -77,10 +77,9 @@ test('the old undifferentiated npm groups are gone', () => {
   )
 })
 
-// The typescript/@playwright/test ignore entries are the reason a single
-// blocked major used to stall the whole group; they must stay untouched by
-// this split (typescript majors: #426, @playwright/test: #691).
-test('the existing major-version ignore entries are preserved', () => {
+// The typescript ignore entry is the reason a single blocked major used to
+// stall the whole group; it must stay untouched by this split (#426).
+test('the existing typescript major-version ignore entry is preserved', () => {
   const { ignore } = findNpmUpdate(readDependabotConfig())
 
   const typescriptIgnore = ignore.find(
@@ -90,16 +89,16 @@ test('the existing major-version ignore entries are preserved', () => {
   assert.deepEqual(typescriptIgnore['update-types'], [
     'version-update:semver-major',
   ])
+})
 
-  const playwrightIgnore = ignore.find(
-    (entry) => entry['dependency-name'] === '@playwright/test',
-  )
+// @playwright/test was ignored only until upstream stopped hard-failing on
+// unresolved hoisted tsconfig `extends` paths (#691); once upgraded, the
+// entry must not linger and keep blocking future Dependabot updates.
+test('the @playwright/test ignore entry is gone now that it has been upgraded', () => {
+  const { ignore } = findNpmUpdate(readDependabotConfig())
+
   assert.ok(
-    playwrightIgnore,
-    'the @playwright/test ignore entry must stay in place',
+    !ignore.some((entry) => entry['dependency-name'] === '@playwright/test'),
+    'the @playwright/test ignore entry should have been removed as part of #691',
   )
-  assert.deepEqual(playwrightIgnore['update-types'], [
-    'version-update:semver-minor',
-    'version-update:semver-major',
-  ])
 })

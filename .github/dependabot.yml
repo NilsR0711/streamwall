@@ -16,13 +16,6 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
-      # Playwright 1.62 resolves tsconfig `extends` only in the tsconfig's own
-      # node_modules, which misses our hoisted `@tsconfig/*` bases and kills
-      # the E2E job during config load. Drop as part of #691.
-      - dependency-name: '@playwright/test'
-        update-types:
-          - version-update:semver-minor
-          - version-update:semver-major
     # Grouped PRs are all-or-nothing, so a group is split by update-type: a
     # blocked major (see the `ignore` comment above) never holds back the
     # low-risk minor/patch updates that ship alongside it (#690).
