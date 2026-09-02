@@ -33,6 +33,7 @@ import viewStateMachine, {
   DEFAULT_RETRY_CONFIG,
   RetryConfig,
   ViewActor,
+  type DesiredAudio,
 } from './viewStateMachine'
 import { resolveWindowPlacement } from './windowPlacement'
 
@@ -77,6 +78,13 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   // when called with `{ parkUnused: true }`; cleared and re-considered as
   // reuse candidates on every subsequent `setViews` call.
   parkedViews: Map<ViewId, ViewActor>
+  // The audio state each parked view had when it was parked, to be restored
+  // once it is displayed again. A parked view is invisible, so it is always
+  // silenced while hidden (issue #740); this is the desire to put back, kept
+  // up to date by `setListeningView` so a selection made during the expansion
+  // wins over the pre-park state. Keyed and cleared exactly like
+  // `parkedViews`.
+  parkedAudio: Map<ViewId, DesiredAudio>
   // Routes IPC messages from a specific WebContentsView back to whichever
   // actor owns it. Keyed by live `webContents.id`, unlike `views` (keyed by
   // each actor's stable `context.id`, fixed at creation): once a content swap
@@ -103,6 +111,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     this.pauseParkedViews = pauseParkedViews
     this.views = new Map()
     this.parkedViews = new Map()
+    this.parkedAudio = new Map()
     this.viewsByWebContentsId = new Map()
 
     // Sequenced setup: the window must exist before the layer views can be
@@ -443,12 +452,37 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * from scratch (issue #369). Mirrors `viewStateMachine`'s `offscreenView`
    * action, which the actor itself uses while a fresh view is loading.
    */
-  private hideView(actor: ViewActor) {
-    const { view, win, offscreenWin } = actor.getSnapshot().context
+  private hideView(
+    actor: ViewActor,
+    previouslyParkedAudio: Map<ViewId, DesiredAudio>,
+  ) {
+    const { id, view, win, offscreenWin } = actor.getSnapshot().context
     win.contentView.removeChildView(view)
     offscreenWin.contentView.addChildView(view)
     const { width, height } = offscreenWin.getBounds()
     view.setBounds({ x: 0, y: 0, width, height })
+    // A parked view is entirely invisible, so it must be inaudible too:
+    // before #369 these views were destroyed, which silenced them as a side
+    // effect, and leaving one audible means a stream the operator cannot see
+    // (and, once another tile is selected to listen to, cannot silence) keeps
+    // playing over the expansion (issue #740). Unmuting is deferred until the
+    // view is displayed again -- see `displayPlannedViews`.
+    //
+    // The state to restore comes from the previous park whenever there was
+    // one: every state-doc change during an expansion re-runs `setViews` with
+    // `parkUnused`, re-parking an already-parked view, and by then its own
+    // `desiredAudio` is the muted state the first park imposed -- re-deriving
+    // from it would strand the view silent for good.
+    const desiredAudio =
+      previouslyParkedAudio.get(id) ?? actor.getSnapshot().context.desiredAudio
+    this.parkedAudio.set(id, desiredAudio)
+    // `background` is the "keep listening even when another tile is selected"
+    // mode and deliberately ignores MUTE (see viewStateMachine's `audio`
+    // region), so silencing it takes UNBACKGROUND. Both are idempotent, so a
+    // repeated park is harmless.
+    actor.send({
+      type: desiredAudio === 'background' ? 'UNBACKGROUND' : 'MUTE',
+    })
     if (this.pauseParkedViews) {
       actor.send({ type: 'PAUSE' })
     }
@@ -569,7 +603,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   private displayPlannedViews(
     viewsToDisplay: Array<{ box: LayoutBox; view: ViewActor }>,
     streams: StreamList,
-    previouslyParkedIds: Set<ViewId>,
+    previouslyParkedAudio: Map<ViewId, DesiredAudio>,
     unusedViews: Set<ViewActor>,
   ): Map<ViewId, ViewActor> {
     const { width, height, cols, rows } = this.config
@@ -595,8 +629,20 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       view.send({ type: 'DISPLAY', pos, content })
       view.send({ type: 'OPTIONS', options: getDisplayOptions(stream) })
       const viewId = view.getSnapshot().context.id
-      if (this.pauseParkedViews && previouslyParkedIds.has(viewId)) {
-        view.send({ type: 'RESUME' })
+      if (previouslyParkedAudio.has(viewId)) {
+        // Un-parking: put back the audio state the view had when it was
+        // parked, or whichever one was selected for it in the meantime
+        // (issue #740). Nothing to send for `muted` -- parking already left
+        // it that way.
+        const desiredAudio = previouslyParkedAudio.get(viewId)
+        if (desiredAudio === 'listening') {
+          view.send({ type: 'UNMUTE' })
+        } else if (desiredAudio === 'background') {
+          view.send({ type: 'BACKGROUND' })
+        }
+        if (this.pauseParkedViews) {
+          view.send({ type: 'RESUME' })
+        }
       }
       newViews.set(viewId, view)
     }
@@ -608,10 +654,14 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * either parked (kept alive but hidden, see `hideView` and the
    * `parkedViews` field) or stopped and fully disposed.
    */
-  private retireUnusedViews(unusedViews: Set<ViewActor>, parkUnused: boolean) {
+  private retireUnusedViews(
+    unusedViews: Set<ViewActor>,
+    parkUnused: boolean,
+    previouslyParkedAudio: Map<ViewId, DesiredAudio>,
+  ) {
     for (const view of unusedViews) {
       if (parkUnused) {
-        this.hideView(view)
+        this.hideView(view, previouslyParkedAudio)
         this.parkedViews.set(view.getSnapshot().context.id, view)
         continue
       }
@@ -641,15 +691,18 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     const { cols, rows } = this.config
     const boxes = boxesFromViewContentMap(cols, rows, viewContentMap)
 
-    // Snapshot which actor ids were parked coming into this call, so a view
-    // matched back into a box below can be told to resume playback (issue
-    // #374) -- `this.parkedViews` itself is cleared right after and
-    // repopulated with whatever is still unused once this call is done.
-    const previouslyParkedIds = new Set(this.parkedViews.keys())
+    // Snapshot which actors were parked coming into this call, along with the
+    // audio state to restore for them, so a view matched back into a box below
+    // can be told to resume playback (issue #374) and to become audible again
+    // (issue #740). `this.parkedViews`/`this.parkedAudio` themselves are
+    // cleared right after and repopulated with whatever is still unused once
+    // this call is done.
+    const previouslyParkedAudio = new Map(this.parkedAudio)
 
     // Decide reuse vs. teardown vs. creation up front, then just execute it.
     const plan = planViewLayout(boxes, this.reuseCandidates())
     this.parkedViews.clear()
+    this.parkedAudio.clear()
 
     const unusedViews = new Set(plan.unusedViews)
     const viewsToDisplay = [
@@ -660,10 +713,10 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     const newViews = this.displayPlannedViews(
       viewsToDisplay,
       streams,
-      previouslyParkedIds,
+      previouslyParkedAudio,
       unusedViews,
     )
-    this.retireUnusedViews(unusedViews, parkUnused)
+    this.retireUnusedViews(unusedViews, parkUnused, previouslyParkedAudio)
     this.views = newViews
     this.emitState()
   }
@@ -680,6 +733,20 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       }
       const isSelectedView = viewId != null && id === viewId
       view.send({ type: isSelectedView ? 'UNMUTE' : 'MUTE' })
+    }
+    // Parked views are hidden behind a fullscreen expansion and stay silent
+    // for as long as they are (issue #740), so a selection cannot reach them
+    // now -- record it instead, and `displayPlannedViews` applies it when the
+    // view comes back. A `background` view keeps that mode here for the same
+    // reason its live counterpart above ignores MUTE.
+    for (const [id, desiredAudio] of this.parkedAudio) {
+      if (desiredAudio === 'background') {
+        continue
+      }
+      this.parkedAudio.set(
+        id,
+        viewId != null && id === viewId ? 'listening' : 'muted',
+      )
     }
   }
 
