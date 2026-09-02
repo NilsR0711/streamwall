@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { MAX_VIEW_INFO_TITLE_LENGTH } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const executeJavaScript = vi.fn()
@@ -170,6 +171,79 @@ describe('mediaPreload initial acquireMedia rejection', () => {
     importedMediaApi().reportError('hls-unsupported')
 
     expect(viewErrorCalls()).toHaveLength(1)
+  })
+})
+
+describe('mediaPreload view-info title bound (issue #734)', () => {
+  // Must match INITIAL_TIMEOUT in mediaPreload.ts; not exported since it's an
+  // implementation detail, not part of the module's public surface.
+  const INITIAL_TIMEOUT_MS = 10 * 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+  })
+
+  function viewInfoCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-info')
+  }
+
+  // Resolves view-init with 'video' content, which is what makes main() send
+  // the view-info message containing document.title. Since no <video>
+  // element is ever placed in the document and DOMContentLoaded is never
+  // dispatched, findMedia's own search stays pending until its INITIAL_TIMEOUT
+  // elapses; fully advancing past that here (as the sibling "initial
+  // acquireMedia rejection" describe block above does) settles it and
+  // releases its MutationObserver, rather than leaving it dangling on the
+  // shared happy-dom `document` to affect a later, unrelated test.
+  async function loadWithVideoContent() {
+    invoke.mockResolvedValueOnce({
+      content: { kind: 'video', link: 'https://example.com/stream' },
+      options: {},
+      volume: 1,
+    })
+    await import('./mediaPreload')
+    process.emit('loaded' as never)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  async function settleAcquireMedia() {
+    await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS)
+  }
+
+  it('truncates a page-controlled document.title before sending it as view-info', async () => {
+    document.title = 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH + 300)
+
+    await loadWithVideoContent()
+
+    expect(viewInfoCalls()).toEqual([
+      [
+        'view-info',
+        { info: { title: 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH) } },
+      ],
+    ])
+
+    await settleAcquireMedia()
+  })
+
+  it('leaves a title within the limit untouched', async () => {
+    document.title = 'a short stream title'
+
+    await loadWithVideoContent()
+
+    expect(viewInfoCalls()).toEqual([
+      ['view-info', { info: { title: 'a short stream title' } }],
+    ])
+
+    await settleAcquireMedia()
   })
 })
 
