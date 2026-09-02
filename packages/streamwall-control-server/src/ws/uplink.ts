@@ -75,8 +75,6 @@ export function registerUplinkRoute(
         return
       }
 
-      ctx.currentStreamwallWs = ws
-
       // Liveness check: without it, a desktop that disappears mid-connection
       // would keep the single uplink slot occupied and block any reconnect.
       const stopHeartbeat = startHeartbeat(
@@ -86,6 +84,10 @@ export function registerUplinkRoute(
         log,
       )
 
+      // Claiming the slot and arming its release stay adjacent and free of any
+      // `await`, so no future statement can slip in between and reintroduce a
+      // narrower version of the window this fix closes.
+      ctx.currentStreamwallWs = ws
       releaseSlot = () => {
         // The slot is released exactly once, no matter how often `close` fires.
         releaseSlot = null
