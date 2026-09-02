@@ -137,6 +137,42 @@ describe('GridInput', () => {
     expect(input.getAttribute('data-idx')).toBe('3')
   })
 
+  // GridInput passes its own onFocus/onBlur (to track focusedInputIdx). Those
+  // used to shadow LazyChangeInput's internal handlers via prop-spread
+  // ordering, so a mistyped edit that never committed (not a known stream id)
+  // stuck around forever - not cleared by blur, a drag/swap's
+  // activeElement.blur(), or a later spaceValue update (issue #744).
+  test('does not retain a stale, uncommitted edit once the cell loses focus', () => {
+    const onBlur = vi.fn()
+    const box = renderInput({ spaceValue: 'old-stream', onBlur })
+    const input = box.querySelector('input')!
+
+    act(() => {
+      input.value = 'zzz'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => {
+      // As in useTileDrag.handleSwapView, blurring the input deselects it so
+      // its edit is not persisted by GridInput's internal editingValue.
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    })
+
+    expect(onBlur).toHaveBeenCalledTimes(1)
+
+    // A later re-render with a fresh spaceValue (e.g. from the wall's real
+    // state) must not be masked by the stale local edit.
+    act(() => {
+      render(
+        <StyleSheetManager target={styleTarget}>
+          {gridInput({ spaceValue: 'wok', onBlur })}
+        </StyleSheetManager>,
+        container!,
+      )
+    })
+
+    expect(input.value).toBe('wok')
+  })
+
   test('paints the tile lighter while it is highlighted', () => {
     expect(cellColor(idColor('stream-1')).lightness()).toBe(75)
     expect(cellColor(idColor('stream-1'), true).lightness()).toBe(90)
