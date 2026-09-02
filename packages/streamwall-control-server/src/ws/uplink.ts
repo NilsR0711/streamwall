@@ -15,6 +15,11 @@ import {
   startHeartbeat,
 } from '../wsSupport.ts'
 
+export interface UplinkRouteOptions {
+  /** The strict per-IP budget for routes that derive a token hash. */
+  authRateLimit: { max: number; timeWindow: string }
+}
+
 /**
  * Registers the desktop uplink endpoint `GET /streamwall/:id/ws`. The uplink is
  * the trusted authority for the shared Yjs doc: it streams the full state
@@ -24,10 +29,18 @@ import {
 export function registerUplinkRoute(
   app: FastifyInstance,
   ctx: AppContext,
+  { authRateLimit }: UplinkRouteOptions,
 ): void {
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
-    { websocket: true },
+    {
+      websocket: true,
+      // The handshake below verifies a bearer token against its scrypt hash,
+      // so it carries the strict budget rather than the global one: without it
+      // a bogus `Authorization` header is a cheap way to burn ~16 MiB and tens
+      // of milliseconds of thread-pool work per request (issue #735).
+      config: { rateLimit: authRateLimit },
+    },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'
       const handleMessage = queueWebSocketMessages(ws, request.log)

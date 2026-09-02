@@ -237,8 +237,16 @@ export async function initApp({
       timeWindow: rateLimitConfig.timeWindow,
     },
   })
-  registerUplinkRoute(app, ctx)
-  registerClientRoutes(app, ctx, { clientStaticPath })
+  registerUplinkRoute(app, ctx, {
+    authRateLimit: {
+      max: rateLimitConfig.authMax,
+      timeWindow: rateLimitConfig.timeWindow,
+    },
+  })
+  registerClientRoutes(app, ctx, {
+    clientStaticPath,
+    rateLimit: rateLimitConfig,
+  })
 
   auth.on('state', (state) => {
     // The write is fire-and-forget by design (the listener is synchronous),
