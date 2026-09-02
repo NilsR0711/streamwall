@@ -409,3 +409,44 @@ test('packaging.yml only reports to the issue tracker on scheduled runs', () => 
       'issue',
   )
 })
+
+// Publishing the release used to be a manual `gh release edit <tag>
+// --draft=false --latest` step, easy to forget: v0.10.5 was tagged and fully
+// built on 2026-07-27 and sat as an unpublished draft — invisible to the
+// updater and to `docker compose pull` alike — until 2026-09-02 (#698, #720).
+test('release.yml publishes the release automatically once it is complete', () => {
+  const release = readWorkflow('release.yml')
+  const job = release.jobs['publish-release']
+
+  assert.ok(job, 'release.yml must have a publish-release job')
+
+  // The release only goes live once the publish matrix AND the release notes
+  // have both landed — the same order a human would check by hand — and only
+  // for a real tag push, exactly like prepare-release.
+  assert.deepEqual(job.needs, ['publish', 'release-notes'])
+  assert.match(
+    String(job.if ?? ''),
+    /startsWith\(github\.ref, 'refs\/tags\/v'\)/,
+    'publish-release must be tag-gated like prepare-release, or a ' +
+      'workflow_dispatch run (whose ref names no release) would try to ' +
+      'publish one',
+  )
+  assert.equal(
+    job.permissions?.contents,
+    'write',
+    'publish-release needs contents: write to take the release out of draft',
+  )
+
+  const step = job.steps.find((candidate) =>
+    candidate.run?.includes('scripts/publish-release.mjs'),
+  )
+  assert.ok(step, 'publish-release must run scripts/publish-release.mjs')
+  assert.ok(
+    step.env?.GH_TOKEN,
+    'publish-release needs a token to read the release and publish it',
+  )
+  assert.ok(
+    step.env?.TAG,
+    'publish-release must tell the script which tag to publish',
+  )
+})

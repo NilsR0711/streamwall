@@ -465,6 +465,25 @@ breaking change bumps the minor version.
    reports the blockage. That is how thirteen commits sat on `main` without a
    release PR after v0.10.0 (#611).
 
+5. Once the three-platform publish matrix and `release-notes` have both
+   succeeded, `publish-release` takes the release out of draft
+   (`gh release edit <tag> --draft=false --latest`) and there is nothing left
+   to do by hand. It checks the same artifact kinds
+   `check-release-assets.mjs` does first (`scripts/publish-release.mjs`); if
+   any are missing — a leg that reported success but somehow left nothing
+   behind, an upload that never finished — the release stays a draft and the
+   job fails loudly instead of quietly going live half-built. Publish it by
+   hand once the missing leg is fixed:
+
+   ```sh
+   gh release edit v<x.y.z> --draft=false --latest
+   ```
+
+   This replaces what used to be a manual step: `v0.10.5` was tagged and
+   fully built on 2026-07-27 and sat as an unpublished draft — invisible to
+   the updater and to `docker compose pull` alike — until 2026-09-02 (#698,
+   #720).
+
 Because that tag is the one manual step,
 [`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) checks
 every morning that the version on `main` has a matching `vX.Y.Z` tag and fails
