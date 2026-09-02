@@ -1584,3 +1584,162 @@ describe('mediaPreload paused acquisition announces the park to the page world (
     expect(video.paused).toBe(false)
   })
 })
+
+describe('mediaPreload IPC handlers registered before view-init (issue #756)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredChannels(): string[] {
+    return on.mock.calls.map(([channel]) => channel as string)
+  }
+
+  function registeredHandler(
+    channel: string,
+  ): (ev: unknown, ...args: unknown[]) => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as (ev: unknown, ...args: unknown[]) => void
+  }
+
+  function viewLoadedCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+    return video
+  }
+
+  // Imports the preload with the 'view-init' round trip still in flight, so a
+  // test can deliver IPC in exactly the window this issue is about: after the
+  // main process answered 'view-init' and dispatched to the view actor, but
+  // before the renderer resumed past its own `await`.
+  async function loadWithPendingViewInit(): Promise<
+    (init?: Record<string, unknown>) => Promise<void>
+  > {
+    let resolveInit!: (payload: Record<string, unknown>) => void
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          resolveInit = resolve
+        }),
+    )
+
+    await import('./mediaPreload')
+
+    return async (init: Record<string, unknown> = {}) => {
+      resolveInit({
+        content: { kind: 'video', link: 'https://example.com/stream' },
+        options: {},
+        volume: 1,
+        ...init,
+      })
+      document.dispatchEvent(new Event('DOMContentLoaded'))
+      process.emit('loaded' as never)
+      await vi.advanceTimersByTimeAsync(0)
+    }
+  }
+
+  it('registers the operator IPC handlers before awaiting the view-init round trip', async () => {
+    await loadWithPendingViewInit()
+
+    // Electron drops messages for channels that have no listener yet, so
+    // every channel the main process may send right after answering
+    // 'view-init' has to be listening already.
+    expect(registeredChannels()).toEqual(
+      expect.arrayContaining(['pause', 'resume', 'options', 'volume']),
+    )
+  })
+
+  it('honors a pause delivered before view-init resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('pause')(null)
+    await settleViewInit({ paused: false })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.paused).toBe(true)
+  })
+
+  it('does not let the view-init payload clobber a resume delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('resume')(null)
+    await settleViewInit({ paused: true })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.paused).toBe(false)
+  })
+
+  it('announces an early pause to the page world at acquisition time too', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+    const events: string[] = []
+    document.addEventListener('streamwall:media-pause', (ev) =>
+      events.push(ev.type),
+    )
+
+    registeredHandler('pause')(null)
+    await settleViewInit({ paused: false })
+
+    // Once from the handler itself (no media existed yet) and once from the
+    // acquisition re-asserting the park on the element it just found, so a
+    // freshly created hls.js instance also learns to stop loading (#667).
+    expect(events).toEqual(['streamwall:media-pause', 'streamwall:media-pause'])
+    expect(video.paused).toBe(true)
+  })
+
+  it('does not let the view-init payload clobber a volume delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('volume')(null, 0.25)
+    await settleViewInit({ volume: 1 })
+
+    expect(video.volume).toBe(0.25)
+  })
+
+  it('does not let the view-init payload clobber options delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('options')(null, { rotation: 90 })
+    await settleViewInit({ options: { rotation: 180 } })
+
+    expect(video.className).toBe('__rot90__')
+  })
+
+  it('still applies the view-init payload when no message arrived early', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    await settleViewInit({
+      paused: true,
+      volume: 0.5,
+      options: { rotation: 270 },
+    })
+
+    expect(video.paused).toBe(true)
+    expect(video.volume).toBe(0.5)
+    expect(video.className).toBe('__rot270__')
+  })
+})
