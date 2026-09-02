@@ -88,9 +88,9 @@ export function registerClientRoutes(
   }
 
   /**
-   * `keyGenerator` and `max` both run per request, and claiming a derivation is
-   * a side effect, so the classification is computed once and remembered on the
-   * request.
+   * `keyGenerator` and `max` both run per request and must agree, so the
+   * classification is computed once and remembered on the request rather than
+   * re-derived from a cache that may have changed in between.
    */
   const derivesOnce = (request: FastifyRequest): boolean => {
     const memo = request as unknown as Record<symbol, boolean | undefined>

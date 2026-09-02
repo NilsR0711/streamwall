@@ -11,10 +11,10 @@ import { systemClock, type Clock } from './rateLimiter.ts'
  * A revocation the server performed itself clears the cache outright, so this
  * only bounds how long one made elsewhere could linger.
  */
-export const DEFAULT_VERIFIED_TOKEN_TTL_MS = 60_000
+const DEFAULT_VERIFIED_TOKEN_TTL_MS = 60_000
 
 /** Upper bound on remembered credentials, so the cache cannot grow unbounded. */
-export const DEFAULT_VERIFIED_TOKEN_MAX_ENTRIES = 1000
+const DEFAULT_VERIFIED_TOKEN_MAX_ENTRIES = 1000
 
 /** The kind of credential a lookup expects, so the two can never be swapped. */
 export type VerifiedTokenKind = AuthTokenInfo['kind']
