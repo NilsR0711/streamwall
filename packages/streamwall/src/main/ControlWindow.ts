@@ -8,6 +8,7 @@ import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
 import { loadHTML } from './loadHTML'
 import log from './logger'
+import { secureAppWindow } from './navigationSecurity'
 
 export type ControlCommandHandler = (
   command: ControlCommand,
@@ -57,6 +58,16 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
     // Deliberately keeps the window menu (unlike StreamWindow, which stays
     // menu-free for clean capture): on Windows/Linux this is what surfaces
     // the app-level "Open Config Folder" item (#86).
+
+    // Pin the window to the bundled control UI. The sidebar lists
+    // operator-supplied stream URLs, and a click on one must not be able to
+    // carry this webContents -- which holds the `streamwallControl` bridge and
+    // satisfies every `control:*` sender guard -- onto remote content (#732).
+    secureAppWindow(this.win.webContents, (url) => {
+      shell.openExternal(url).catch((err) => {
+        log.warn('error opening external link', err)
+      })
+    })
 
     this.win.on('close', (event) => this.emit('close', event))
 
