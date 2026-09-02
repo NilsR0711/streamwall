@@ -24,7 +24,7 @@ import {
   ViewState,
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
-import { devServerOrigin, loadHTML, rendererPageURL } from './loadHTML'
+import { devServerAllowedOrigins, loadHTML, rendererPageURL } from './loadHTML'
 import log from './logger'
 import { secureAppWindow, secureStreamView } from './navigationSecurity'
 import {
@@ -235,10 +235,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       allowSubframeNavigation: true,
     })
     hardenSession(layerView.webContents.session, {
-      // In development the layer page and its assets are served from the Vite
-      // dev server on loopback; allow that origin so the SSRF request guard
-      // does not cancel the layer's own load.
-      allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+      allowedOrigins: devServerAllowedOrigins(),
       // Unlike a stream view, a layer has no `did-fail-load` surface -- and a
       // cancelled load inside one of its iframes would not reach one anyway --
       // so a blocked URL would just go blank (#790).
@@ -492,10 +489,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       },
     })
     hardenSession(view.webContents.session, {
-      // In development the HLS renderer page and its assets are served from the
-      // Vite dev server on loopback; allow that origin so the SSRF request guard
-      // does not cancel them.
-      allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+      allowedOrigins: devServerAllowedOrigins(),
     })
     view.setBackgroundColor(backgroundColor)
 

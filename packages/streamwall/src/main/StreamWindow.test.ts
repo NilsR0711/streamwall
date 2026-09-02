@@ -118,7 +118,7 @@ vi.mock('./loadHTML', () => ({
   // Returns a resolved promise like the real loadHTML, so the caller's `.catch`
   // breadcrumb (issue #626) has something to attach to.
   loadHTML: vi.fn(() => Promise.resolve()),
-  devServerOrigin: vi.fn((): string | undefined => undefined),
+  devServerAllowedOrigins: vi.fn((): string[] => []),
   rendererPageURL: (name: string) =>
     `file:///app/renderer/main_window/src/renderer/${name}.html`,
 }))
@@ -139,7 +139,7 @@ vi.mock('./partitions', async (importOriginal) => ({
 
 const { default: StreamWindow, MAX_PENDING_BLOCKED_URLS } =
   await import('./StreamWindow')
-const { devServerOrigin, loadHTML, rendererPageURL } =
+const { devServerAllowedOrigins, loadHTML, rendererPageURL } =
   await import('./loadHTML')
 const { secureAppWindow } = await import('./navigationSecurity')
 const { hardenSession } = await import('./partitions')
@@ -1546,7 +1546,7 @@ describe('StreamWindow constructor', () => {
     vi.mocked(loadHTML).mockClear()
     vi.mocked(hardenSession).mockClear()
     vi.mocked(secureAppWindow).mockClear()
-    vi.mocked(devServerOrigin).mockReturnValue(undefined)
+    vi.mocked(devServerAllowedOrigins).mockReturnValue([])
   })
 
   function contentViewOf(win: InstanceType<typeof StreamWindow>['win']) {
@@ -1642,7 +1642,9 @@ describe('StreamWindow constructor', () => {
   it('allows the dev server origin so the layer pages themselves still load', () => {
     // In development the layer HTML and its assets come from the Vite dev
     // server on loopback, which the SSRF guard would otherwise cancel.
-    vi.mocked(devServerOrigin).mockReturnValue('http://localhost:5173')
+    vi.mocked(devServerAllowedOrigins).mockReturnValue([
+      'http://localhost:5173',
+    ])
 
     new StreamWindow(makeConfig())
 

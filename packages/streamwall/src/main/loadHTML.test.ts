@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { loadHTML, rendererPageURL } from './loadHTML'
+import { devServerAllowedOrigins, loadHTML, rendererPageURL } from './loadHTML'
 
 // `MAIN_WINDOW_VITE_DEV_SERVER_URL` and `MAIN_WINDOW_VITE_NAME` are injected by
 // the Forge/Vite plugin at build time; under test they are stubbed per case.
@@ -89,5 +89,29 @@ describe('rendererPageURL', () => {
     expect(new URL(rendererPageURL('control')).origin).toBe(
       'http://localhost:5173',
     )
+  })
+})
+
+// Every session that may load one of the app's own renderer pages needs this
+// allowance, and getting it wrong only shows up when someone runs the dev
+// server -- so the two call sites share one definition (#791).
+describe('devServerAllowedOrigins', () => {
+  it('allows the dev server origin in development', () => {
+    dev()
+
+    expect(devServerAllowedOrigins()).toEqual(['http://localhost:5173'])
+  })
+
+  it('allows nothing in a packaged build, where there is no dev server', () => {
+    packaged()
+
+    expect(devServerAllowedOrigins()).toEqual([])
+  })
+
+  it('allows nothing when the dev server URL does not parse', () => {
+    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'not a url')
+    vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window')
+
+    expect(devServerAllowedOrigins()).toEqual([])
   })
 })

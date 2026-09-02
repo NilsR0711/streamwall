@@ -21,6 +21,21 @@ export function devServerOrigin(): string | undefined {
   }
 }
 
+/**
+ * The origins a session must be allowed to reach on top of the public internet,
+ * for any session that may load one of the app's own renderer pages.
+ *
+ * In development those pages and their assets are served from the Vite dev
+ * server on loopback, which the SSRF request guard would otherwise cancel --
+ * along with the guard's own HMR socket. Empty in a packaged build, where the
+ * pages come off disk. Shared by every such call site because getting it wrong
+ * only shows up when someone runs the dev server (#791).
+ */
+export function devServerAllowedOrigins(): string[] {
+  const origin = devServerOrigin()
+  return origin === undefined ? [] : [origin]
+}
+
 /** The renderer HTML pages the app ships. */
 export type RendererPage = 'background' | 'overlay' | 'playHLS' | 'control'
 
