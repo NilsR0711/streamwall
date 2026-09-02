@@ -1,19 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
-const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
+import {
+  lockfilePackages,
+  readJson,
+  resolvesFrom,
+} from './lockfileResolution.mjs'
 
 // `@sentry/node-core` imports this one at module scope, so a missing install
 // is not a degraded-tracing warning — it is an unresolved import that kills
 // the process (and the Vite/Rollup bundle) before any of our code runs.
 const REQUIRED_PEER = '@opentelemetry/instrumentation'
-
-function readJson(relativePath) {
-  return JSON.parse(readFileSync(join(rootDir, relativePath), 'utf8'))
-}
 
 // Every workspace that pulls in `@sentry/node-core`, which every Sentry SDK
 // with a Node runtime (`@sentry/node` on the server, `@sentry/electron` in
@@ -62,24 +60,34 @@ test('workspaces using the Sentry Node SDK declare its OpenTelemetry peer', () =
   }
 })
 
-// The declaration above only helps if the lockfile agrees: npm may still
-// resolve the package through a nested copy that the hoisted
-// `@sentry/node-core` cannot reach.
-test('the lockfile installs the OpenTelemetry peer at the root', () => {
-  const { packages } = readJson('package-lock.json')
-  const entry = packages[`node_modules/${REQUIRED_PEER}`]
+// Where npm puts `@sentry/node-core` is not ours to decide: it lands at the
+// root while a workspace pulls it in transitively, and moves into
+// `packages/<name>/node_modules` as soon as two workspaces want different
+// versions — which is what the @sentry/electron 7.17 bump did. So rather
+// than pinning a location, assert the property that actually matters: from
+// wherever each copy sits, Node's upward `node_modules` walk has to find the
+// peer. That is precisely what failed in #687.
+test('every installed @sentry/node-core can resolve the OpenTelemetry peer', () => {
+  const packages = lockfilePackages()
+
+  const locations = Object.keys(packages).filter((location) =>
+    location.endsWith('node_modules/@sentry/node-core'),
+  )
 
   assert.ok(
-    entry,
-    `package-lock.json has no node_modules/${REQUIRED_PEER} entry, so the ` +
-      'hoisted @sentry/node-core cannot resolve it. Run `npm install` to ' +
+    locations.length > 0,
+    'package-lock.json installs no @sentry/node-core at all, although a ' +
+      'workspace depends on the Sentry Node SDK. Run `npm install` to ' +
       'regenerate the lockfile.',
   )
-  assert.ok(
-    !(entry.optional && entry.peer),
-    `node_modules/${REQUIRED_PEER} in package-lock.json is still marked ` +
-      'both "optional" and "peer", meaning npm installed it only because ' +
-      'Sentry declares it as an optional peer dependency — the next ' +
-      'lockfile regeneration is free to drop it again.',
-  )
+
+  for (const location of locations) {
+    assert.ok(
+      resolvesFrom(packages, location, REQUIRED_PEER),
+      `${location} cannot resolve "${REQUIRED_PEER}": no copy of it exists ` +
+        'in any node_modules directory above it that npm installed for a ' +
+        'real dependency rather than as an optional peer. Declare it ' +
+        'alongside the Sentry SDK and run `npm install` (see #687).',
+    )
+  }
 })
