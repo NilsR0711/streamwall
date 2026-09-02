@@ -331,3 +331,81 @@ test('a single prepare-release job creates the draft before the publish matrix',
       'already exists so re-runs do not fail',
   )
 })
+
+// The v0.10.5 release build failed a maker only after the tag already
+// existed, because a lockfile regeneration hoisted `electron` between the
+// workspace root and a nested `node_modules` without any PR ever running a
+// real maker (#697). Gating that class of PR on the packaging matrix closes
+// the gap between "weekly" and "the tag already exists" for the changes most
+// likely to cause it.
+test('packaging.yml also runs on pull requests that can move the maker inputs', () => {
+  const packaging = readWorkflow('packaging.yml')
+
+  assert.ok(
+    packaging.on.schedule,
+    'packaging.yml must keep its weekly schedule alongside the new trigger',
+  )
+
+  const pullRequest = packaging.on.pull_request
+  assert.ok(
+    pullRequest,
+    'packaging.yml must also trigger on pull_request so a lockfile or ' +
+      'packaging config change runs the real makers before it can reach a ' +
+      'tag',
+  )
+
+  const expectedPaths = [
+    'package-lock.json',
+    'packages/*/package.json',
+    'packages/streamwall/forge.*.ts',
+    '.github/workflows/packaging.yml',
+  ]
+  assert.deepEqual(
+    pullRequest.paths,
+    expectedPaths,
+    'packaging.yml must scope its pull_request trigger to exactly the ' +
+      'paths that can move a package between the workspace root and a ' +
+      'nested node_modules, or that change the maker config itself — ' +
+      'otherwise every PR pays the several-minutes-per-platform cost',
+  )
+})
+
+// A pull_request run supersedes itself on every push, unlike the weekly
+// schedule or a manual re-run, each of which is its own independent verdict
+// worth letting finish.
+test('packaging.yml only self-cancels its pull_request runs', () => {
+  const packaging = readWorkflow('packaging.yml')
+
+  assert.equal(
+    packaging.concurrency?.['cancel-in-progress'],
+    "${{ github.event_name == 'pull_request' }}",
+    'packaging.yml must cancel a superseded pull_request run but keep ' +
+      'letting scheduled and manually dispatched runs finish',
+  )
+})
+
+// This workflow is not a required check (advisory only, per #697): a PR run
+// failing a maker must not touch the shared "scheduled workflow failing"
+// tracking issue, which represents the weekly run's state, not any one PR's.
+// The reusable scheduled-report.yml is also only ever reachable from a
+// `schedule`-triggered run of its own scheduled caller (see
+// scheduled-reports.test.mjs) — restricting the call here to that same event
+// keeps the same invariant now that packaging.yml has a second trigger.
+test('packaging.yml only reports to the issue tracker on scheduled runs', () => {
+  const packaging = readWorkflow('packaging.yml')
+  const report = packaging.jobs.report
+
+  assert.match(
+    String(report.if ?? ''),
+    /always\(\)/,
+    'the report job must still run with always() so a failing matrix leg ' +
+      'is reported',
+  )
+  assert.match(
+    String(report.if ?? ''),
+    /github\.event_name == 'schedule'/,
+    'the report job must be restricted to schedule-triggered runs, so a ' +
+      'pull_request failure does not file or reuse the scheduled-failure ' +
+      'issue',
+  )
+})

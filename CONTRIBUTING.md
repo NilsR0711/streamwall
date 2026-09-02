@@ -198,8 +198,11 @@ keeps this list in sync with the workflows.
 Some workflows intentionally sit outside this gate: `.github/workflows/release.yml`
 (tag-triggered), CodeQL's weekly scheduled scan, which surfaces newly
 disclosed patterns in code that was already merged, and the weekly
-[packaging](#packaging-checks) and [deprecation](#dependency-deprecations)
-checks, which react to upstream changes rather than to anything in a PR.
+[deprecation](#dependency-deprecations) check, which reacts to upstream
+changes rather than to anything in a PR. The [packaging](#packaging-checks)
+matrix is mostly in the same boat, but it also runs — advisory only, not a
+required check — on PRs that touch the lockfile or the packaging config,
+since those are the changes most likely to break a maker.
 
 ### Code scanning alerts
 
@@ -352,7 +355,11 @@ exercised in two other places:
   three platforms every Monday and on manual dispatch — this is the only
   place the darwin zip maker runs outside a release. Run it from the Actions
   tab (optionally with the `debug` input for verbose Forge logging) after a
-  Forge/maker dependency bump.
+  Forge/maker dependency bump. It also runs — advisory only — on PRs that
+  touch `package-lock.json`, a workspace `package.json`, `forge.*.ts`, or the
+  workflow file itself, so a lockfile regeneration that hoists a package like
+  `electron` between the workspace root and a nested `node_modules` gets a
+  real maker run before it can reach a tag (#697).
 
 Two packaging runs can share a machine: `packagerConfig.tmpdir` points each
 run at a directory of its own (`forge.tmpdir.ts`). @electron/packager
