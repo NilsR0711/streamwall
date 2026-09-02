@@ -1548,6 +1548,86 @@ describe('viewStateMachine pause/resume IPC (issue #374)', () => {
 
     expect(sendViewResume).toHaveBeenCalledTimes(1)
   })
+
+  // A parked (paused) view whose stream stalls is reloaded automatically and
+  // comes back up paused (the `view-init` reply carries `paused:
+  // desiredPaused`). If the operator collapses the expansion while that
+  // reload is still in flight, the RESUME lands in `displaying.loading`,
+  // where recording `desiredPaused: false` alone leaves the renderer paused
+  // forever: `running.pause` starts in `unpaused`, so its `always` guard no
+  // longer fires and nothing ever tells the renderer to play again.
+  it('sends a resume message when RESUME arrives during a stalled reload (issue #738)', async () => {
+    const { actor, sendViewPause, sendViewResume } =
+      makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+
+    // Parked behind a fullscreen expansion.
+    actor.send({ type: 'PAUSE' })
+    expect(sendViewPause).toHaveBeenCalledTimes(1)
+
+    // While parked the stream stalls and the watchdog reloads it.
+    actor.send({ type: 'VIEW_STALLED' })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(matchesState('displaying.loading', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    // The operator collapses the expansion mid-reload.
+    actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
+    actor.send({ type: 'RESUME' })
+
+    expect(sendViewResume).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(
+      matchesState(
+        'displaying.running.pause.unpaused',
+        actor.getSnapshot().value,
+      ),
+    ).toBe(true)
+    // The reloaded view must not be paused again on the way back to running.
+    expect(sendViewPause).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends a resume message when RESUME arrives while recovering from an error (issue #738)', async () => {
+    const { actor, sendViewResume } = makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'PAUSE' })
+
+    actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    expect(matchesState('displaying.error', actor.getSnapshot().value)).toBe(
+      true,
+    )
+
+    actor.send({ type: 'RESUME' })
+
+    expect(sendViewResume).toHaveBeenCalledTimes(1)
+  })
+
+  // The counterpart PAUSE stays deferred on purpose: the renderer's 'pause'
+  // handler stops HLS segment fetching, which would starve an acquisition
+  // that has not reached view-loaded yet. `running.pause.unpaused`'s `always`
+  // guard applies it as soon as the view is running again.
+  it('does not send a pause message while the view is still loading', async () => {
+    const { actor, sendViewPause } = makeActorWithPauseSpies(makeRetry())
+    actor.start()
+    display(actor)
+
+    actor.send({ type: 'PAUSE' })
+
+    expect(sendViewPause).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'VIEW_INIT' })
+    actor.send({ type: 'VIEW_LOADED' })
+
+    expect(sendViewPause).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('viewStateMachine resyncSwappedView pause re-send (issue #621)', () => {
