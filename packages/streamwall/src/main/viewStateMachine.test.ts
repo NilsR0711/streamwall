@@ -1744,12 +1744,20 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
     vi.useRealTimers()
   })
 
-  /** Minimal stand-in for electron's `contentView` child list. */
+  /**
+   * Minimal stand-in for electron's `contentView` child list. A view has at
+   * most one parent there, so re-adding an existing child moves it rather
+   * than duplicating it.
+   */
   function makeFakeContentView() {
     const children: unknown[] = []
     return {
       children,
       addChildView: vi.fn((child: unknown, index?: number) => {
+        const existing = children.indexOf(child)
+        if (existing !== -1) {
+          children.splice(existing, 1)
+        }
         if (index === undefined) {
           children.push(child)
         } else {
@@ -1765,40 +1773,36 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
     }
   }
 
-  function makeFakeWindow(width = 100, height = 100) {
+  function makeFakeWindow(width: number, height: number) {
     return {
       contentView: makeFakeContentView(),
       getBounds: () => ({ width, height }),
     }
   }
 
+  const NEW_POS = { x: 10, y: 20, width: 50, height: 60, spaces: [1] }
+
   /**
-   * Runs the *real* `performSwap` (every other electron-touching action is
-   * stubbed) against fake windows/views, driving a full preload swap.
+   * Runs the *real* `performSwap`, `positionView` and `offscreenView` (the
+   * remaining electron-touching actions are stubbed) against fake
+   * windows/views, so the whole park -> swap -> un-park sequence is exercised
+   * against the same child-list bookkeeping production does.
    */
-  function runSwap({ parked }: { parked: boolean }) {
+  function setup() {
     const win = makeFakeWindow(1920, 1080)
     const overlay = { setBounds: vi.fn() }
     const view = { setBounds: vi.fn() }
-    const offscreenWin = makeFakeWindow()
+    const offscreenWin = makeFakeWindow(100, 100)
     const nextView = { setBounds: vi.fn() }
     const nextOffscreenWin = makeFakeWindow(640, 360)
     const disposeView = vi.fn()
 
-    // The overlay always sits on top of the wall; the current view is a child
-    // of the wall window only while the cell is actually on it.
-    if (!parked) {
-      win.contentView.children.push(view)
-    } else {
-      offscreenWin.contentView.children.push(view)
-    }
+    // The overlay always sits on top of the wall's view layers.
     win.contentView.children.push(overlay)
     nextOffscreenWin.contentView.children.push(nextView)
 
     const machine = viewStateMachine.provide({
       actions: {
-        offscreenView: noop,
-        positionView: noop,
         offscreenNextView: noop,
         resyncSwappedView: noop,
         muteAudio: noop,
@@ -1829,6 +1833,20 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
       },
     })
 
+    /** Exactly what `StreamWindow.hideView` does to park a running view. */
+    const park = () => {
+      win.contentView.removeChildView(view)
+      offscreenWin.contentView.addChildView(view)
+    }
+
+    /** Drives the running actor through a content swap to its promotion. */
+    const swap = async () => {
+      actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
+      await vi.advanceTimersByTimeAsync(0)
+      actor.send({ type: 'NEXT_VIEW_INIT' })
+      actor.send({ type: 'NEXT_VIEW_LOADED' })
+    }
+
     return {
       actor,
       win,
@@ -1838,23 +1856,17 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
       nextView,
       nextOffscreenWin,
       disposeView,
+      park,
+      swap,
     }
   }
 
-  /** Drives a running actor through a content swap to its promotion. */
-  async function swap(actor: ReturnType<typeof runSwap>['actor']) {
-    actor.start()
-    await reachRunning(actor)
-    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
-    await vi.advanceTimersByTimeAsync(0)
-    actor.send({ type: 'NEXT_VIEW_INIT' })
-    actor.send({ type: 'NEXT_VIEW_LOADED' })
-  }
-
   it('adds the promoted view to the wall at the retired view index when the cell is visible', async () => {
-    const ctx = runSwap({ parked: false })
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
 
-    await swap(ctx.actor)
+    await ctx.swap()
 
     expect(ctx.win.contentView.children).toContain(ctx.nextView)
     // Takes the retired view's z-index, i.e. still below the overlay.
@@ -1867,9 +1879,12 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
   })
 
   it('leaves the promoted view offscreen when the cell is parked', async () => {
-    const ctx = runSwap({ parked: true })
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.park()
 
-    await swap(ctx.actor)
+    await ctx.swap()
 
     // Nothing new on the wall: the expansion keeps the whole window.
     expect(ctx.win.contentView.children).toEqual([ctx.overlay])
@@ -1889,13 +1904,42 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
   })
 
   it('adopts the promoted view and its offscreen window as the actor context', async () => {
-    const ctx = runSwap({ parked: true })
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.park()
 
-    await swap(ctx.actor)
+    await ctx.swap()
 
     const { context } = ctx.actor.getSnapshot()
     expect(context.view).toBe(ctx.nextView)
     expect(context.offscreenWin).toBe(ctx.nextOffscreenWin)
     expect(context.next).toBeNull()
+  })
+
+  // The whole reason the swap is finished offscreen rather than abandoned:
+  // `context.content` is already the new content, so the DISPLAY that
+  // un-parks the cell is a reposition (the `contentUnchanged` guard), and it
+  // has to put the *promoted* view on the wall showing that new content.
+  it('puts the promoted view on the wall when the cell is un-parked', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.park()
+    await ctx.swap()
+
+    // What `StreamWindow.setViews` sends for a reused, previously parked
+    // cell on collapse: the content the cell now holds, at its new rect.
+    ctx.actor.send({ type: 'DISPLAY', pos: NEW_POS, content: OTHER_CONTENT })
+
+    expect(ctx.win.contentView.children).toEqual([ctx.nextView, ctx.overlay])
+    expect(ctx.nextOffscreenWin.contentView.children).not.toContain(
+      ctx.nextView,
+    )
+    expect(ctx.nextView.setBounds).toHaveBeenLastCalledWith(NEW_POS)
+    // Still running: un-parking must not restart the load.
+    expect(
+      matchesState('displaying.running', ctx.actor.getSnapshot().value),
+    ).toBe(true)
   })
 })

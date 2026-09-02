@@ -324,6 +324,10 @@ const viewStateMachine = setup({
       // it on the offscreen host it already lives on -- the one
       // `promoteNextView` adopts as this actor's offscreen window -- and let
       // the DISPLAY that un-parks the cell position it via `positionView`.
+      //
+      // `StreamWindow.hideView` is the only thing that takes a *running*
+      // view out of the wall window, so a missing child means exactly that:
+      // parked. Keep the two in step if that ever changes.
       const existingIdx = win.contentView.children.indexOf(oldView)
       if (existingIdx === -1) {
         const { width, height } = next.offscreenWin.getBounds()
