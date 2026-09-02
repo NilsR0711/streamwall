@@ -71,14 +71,33 @@ describe('scrypt-bearing routes', () => {
     )
   })
 
-  test('static assets are not throttled by the strict auth budget', async () => {
+  test('a spent strict budget still serves the control client', async () => {
     // The strict budget is sized for scrypt work; a page load pulls far more
-    // assets than that, so it must stay on the global budget.
+    // assets than that. Serving them must therefore neither derive nor share
+    // the budget the deriving routes are throttled by.
     setEnvForTest({
       STREAMWALL_RATE_LIMIT_MAX: '100',
       STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
     })
     const { app, cookie } = await appWithSession()
+
+    for (let i = 0; i < 4; i++) {
+      await app.inject({
+        method: 'GET',
+        url: '/admin/status',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:bbbb${i}` },
+      })
+    }
+    const spent = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:cccc` },
+    })
+    assert.equal(
+      spent.statusCode,
+      429,
+      'the strict budget must be spent for this spec to mean anything',
+    )
 
     for (let i = 0; i < 6; i++) {
       const res = await app.inject({
@@ -86,7 +105,7 @@ describe('scrypt-bearing routes', () => {
         url: '/',
         headers: { cookie },
       })
-      assert.notEqual(res.statusCode, 429, `request ${i} must not be throttled`)
+      assert.equal(res.statusCode, 200, `asset request ${i} must still serve`)
     }
   })
 
@@ -301,8 +320,8 @@ describe('scrypt-bearing routes', () => {
     // A connected browser makes no further requests, so without a refresh its
     // entry would expire and the reconnect after an uplink flap would derive.
     const { app, auth, port } = await bootServerWithUplink({
-      clientPing: { intervalMs: 20, timeoutMs: 1000 },
-      verifiedTokenTtlMs: 60,
+      clientPing: { intervalMs: 20, timeoutMs: 2000 },
+      verifiedTokenTtlMs: 400,
     })
 
     const invite = await auth.createToken({
@@ -328,8 +347,9 @@ describe('scrypt-bearing routes', () => {
     await once(ws, 'open')
     await messageCollector(ws)(500)
 
-    // Well past the TTL, but inside the refresh cadence.
-    await delay(300)
+    // Several TTLs later: without the refresh the entry is long gone, and the
+    // margin over the 20ms cadence leaves room for a loaded runner.
+    await delay(1200)
     const derivations = countDerivations(auth)
     const res = await app.inject({
       method: 'GET',
@@ -420,6 +440,12 @@ describe('scrypt-bearing routes', () => {
         ),
       ])
       outcomes.push(outcome)
+      // Let the server finish with this handshake before starting the next:
+      // a verification still in flight would classify the next one as joining
+      // it, and its charge would land a beat late.
+      if (outcome === 'open') {
+        await once(ws, 'close')
+      }
       ws.terminate()
     }
 
