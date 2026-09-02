@@ -525,3 +525,36 @@ jobs:
           notes="$RUNNER_TEMP/release-notes.md"
           node scripts/changelog-section.mjs "${TAG#v}" > "$notes"
           gh release edit "$TAG" --notes-file "$notes"
+
+  # Takes the release out of draft once there is nothing left to check: the
+  # three-platform publish matrix and the release notes have both succeeded.
+  # `prepare-release` creates the draft only so the matrix has one release to
+  # append assets to (#671); nothing used to take it back out of draft, which
+  # made publishing a step a maintainer could forget entirely — v0.10.5 was
+  # tagged and fully built on 2026-07-27 and sat unpublished, invisible to the
+  # updater and to `docker compose pull` alike, until 2026-09-02 (#698, #720).
+  #
+  # Needing both `publish` and `release-notes` (rather than just `publish`)
+  # means the release only goes live once the notes are in place too — the
+  # same order a human would check by hand. `scripts/publish-release.mjs`
+  # asks the same "does every expected artifact kind actually exist"
+  # question `check-release-assets.mjs` asks the next day, so a leg that
+  # reported success but left nothing behind still keeps the release a draft
+  # instead of publishing it half-built — the safety net stays in place.
+  publish-release:
+    name: Publish the release
+    needs: [publish, release-notes]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # taking the release out of draft
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Publish the release once every artifact kind is present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: node scripts/publish-release.mjs
