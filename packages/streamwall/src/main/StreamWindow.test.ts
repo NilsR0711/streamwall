@@ -1617,12 +1617,13 @@ describe('StreamWindow constructor', () => {
     }
     expect(partitions[0]).not.toBe(partitions[1])
 
-    expect(
-      vi.mocked(hardenSession).mock.calls.map(([session]) => session),
-    ).toEqual([
-      sw.backgroundView.webContents.session,
-      sw.overlayView.webContents.session,
-    ])
+    // Compared by identity: the Electron stub gives every view a bare `{}` as
+    // its session, which any structural comparison would match against any
+    // other view's.
+    const hardened = vi.mocked(hardenSession).mock.calls
+    expect(hardened).toHaveLength(2)
+    expect(hardened[0][0]).toBe(sw.backgroundView.webContents.session)
+    expect(hardened[1][0]).toBe(sw.overlayView.webContents.session)
   })
 
   it('allows the dev server origin so the layer pages themselves still load', () => {
@@ -1632,17 +1633,22 @@ describe('StreamWindow constructor', () => {
 
     new StreamWindow(makeConfig())
 
-    for (const [, options] of vi.mocked(hardenSession).mock.calls) {
-      expect(options?.allowedOrigins).toEqual(['http://localhost:5173'])
-    }
+    // Asserted on the call list rather than by iterating it: an empty list
+    // would let a `for` loop pass without hardening anything at all.
+    expect(
+      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
+    ).toEqual([
+      { allowedOrigins: ['http://localhost:5173'] },
+      { allowedOrigins: ['http://localhost:5173'] },
+    ])
   })
 
   it('passes no allowed origins in a packaged build, where there is no dev server', () => {
     new StreamWindow(makeConfig())
 
-    for (const [, options] of vi.mocked(hardenSession).mock.calls) {
-      expect(options?.allowedOrigins).toEqual([])
-    }
+    expect(
+      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
+    ).toEqual([{ allowedOrigins: [] }, { allowedOrigins: [] }])
   })
 
   it('starts with empty view bookkeeping', () => {
