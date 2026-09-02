@@ -77,53 +77,53 @@ export function secureStreamView(webContents: WebContents): void {
  * every sender check. control.html's `<meta>` CSP is a property of the local
  * document and does not survive such a navigation either (#732).
  *
- * Unlike `secureStreamView`, this allowlists the app's own pages outright
- * instead of pinning to whatever has committed: the page is loaded from disk (or
- * the dev server) by the main process, so there is no legitimate redirect chain
- * to leave room for, and no window in which nothing has committed yet.
+ * Unlike `secureStreamView`, which pins a view to whatever it has committed,
+ * this names the allowed page up front: the page is loaded from disk (or the dev
+ * server) by the main process, so there is no operator-supplied redirect chain
+ * to leave room for and no window in which nothing has committed yet. The
+ * committed URL is accepted as well, so a self-reload survives even if Electron
+ * spells the loaded `file:` URL slightly differently than `appPageURL` does --
+ * that URL can only ever be an app page, since nothing else is allowed to
+ * commit.
  *
- * `isAppURL` and `openExternal` are injected rather than imported so the guards
- * stay testable without a running Electron app; callers pass `isAppPageURL` and
- * `shell.openExternal`.
+ * `appPageURL` and `openExternal` are injected rather than imported so the
+ * guards stay testable without a running Electron app; callers pass
+ * `rendererPageURL(...)` and `shell.openExternal`.
  */
 export function secureAppWindow(
   webContents: WebContents,
   {
-    isAppURL,
+    appPageURL,
     openExternal,
   }: {
-    isAppURL: (url: string) => boolean
+    appPageURL: () => string
     openExternal: (url: string) => void
   },
 ): void {
-  // Hands an outward link to the OS browser, where the page gets none of the
-  // app's privileges. An app page reached this way is dropped instead: opening
-  // a second copy of the control UI in a browser is not what a click meant.
-  const openAway = (url: string) => {
-    if (isAppURL(url)) {
-      return
-    }
-    if (!isExternallyOpenable(url)) {
-      // Leaves a breadcrumb: a link that neither navigates nor opens anywhere
-      // is otherwise a silent dead click.
-      log.warn('Dropping link with a non-externally-openable scheme:', url)
-      return
-    }
-    openExternal(url)
-  }
-
   webContents.setWindowOpenHandler(({ url }) => {
-    openAway(url)
+    // A renderer-opened window is an explicit "take me there" gesture, so it is
+    // honoured in the OS browser, where the page gets none of the app's
+    // privileges. Anything the OS browser has no business launching -- and the
+    // app's own page, which would just be a second copy of the UI -- is dropped
+    // with a breadcrumb rather than silently swallowed.
+    if (url !== appPageURL() && isExternallyOpenable(url)) {
+      openExternal(url)
+    } else {
+      log.warn('Denied window open without handing it to the OS browser:', url)
+    }
     return { action: 'deny' as const }
   })
 
+  // A navigation is only ever cancelled, never redirected outward: unlike a
+  // window open it need not come from a click at all (a 302, a `<meta
+  // http-equiv="refresh">`, a dropped URL), and those must not be able to launch
+  // the operator's browser at a control-server-supplied address unattended.
   const guard = (event: NavigationEvent) => {
-    if (isAppURL(event.url)) {
+    if (event.url === appPageURL() || event.url === webContents.getURL()) {
       return
     }
-    log.info('Blocking navigation away from an app page:', event.url)
+    log.info('Blocking navigation away from the app page:', event.url)
     event.preventDefault()
-    openAway(event.url)
   }
   webContents.on('will-navigate', guard)
   webContents.on('will-redirect', guard)

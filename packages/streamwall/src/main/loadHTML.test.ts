@@ -1,8 +1,7 @@
-import path from 'path'
 import { pathToFileURL } from 'url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { isAppPageURL, loadHTML } from './loadHTML'
+import { loadHTML, rendererPageURL } from './loadHTML'
 
 // `MAIN_WINDOW_VITE_DEV_SERVER_URL` and `MAIN_WINDOW_VITE_NAME` are injected by
 // the Forge/Vite plugin at build time; under test they are stubbed per case.
@@ -10,125 +9,83 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const rendererRoot = path.resolve(__dirname, '../renderer/main_window')
-const appPage = pathToFileURL(
-  path.join(rendererRoot, 'src/renderer/control.html'),
-).href
-
-describe('isAppPageURL in a packaged build', () => {
-  // No dev server URL is the packaged case; pages come off disk.
-  const packaged = () => {
-    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', undefined)
-    vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window')
+// Records what `loadHTML` actually puts in a window.
+function fakeWebContents() {
+  const calls: { loadFile: string[]; loadURL: string[] } = {
+    loadFile: [],
+    loadURL: [],
   }
+  const webContents = {
+    loadFile: (filePath: string) => {
+      calls.loadFile.push(filePath)
+      return Promise.resolve()
+    },
+    loadURL: (url: string) => {
+      calls.loadURL.push(url)
+      return Promise.resolve()
+    },
+  }
+  return { calls, webContents: webContents as never }
+}
 
-  it('accepts a page inside the bundled renderer directory', () => {
+const packaged = () => {
+  vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', undefined)
+  vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window')
+}
+
+const dev = () => {
+  vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173')
+  vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window')
+}
+
+describe('rendererPageURL', () => {
+  // The whole point of the export: `secureAppWindow` pins a window to this URL,
+  // so it has to be the URL the window actually ends up on. A drift between the
+  // two would either wedge the window or open a hole.
+  it('is the file URL loadHTML loads in a packaged build', async () => {
     packaged()
+    const { calls, webContents } = fakeWebContents()
 
-    expect(isAppPageURL(appPage)).toBe(true)
-  })
+    await loadHTML(webContents, 'control')
 
-  // Ties the allowlist to the loader: whatever `loadHTML` actually puts in the
-  // window must be an app page, and its parent directory must not be. Without
-  // this, a wrong renderer root in `isAppPageURL` (say one segment too high,
-  // allowlisting everything under `src/`) would leave every other case here
-  // green because they all derive their fixtures from the same expression.
-  it('accepts exactly what loadHTML loads, and not the directory above it', async () => {
-    packaged()
-    let loaded = ''
-    const webContents = {
-      loadFile: (filePath: string) => {
-        loaded = filePath
-        return Promise.resolve()
-      },
-      loadURL: () => Promise.resolve(),
-    }
-
-    await loadHTML(webContents as never, 'control')
-
-    expect(isAppPageURL(pathToFileURL(loaded).href)).toBe(true)
-    // `src/renderer/control.html` -> `src/renderer` -> `src` -> the renderer
-    // root itself, whose parent is outside the bundle.
-    const outside = path.resolve(loaded, '../../../..')
-    expect(isAppPageURL(pathToFileURL(path.join(outside, 'x.html')).href)).toBe(
-      false,
+    expect(calls.loadFile).toHaveLength(1)
+    expect(rendererPageURL('control')).toBe(
+      pathToFileURL(calls.loadFile[0]).href,
     )
   })
 
-  it('rejects a file URL outside the renderer directory', () => {
-    packaged()
+  it('is the dev server URL loadHTML loads in development', async () => {
+    dev()
+    const { calls, webContents } = fakeWebContents()
 
-    expect(isAppPageURL(pathToFileURL('/etc/passwd').href)).toBe(false)
+    await loadHTML(webContents, 'control')
+
+    expect(calls.loadURL).toEqual([rendererPageURL('control')])
   })
 
-  it('rejects a file URL that tries to climb out of the renderer directory', () => {
+  it('names a different URL per page', () => {
     packaged()
 
-    expect(
-      isAppPageURL(`${pathToFileURL(rendererRoot).href}/../../../etc/passwd`),
-    ).toBe(false)
+    expect(rendererPageURL('control')).not.toBe(rendererPageURL('overlay'))
   })
 
-  it('rejects a sibling directory that merely starts with the renderer directory name', () => {
-    // What the trailing separator in the prefix check is for: without it,
-    // `.../main_window_evil/` passes as `.../main_window` + more.
+  it('points at the page itself, not just its directory', () => {
     packaged()
 
-    expect(
-      isAppPageURL(pathToFileURL(`${rendererRoot}_evil/control.html`).href),
-    ).toBe(false)
+    expect(rendererPageURL('control').endsWith('/control.html')).toBe(true)
   })
 
-  it('rejects the renderer directory itself, which is not a page', () => {
+  it('is an absolute file URL in a packaged build', () => {
     packaged()
 
-    expect(isAppPageURL(pathToFileURL(rendererRoot).href)).toBe(false)
+    expect(rendererPageURL('control').startsWith('file:///')).toBe(true)
   })
 
-  it('rejects remote origins', () => {
-    packaged()
-
-    expect(isAppPageURL('https://evil.example/')).toBe(false)
-  })
-
-  it('rejects a string that is not a URL', () => {
-    packaged()
-
-    expect(isAppPageURL('not a url')).toBe(false)
-  })
-
-  it('rejects about:blank, which carries no origin of its own', () => {
-    packaged()
-
-    expect(isAppPageURL('about:blank')).toBe(false)
-  })
-})
-
-describe('isAppPageURL against a dev server', () => {
-  const dev = () => {
-    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173')
-    vi.stubGlobal('MAIN_WINDOW_VITE_NAME', 'main_window')
-  }
-
-  it('accepts any page served from the dev server origin', () => {
+  it('is served from the dev server origin in development', () => {
     dev()
 
-    expect(
-      isAppPageURL('http://localhost:5173/src/renderer/control.html'),
-    ).toBe(true)
-  })
-
-  it('rejects a different port on the same host', () => {
-    dev()
-
-    expect(
-      isAppPageURL('http://localhost:5174/src/renderer/control.html'),
-    ).toBe(false)
-  })
-
-  it('rejects a file URL while the dev server is in use', () => {
-    dev()
-
-    expect(isAppPageURL(appPage)).toBe(false)
+    expect(new URL(rendererPageURL('control')).origin).toBe(
+      'http://localhost:5173',
+    )
   })
 })

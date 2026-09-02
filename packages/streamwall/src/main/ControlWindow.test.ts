@@ -20,6 +20,10 @@ class FakeWebContents {
     null
   navHandlers: Record<string, Array<(event: NavEvent) => void>> = {}
 
+  getURL(): string {
+    return APP_PAGE
+  }
+
   on(event: string, listener: (event: NavEvent) => void): this {
     const handlers = this.navHandlers[event] ?? []
     handlers.push(listener)
@@ -78,13 +82,14 @@ vi.mock('electron', () => ({
 }))
 
 // `loadHTML` returns a resolved promise like the real one, so the caller's
-// `.catch` breadcrumb (issue #626) has something to attach to. `isAppPageURL`
-// stands in for the real app-page allowlist, whose answer depends on
-// build-time Vite globals; here the window's own page is the only app URL.
-const APP_PAGE = 'file:///app/renderer/control.html'
+// `.catch` breadcrumb (issue #626) has something to attach to.
+// `rendererPageURL` names the page a window is pinned to; the real one depends
+// on build-time Vite globals.
+const APP_PAGE = 'file:///app/renderer/main_window/src/renderer/control.html'
 vi.mock('./loadHTML', () => ({
   loadHTML: vi.fn(() => Promise.resolve()),
-  isAppPageURL: (url: string) => url === APP_PAGE,
+  rendererPageURL: (name: string) =>
+    `file:///app/renderer/main_window/src/renderer/${name}.html`,
 }))
 
 const createExampleConfig = vi.fn()
@@ -418,14 +423,26 @@ describe('ControlWindow app version', () => {
 // remote page would hand that page the whole bridge while still passing every
 // check (#732).
 describe('ControlWindow navigation hardening', () => {
-  it('cancels a navigation to a remote page and opens it in the OS browser instead', () => {
+  it('cancels a navigation to a remote page', () => {
     const controlWindow = new ControlWindow(configInfo)
     const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
 
     expect(
       webContents.dispatchNavigation('will-navigate', 'https://evil.example/'),
     ).toBe(true)
-    expect(openExternal).toHaveBeenCalledWith('https://evil.example/')
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  it("cancels a navigation to another of the app's own pages", () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(
+      webContents.dispatchNavigation(
+        'will-navigate',
+        'file:///app/renderer/main_window/src/renderer/overlay.html',
+      ),
+    ).toBe(true)
   })
 
   it("lets the window stay on the app's own page", () => {

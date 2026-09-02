@@ -6,7 +6,7 @@ import { ControlCommand, StreamwallState } from 'streamwall-shared'
 import { type UpdateStatus } from '../updateStatus'
 import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
-import { isAppPageURL, loadHTML } from './loadHTML'
+import { loadHTML, rendererPageURL } from './loadHTML'
 import log from './logger'
 import { secureAppWindow } from './navigationSecurity'
 
@@ -64,7 +64,7 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
     // carry this webContents -- which holds the `streamwallControl` bridge and
     // satisfies every `control:*` sender guard -- onto remote content (#732).
     secureAppWindow(this.win.webContents, {
-      isAppURL: isAppPageURL,
+      appPageURL: () => rendererPageURL('control'),
       openExternal: (url) => {
         shell.openExternal(url).catch((err) => {
           log.warn('error opening external link', err)

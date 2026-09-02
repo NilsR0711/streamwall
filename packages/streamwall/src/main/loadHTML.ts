@@ -1,7 +1,7 @@
 import { WebContents } from 'electron'
 import path from 'path'
 import querystring from 'querystring'
-import { fileURLToPath } from 'url'
+import { pathToFileURL } from 'url'
 
 /**
  * Origin of the Vite dev server that serves the renderer HTML pages during
@@ -21,44 +21,34 @@ export function devServerOrigin(): string | undefined {
   }
 }
 
+/** The renderer HTML pages the app ships. */
+export type RendererPage = 'background' | 'overlay' | 'playHLS' | 'control'
+
 /** Directory the packaged renderer bundle (HTML pages and assets) lives in. */
 function rendererRoot(): string {
   return path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`)
 }
 
+/** Where `loadHTML` reads `name` from in a packaged build. */
+function rendererPagePath(name: RendererPage): string {
+  return path.join(rendererRoot(), `src/renderer/${name}.html`)
+}
+
 /**
- * Whether `url` is one of the app's own renderer pages -- the only navigation
- * target a window rendering Streamwall's own UI may reach (#732).
+ * The exact URL a window ends up on after `loadHTML(webContents, name)` -- the
+ * one navigation target a window rendering that page may reach (#732).
  *
- * In development that is the Vite dev server's origin; in a packaged build it is
- * a `file:` URL inside the bundled renderer directory. The prefix check carries
- * the trailing separator so a sibling directory that merely starts with the same
- * name (`.../main_window_evil/`) is not accepted, and the path is resolved first
- * so the answer does not depend on the URL parser having folded `..` segments
- * away.
+ * A single page rather than the whole bundle: the app's renderer pages do not
+ * all carry the same CSP (the layer and HLS pages allow remote frames and
+ * media), and a window keeps its preload across a same-directory navigation, so
+ * "somewhere under the renderer directory" would be a weaker guarantee than it
+ * looks.
  */
-export function isAppPageURL(url: string): boolean {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return false
+export function rendererPageURL(name: RendererPage): string {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    return `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/renderer/${name}.html`
   }
-
-  const devOrigin = devServerOrigin()
-  if (devOrigin) {
-    return parsed.origin === devOrigin
-  }
-
-  if (parsed.protocol !== 'file:') {
-    return false
-  }
-  try {
-    const root = rendererRoot()
-    return path.resolve(fileURLToPath(parsed)).startsWith(root + path.sep)
-  } catch {
-    return false
-  }
+  return pathToFileURL(rendererPagePath(name)).href
 }
 
 /**
@@ -70,21 +60,15 @@ export function isAppPageURL(url: string): boolean {
  */
 export function loadHTML(
   webContents: WebContents,
-  name: 'background' | 'overlay' | 'playHLS' | 'control',
+  name: RendererPage,
   options?: { query?: Record<string, string> },
 ): Promise<void> {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     const queryString = options?.query
       ? '?' + querystring.stringify(options.query)
       : ''
-    return webContents.loadURL(
-      `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/renderer/${name}.html` +
-        queryString,
-    )
+    return webContents.loadURL(rendererPageURL(name) + queryString)
   } else {
-    return webContents.loadFile(
-      path.join(rendererRoot(), `src/renderer/${name}.html`),
-      options,
-    )
+    return webContents.loadFile(rendererPagePath(name), options)
   }
 }

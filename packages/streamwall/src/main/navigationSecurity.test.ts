@@ -146,12 +146,13 @@ test('secureStreamView allows will-redirect to the same URL', () => {
 // `streamwallControl` bridge, so it must never be allowed to navigate to remote
 // content: the `control:*` sender guards compare against the same webContents
 // and would keep passing afterwards, and control.html's <meta> CSP does not
-// survive a navigation (#732). Unlike a stream view it is allowlisted against
-// the app's own pages rather than pinned to what has committed, so there is no
-// window in which anything goes.
-const APP_ROOT = 'file:///app/renderer/main_window/'
-const APP_PAGE = `${APP_ROOT}src/renderer/control.html`
-const isAppURL = (url: string) => url.startsWith(APP_ROOT)
+// survive a navigation (#732). Unlike a stream view it is pinned to a named
+// page rather than to whatever committed, so there is no window in which
+// anything goes -- and to one page rather than the whole renderer bundle, whose
+// other pages carry weaker CSPs.
+const APP_PAGE = 'file:///app/renderer/main_window/src/renderer/control.html'
+const OTHER_APP_PAGE =
+  'file:///app/renderer/main_window/src/renderer/overlay.html'
 
 // Builds a control-window-style guard set over a fake webContents, returning
 // the double and the injected `openExternal` spy.
@@ -161,7 +162,10 @@ function secureFakeAppWindow(currentURL = APP_PAGE) {
   vi.spyOn(log, 'warn').mockImplementation(() => undefined)
   const wc = new FakeWebContents(currentURL)
   const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), { isAppURL, openExternal })
+  secureAppWindow(asWebContents(wc), {
+    appPageURL: () => APP_PAGE,
+    openExternal,
+  })
   return { wc, openExternal }
 }
 
@@ -205,14 +209,16 @@ test('secureAppWindow denies a popup onto the app itself without launching a bro
   assert.equal(openExternal.mock.calls.length, 0)
 })
 
-test('secureAppWindow blocks will-navigate away and opens the target externally', () => {
+test('secureAppWindow cancels a navigation away without launching the browser unattended', () => {
+  // A navigation need not come from a click -- a 302 or a meta refresh reaches
+  // here too -- so it is only ever cancelled, never forwarded outward.
   const { wc, openExternal } = secureFakeAppWindow()
 
   assert.equal(
     wc.dispatchNavigation('will-navigate', 'https://evil.example/'),
     true,
   )
-  assert.deepEqual(openExternal.mock.calls, [['https://evil.example/']])
+  assert.equal(openExternal.mock.calls.length, 0)
 })
 
 test('secureAppWindow blocks a will-redirect escape too, so a 302 cannot do what a click cannot', () => {
@@ -224,7 +230,7 @@ test('secureAppWindow blocks a will-redirect escape too, so a 302 cannot do what
   )
 })
 
-test('secureAppWindow blocks a non-http navigation without handing it to the OS', () => {
+test('secureAppWindow blocks a non-http navigation', () => {
   const { wc, openExternal } = secureFakeAppWindow()
 
   assert.equal(
@@ -234,28 +240,39 @@ test('secureAppWindow blocks a non-http navigation without handing it to the OS'
   assert.equal(openExternal.mock.calls.length, 0)
 })
 
-test("secureAppWindow allows navigation between the app's own pages", () => {
+test('secureAppWindow blocks a navigation to a different page of the same bundle', () => {
+  // The layer and HLS pages carry weaker CSPs than the control page, and this
+  // webContents keeps its preload across such a navigation.
+  const { wc } = secureFakeAppWindow()
+
+  assert.equal(wc.dispatchNavigation('will-navigate', OTHER_APP_PAGE), true)
+})
+
+test('secureAppWindow allows the app page to reload itself', () => {
   const { wc, openExternal } = secureFakeAppWindow()
 
-  assert.equal(
-    wc.dispatchNavigation(
-      'will-navigate',
-      `${APP_ROOT}src/renderer/overlay.html`,
-    ),
-    false,
-  )
+  assert.equal(wc.dispatchNavigation('will-navigate', APP_PAGE), false)
   assert.equal(openExternal.mock.calls.length, 0)
+})
+
+test('secureAppWindow allows a reload spelled the way the window committed it', () => {
+  // Electron may spell the loaded file: URL slightly differently than
+  // `appPageURL` does; the committed URL can only ever be an app page, since
+  // nothing else is allowed to commit.
+  const committed = `${APP_PAGE}?v=1`
+  const { wc } = secureFakeAppWindow(committed)
+
+  assert.equal(wc.dispatchNavigation('will-navigate', committed), false)
 })
 
 test('secureAppWindow blocks a remote navigation even before anything has committed', () => {
   // Unlike a stream view, an app window's page is loaded from disk by the main
   // process: there is no operator-supplied redirect chain to leave room for, so
   // an uncommitted window must not be a hole.
-  const { wc, openExternal } = secureFakeAppWindow('')
+  const { wc } = secureFakeAppWindow('')
 
   assert.equal(
     wc.dispatchNavigation('will-redirect', 'https://evil.example/'),
     true,
   )
-  assert.deepEqual(openExternal.mock.calls, [['https://evil.example/']])
 })
