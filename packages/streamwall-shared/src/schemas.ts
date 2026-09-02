@@ -78,14 +78,22 @@ const layoutPresetIdSchema = z.string().min(1).max(100)
 /**
  * Longest allowed URL anywhere it crosses a trust boundary: a control command
  * argument (`rotate-stream`, `update-custom-stream`, `delete-custom-stream`,
- * `browse`, `add-favorite`, `remove-favorite`) or a view's displayed content
- * URL in the broadcast `StreamwallState` (issue #770, following up on #734).
+ * `browse`, `add-favorite`, `remove-favorite`), a stream entry's `link` from
+ * an external data source or an `update-custom-stream` payload
+ * ({@link streamDataInputSchema}, {@link localStreamDataSchema}), or a view's
+ * displayed content URL in the broadcast `StreamwallState` (issue #770,
+ * following up on #734; extended to the upstream `link` fields by #778).
  * These ultimately originate from operator input or a data source, both of
  * which are untrusted, and the content URL in particular is re-broadcast on
  * every state update - an unbounded value could grow a `state` frame past
  * the uplink's `maxPayload`, the same denial-of-service loop #734 fixed for
- * `document.title`. 2048 mirrors the URL length browsers themselves treat as
- * a practical limit, generous enough for any real stream or page URL.
+ * `document.title`. Left unbounded upstream, an oversized `link` would still
+ * fail the bounded `viewContentSchema.url` it feeds, and
+ * `streamwallStateSchema.safeParse` rejects an entire state update (not just
+ * the offending view) on any field failure - a full state-broadcast outage
+ * for that desktop rather than a single bad stream. 2048 mirrors the URL
+ * length browsers themselves treat as a practical limit, generous enough for
+ * any real stream or page URL.
  */
 export const MAX_URL_LENGTH = 2048
 const urlSchema = z.string().max(MAX_URL_LENGTH)
@@ -113,7 +121,7 @@ const streamMetaFields = {
  * identity or provenance — unknown keys are stripped by default.
  */
 export const streamDataInputSchema = z.object({
-  link: z.string().min(1),
+  link: nonEmptyUrlSchema,
   kind: contentKindSchema.optional(),
   ...streamMetaFields,
 })
@@ -125,7 +133,7 @@ export type StreamDataInput = z.infer<typeof streamDataInputSchema>
  * this carries a resolved `kind`, matching the shared `LocalStreamData` type.
  */
 export const localStreamDataSchema = z.object({
-  link: z.string().min(1),
+  link: nonEmptyUrlSchema,
   kind: contentKindSchema,
   ...streamMetaFields,
 })
