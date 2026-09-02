@@ -106,6 +106,21 @@ test('secureStreamView allows will-navigate to the same URL (self reload)', () =
   )
 })
 
+test("secureStreamView keeps a stream URL's signed-token query out of the reload log", () => {
+  // Stream and CDN URLs routinely carry a signed token, and the file log
+  // transport persists everything from `info` down.
+  const info = vi.spyOn(log, 'info').mockImplementation(() => undefined)
+  const streamURL = 'https://cdn.example/live.m3u8?token=secret-token'
+  const wc = new FakeWebContents(streamURL)
+  secureStreamView(asWebContents(wc))
+
+  wc.dispatchNavigation('will-navigate', streamURL)
+
+  const logged = info.mock.calls.map((args) => args.join(' ')).join('\n')
+  assert.doesNotMatch(logged, /secret-token/)
+  assert.match(logged, /https:\/\/cdn\.example\/live\.m3u8/)
+})
+
 test('secureStreamView blocks a redirect away once a page has committed (302 escape)', () => {
   const wc = new FakeWebContents('https://example.com/stream')
   secureStreamView(asWebContents(wc))
@@ -203,6 +218,28 @@ test('secureAppWindow keeps credentials out of the log when it denies a link too
   wc.windowOpenHandler!({ url: `${APP_PAGE}#token=secret-fragment` })
 
   assert.doesNotMatch(logged(), /secret-fragment/)
+})
+
+test('secureAppWindow logs nothing but the scheme of an opaque-path URL', () => {
+  // data:, javascript:, mailto: and friends put their whole payload in the
+  // path, so there is no "where it points" to keep.
+  const { wc, logged } = secureFakeAppWindow()
+
+  wc.windowOpenHandler!({ url: 'data:text/html,<h1>secret-payload</h1>' })
+  wc.windowOpenHandler!({ url: 'javascript:alert(document.cookie)' })
+
+  assert.doesNotMatch(logged(), /secret-payload|document\.cookie/)
+  assert.match(logged(), /data:<opaque>/)
+  assert.match(logged(), /javascript:<opaque>/)
+})
+
+test('secureAppWindow logs no userinfo credentials', () => {
+  const { wc, logged } = secureFakeAppWindow()
+
+  wc.windowOpenHandler!({ url: 'https://user:secret-password@example.com/x' })
+
+  assert.doesNotMatch(logged(), /secret-password/)
+  assert.match(logged(), /https:\/\/example\.com\/x/)
 })
 
 test('secureAppWindow keeps credentials out of the log when it blocks a navigation', () => {

@@ -26,7 +26,7 @@ function preventNavigationAway(
 
   // Allow the page to reload itself (navigating to the URL it is already on).
   if (event.url === currentURL) {
-    log.info('Allowing page to reload:', event.url)
+    log.info('Allowing page to reload:', redactURL(event.url))
     return
   }
 
@@ -61,12 +61,23 @@ function isExternallyOpenable(url: string): boolean {
 // token in the fragment -- while `initLogger` persists everything from `info`
 // down to the user data log file, so the query and fragment must never reach it.
 function redactURL(url: string): string {
+  let parsed: URL
   try {
-    const { protocol, host, pathname } = new URL(url)
-    return `${protocol}//${host}${pathname}`
+    parsed = new URL(url)
   } catch {
     return '<unparseable URL>'
   }
+  const { protocol, host, pathname } = parsed
+  if (host) {
+    // Drops any `user:password@` userinfo along with the query and fragment.
+    return `${protocol}//${host}${pathname}`
+  }
+  if (protocol === 'file:') {
+    return `${protocol}//${pathname}`
+  }
+  // An opaque-path scheme (data:, javascript:, mailto:, about:) carries its
+  // whole payload in the path, so only the scheme is safe to write down.
+  return `${protocol}<opaque>`
 }
 
 // Lock a stream view's web contents down: deny popups and block both navigation
