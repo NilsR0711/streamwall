@@ -34,3 +34,27 @@ export function removePackagingTmpdir(dir: string): void {
 
   rmSync(dir, { recursive: true, force: true })
 }
+
+/**
+ * Best-effort safety net for a packaging run that never reaches its own
+ * cleanup (#749): forge only calls `postPackage` after the whole packaging
+ * step *succeeds*, so a run that fails partway through - after this module
+ * already staged a tmpdir - would otherwise strand it. `@electron-forge/cli`
+ * responds to that kind of failure by calling `process.exit(1)`, which fires
+ * 'exit' listeners synchronously before the process actually goes away, so
+ * removing the directory there catches what the normal `postPackage` path
+ * misses.
+ *
+ * Call the returned function once the caller performs its own explicit
+ * cleanup, so this fallback does not also fire (harmlessly, since removal is
+ * idempotent, but needlessly) on every ordinary successful run.
+ */
+export function registerPackagingTmpdirFallbackCleanup(
+  dir: string,
+): () => void {
+  const cleanup = () => removePackagingTmpdir(dir)
+  process.once('exit', cleanup)
+  return () => {
+    process.removeListener('exit', cleanup)
+  }
+}

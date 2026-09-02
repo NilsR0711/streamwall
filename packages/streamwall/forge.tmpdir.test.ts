@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createPackagingTmpdir,
   PACKAGING_TMPDIR_PREFIX,
+  registerPackagingTmpdirFallbackCleanup,
   removePackagingTmpdir,
 } from './forge.tmpdir'
 
@@ -79,5 +80,47 @@ describe('removePackagingTmpdir', () => {
     expect(path.basename(create())).toMatch(
       new RegExp(`^${PACKAGING_TMPDIR_PREFIX}`),
     )
+  })
+})
+
+describe('registerPackagingTmpdirFallbackCleanup', () => {
+  // A packaging run that fails between creating its tmpdir and reaching
+  // `postPackage` (e.g. the packaging step itself throwing) never gets to
+  // call removePackagingTmpdir explicitly. The CLI's own error path calls
+  // process.exit(), which synchronously fires 'exit' listeners before the
+  // process actually goes away - this fallback rides that event to remove
+  // whatever the run staged, even when nothing else cleans up.
+  it('removes the directory when the process exits without explicit cleanup', () => {
+    const dir = create()
+    registerPackagingTmpdirFallbackCleanup(dir)
+
+    process.emit('exit', 1)
+
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('does nothing once the caller has already cleaned up and unregistered it', () => {
+    const dir = create()
+    const unregister = registerPackagingTmpdirFallbackCleanup(dir)
+    removePackagingTmpdir(dir)
+    unregister()
+
+    // No 'not a packaging temp directory' or fs error should escape here -
+    // the point of unregistering is that the fallback stays silent.
+    expect(() => process.emit('exit', 0)).not.toThrow()
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('leaves other registered directories alone when one is unregistered', () => {
+    const dirA = create()
+    const dirB = create()
+    const unregisterA = registerPackagingTmpdirFallbackCleanup(dirA)
+    registerPackagingTmpdirFallbackCleanup(dirB)
+    unregisterA()
+
+    process.emit('exit', 1)
+
+    expect(existsSync(dirA)).toBe(true)
+    expect(existsSync(dirB)).toBe(false)
   })
 })
