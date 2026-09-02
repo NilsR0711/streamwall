@@ -611,7 +611,14 @@ async function main() {
   // message received at any point can act on whichever one is current.
   let currentMedia: HTMLMediaElement | undefined
 
-  function updateOptions(options: ContentDisplayOptions) {
+  // The view actor's `context.options` is null until it has seen an OPTIONS
+  // event, and the view-init reply forwards it verbatim, so a null payload is
+  // a normal state rather than an error -- and one that must not throw now
+  // that this runs before the acquisition rather than after it.
+  function updateOptions(options: ContentDisplayOptions | null) {
+    if (!options) {
+      return
+    }
     hasReceivedOptions = true
     latestRotation = options.rotation
     if (rotationController) {
@@ -681,7 +688,7 @@ async function main() {
   desiredPaused ??= initialPaused ?? false
   latestVolume ??= initialVolume ?? 1
   if (!hasReceivedOptions) {
-    updateOptions(initialOptions)
+    updateOptions(initialOptions ?? null)
   }
 
   async function acquireMedia(elementTimeout: number) {

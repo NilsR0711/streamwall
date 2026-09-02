@@ -1742,4 +1742,18 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
     expect(video.volume).toBe(0.5)
     expect(video.className).toBe('__rot270__')
   })
+
+  it('acquires media when view-init reports no display options yet', async () => {
+    // The view actor's `context.options` starts out null and only becomes an
+    // object once it has seen an OPTIONS event, so the payload legitimately
+    // carries null. Dereferencing it must not abort main() before the
+    // acquisition it now precedes.
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    await settleViewInit({ options: null })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.className).toBe('__rot0__')
+  })
 })
