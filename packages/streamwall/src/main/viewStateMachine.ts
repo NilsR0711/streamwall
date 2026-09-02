@@ -329,14 +329,28 @@ const viewStateMachine = setup({
       } = context
       assert(next)
 
+      // A cell parked behind a fullscreen expansion (issue #369) has its view
+      // re-parented onto an offscreen host, so it is not a child of the wall
+      // window. Putting the promoted view there anyway would pop it up on top
+      // of the expansion at the parked cell's stale rectangle, playing, with
+      // nothing to remove it until the next layout change (issue #741). Leave
+      // it on the offscreen host it already lives on -- the one
+      // `promoteNextView` adopts as this actor's offscreen window -- and let
+      // the DISPLAY that un-parks the cell position it via `positionView`.
+      //
+      // `StreamWindow.hideView` is the only thing that takes a *running*
+      // view out of the wall window, so a missing child means exactly that:
+      // parked. Keep the two in step if that ever changes.
       const existingIdx = win.contentView.children.indexOf(oldView)
-      next.offscreenWin.contentView.removeChildView(next.view)
-      win.contentView.addChildView(
-        next.view,
-        existingIdx !== -1 ? existingIdx : win.contentView.children.length - 1,
-      )
-      if (pos) {
-        next.view.setBounds(pos)
+      if (existingIdx === -1) {
+        const { width, height } = next.offscreenWin.getBounds()
+        next.view.setBounds({ x: 0, y: 0, width, height })
+      } else {
+        next.offscreenWin.contentView.removeChildView(next.view)
+        win.contentView.addChildView(next.view, existingIdx)
+        if (pos) {
+          next.view.setBounds(pos)
+        }
       }
 
       win.contentView.removeChildView(oldView)

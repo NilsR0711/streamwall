@@ -457,6 +457,9 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     previouslyParkedAudio: Map<ViewId, DesiredAudio>,
   ) {
     const { id, view, win, offscreenWin } = actor.getSnapshot().context
+    // Taking a running view out of the wall window happens here and nowhere
+    // else, which is how viewStateMachine's `performSwap` recognizes a parked
+    // cell (issue #741) -- keep the two in step.
     win.contentView.removeChildView(view)
     offscreenWin.contentView.addChildView(view)
     const { width, height } = offscreenWin.getBounds()
