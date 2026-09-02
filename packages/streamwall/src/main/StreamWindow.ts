@@ -225,18 +225,16 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
       // Unlike a stream view, a layer has no `did-fail-load` surface -- and a
       // cancelled load inside one of its iframes would not reach one anyway --
-      // so a blocked URL would just go blank. Tell the layer, which renders it
-      // as a visible error in place of the iframe (#790).
-      onBlocked: (url) => {
-        const { webContents } = layerView
-        if (webContents.isDestroyed()) {
-          return
-        }
-        // Only the URL: the guard's per-request reason already embeds it, and
-        // it refuses for one reason -- the address is not a public one -- which
-        // the layer states once. The full wording stays in the main log.
-        webContents.send('layer:blocked-url', url)
-      },
+      // so a blocked URL would just go blank (#790).
+      //
+      // Both layers report into the overlay, which is the only child the stream
+      // views are never stacked on top of: a notice drawn on the background
+      // layer would sit underneath the wall's tiles and be invisible on any
+      // populated grid. Only the URL crosses IPC -- the guard's per-request
+      // reason already embeds it, and it refuses for one reason (the address is
+      // not a public one), which the overlay states once. The full wording
+      // stays in the main log.
+      onBlocked: (url) => this.reportBlockedURL(url),
     })
     layerView.setBackgroundColor('#0000')
     this.win.contentView.addChildView(layerView)
@@ -252,6 +250,19 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       log.warn('error loading chrome layer', page, err)
     })
     return layerView
+  }
+
+  /**
+   * Tells the overlay layer that its session refused a URL, so the wall can say
+   * so instead of just going blank (#790). Silent once the overlay's
+   * webContents is gone, which it may be during window teardown.
+   */
+  private reportBlockedURL(url: string) {
+    const { webContents } = this.overlayView
+    if (webContents.isDestroyed()) {
+      return
+    }
+    webContents.send('layer:blocked-url', url)
   }
 
   /**

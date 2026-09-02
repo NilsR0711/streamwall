@@ -3,19 +3,39 @@ import 'streamwall-control-ui/src/index.css'
 
 import { render } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
-import { StreamData } from '../../../streamwall-shared/src/types'
-import { Background } from './BackgroundRoot'
+import { styled } from 'styled-components'
+import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
+import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
-import { useBlockedLayerURLs } from './useBlockedLayerURLs'
+import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
+
+declare global {
+  interface Window {
+    streamwall: StreamwallLayerGlobal
+  }
+}
 
 initRendererSentry()
 
-const subscribeBlockedURLs = (handleBlocked: (url: string) => void) =>
-  window.streamwallLayer.onBlockedURL(handleBlocked)
+function Background({ streams }: { streams: StreamList }) {
+  const backgrounds = streams.filter((s) => s.kind === 'background')
+  return (
+    <div>
+      {backgrounds.map((s) => (
+        <BackgroundIFrame
+          key={s._id}
+          src={s.link}
+          sandbox={LAYER_FRAME_SANDBOX}
+          allow="autoplay"
+          scrolling="no"
+        />
+      ))}
+    </div>
+  )
+}
 
 function App() {
   const [streams, setStreams] = useState<StreamData[]>([])
-  const blockedURLs = useBlockedLayerURLs(subscribeBlockedURLs)
 
   useEffect(() => {
     const unsubscribe = window.streamwallLayer.onState(({ streams }) =>
@@ -25,7 +45,16 @@ function App() {
     return unsubscribe
   }, [])
 
-  return <Background streams={streams} blockedURLs={blockedURLs} />
+  return <Background streams={streams} />
 }
+
+const BackgroundIFrame = styled.iframe`
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  border: none;
+`
 
 render(<App />, document.body)

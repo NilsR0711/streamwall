@@ -2,7 +2,7 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test } from 'vitest'
-import { BlockedLayerNotices } from './BlockedLayerNotice'
+import { BlockedLayerNotices, MAX_SHOWN_URL_LENGTH } from './BlockedLayerNotice'
 
 let container: HTMLDivElement | undefined
 
@@ -49,6 +49,17 @@ describe('BlockedLayerNotices', () => {
     ])
 
     expect(root.querySelectorAll('[role="alert"] > div')).toHaveLength(3)
+  })
+
+  test('truncates a URL long enough to wrap its way across the wall', () => {
+    // The content is supplied by whatever the layer is framing, and a framed
+    // page can request an arbitrarily long URL.
+    const long = `http://192.168.1.50/${'a'.repeat(5000)}`
+    const root = renderNotices([long])
+
+    const shown = root.querySelector('[role="alert"] > div')!.textContent!
+    expect(shown.length).toBeLessThanOrEqual(MAX_SHOWN_URL_LENGTH + 1)
+    expect(shown.startsWith('http://192.168.1.50/')).toBe(true)
   })
 
   test('is announced as an alert, so it is not just decoration', () => {

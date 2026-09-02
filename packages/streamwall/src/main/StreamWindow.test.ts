@@ -1698,7 +1698,7 @@ describe('StreamWindow constructor', () => {
   // A blocked request is otherwise invisible in the layer: unlike a stream view
   // it has no `did-fail-load` surface, and a cancelled load inside an iframe
   // would not reach one anyway (#790).
-  it('tells the layer which of its URLs the SSRF guard blocked', () => {
+  it('tells the overlay which URLs the SSRF guard blocked, whichever layer asked', () => {
     const sw = new StreamWindow(makeConfig())
 
     const [[, backgroundOptions], [, overlayOptions]] =
@@ -1712,25 +1712,22 @@ describe('StreamWindow constructor', () => {
       'blocking request to private-network address',
     )
 
-    expect(sw.backgroundView.webContents.send).toHaveBeenCalledWith(
-      'layer:blocked-url',
-      'http://192.168.1.50/bg',
-    )
-    expect(sw.overlayView.webContents.send).toHaveBeenCalledWith(
-      'layer:blocked-url',
-      'http://169.254.169.254/meta',
-    )
-    // Each layer hears only about its own session.
-    expect(sw.backgroundView.webContents.send).toHaveBeenCalledTimes(1)
-    expect(sw.overlayView.webContents.send).toHaveBeenCalledTimes(1)
+    // Both land on the overlay: it is the only child the stream views are never
+    // stacked over, so a notice on the background layer would be hidden behind
+    // the wall's tiles.
+    expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+      ['layer:blocked-url', 'http://192.168.1.50/bg'],
+      ['layer:blocked-url', 'http://169.254.169.254/meta'],
+    ])
+    expect(sw.backgroundView.webContents.send).not.toHaveBeenCalled()
   })
 
-  it('does not report a blocked URL to a layer that is already gone', () => {
+  it('does not report a blocked URL once the overlay is gone', () => {
     const sw = new StreamWindow(makeConfig())
     vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(true)
 
-    const [, [, overlayOptions]] = vi.mocked(hardenSession).mock.calls
-    overlayOptions!.onBlocked!('http://192.168.1.50/x', 'blocked')
+    const [[, backgroundOptions]] = vi.mocked(hardenSession).mock.calls
+    backgroundOptions!.onBlocked!('http://192.168.1.50/x', 'blocked')
 
     expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
   })
