@@ -1,4 +1,4 @@
-import type { StreamDataContent } from 'streamwall-shared'
+import { MAX_URL_LENGTH, type StreamDataContent } from 'streamwall-shared'
 import { describe, expect, test, vi } from 'vitest'
 import log from '../logger'
 import { parseStreamEntries, StreamIDGenerator } from './parse'
@@ -9,6 +9,32 @@ describe('parseStreamEntries', () => {
     try {
       const streams = parseStreamEntries(
         [{ link: 'https://a.example/s', kind: 'video' }, { kind: 'audio' }],
+        'from https://feed.example/',
+      )
+      expect(streams.map((s) => s.link)).toEqual(['https://a.example/s'])
+      expect(warnSpy).toHaveBeenCalledWith(
+        'ignoring 1 invalid stream(s) from https://feed.example/',
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  // Issue #778: an oversized link from a data source (a TOML file or polled
+  // JSON feed) must be dropped like any other invalid entry, not passed
+  // through to later break the downstream bounded viewContentSchema.url and
+  // reject the whole state broadcast.
+  test('drops an entry whose link exceeds MAX_URL_LENGTH and warns, keeping the rest', () => {
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    try {
+      const streams = parseStreamEntries(
+        [
+          { link: 'https://a.example/s', kind: 'video' },
+          {
+            link: 'https://oversized.example/' + 'x'.repeat(MAX_URL_LENGTH),
+            kind: 'video',
+          },
+        ],
         'from https://feed.example/',
       )
       expect(streams.map((s) => s.link)).toEqual(['https://a.example/s'])
