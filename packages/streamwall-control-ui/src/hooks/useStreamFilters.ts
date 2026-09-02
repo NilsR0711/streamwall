@@ -21,6 +21,7 @@ export function filterStreams(
   const liveStreams = []
   const otherStreams = []
   const favoriteStreams = []
+  const lowerFilter = filter.toLowerCase()
   for (const stream of streams) {
     const { _id, kind, status, label, source, state, city, link } = stream
     if (kind && !normalStreamKinds.has(kind)) {
@@ -28,9 +29,11 @@ export function filterStreams(
     }
     if (
       filter !== '' &&
-      !`${label}${source}${state}${city}`
+      ![label, source, state, city]
+        .filter(Boolean)
+        .join(' ')
         .toLowerCase()
-        .includes(filter.toLowerCase())
+        .includes(lowerFilter)
     ) {
       continue
     }
