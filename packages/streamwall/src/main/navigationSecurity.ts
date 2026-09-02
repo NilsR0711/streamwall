@@ -95,8 +95,9 @@ export function secureStreamView(webContents: WebContents): void {
 }
 
 /**
- * Lock a window that renders Streamwall's own bundled UI (currently the control
- * window) to that UI, and route outward links to the OS browser instead.
+ * Lock a window that renders one of Streamwall's own bundled pages -- the
+ * control window and the wall's two chrome layers -- to that page, and, where
+ * the caller supplies a way to, route outward links to the OS browser instead.
  *
  * The control window holds the `streamwallControl` bridge, and every `control:*`
  * IPC guard compares `ev.sender` against this very webContents — so a navigation
@@ -130,7 +131,7 @@ export function secureStreamView(webContents: WebContents): void {
  *
  * `appPageURL` and `openExternal` are injected rather than imported so the
  * guards stay testable without a running Electron app; callers pass
- * `rendererPageURL(...)` and `shell.openExternal`.
+ * `rendererPageURL(...)` and either `shell.openExternal` or `null`.
  */
 export function secureAppWindow(
   webContents: WebContents,
