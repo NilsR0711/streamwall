@@ -30,13 +30,13 @@ All configuration is provided via environment variables.
 
 ### Server
 
-| Variable                      | Default                                     | Description                                                                                                                                                                                                        |
-| ----------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `STREAMWALL_CONTROL_URL`      | `http://localhost:3000`                     | Public base URL; its scheme selects http/https behaviour.                                                                                                                                                          |
-| `STREAMWALL_CONTROL_HOSTNAME` | host from base URL                          | Interface to bind.                                                                                                                                                                                                 |
-| `STREAMWALL_CONTROL_PORT`     | port from base URL                          | Port to bind.                                                                                                                                                                                                      |
-| `STREAMWALL_CONTROL_STATIC`   | bundled client `dist`                       | Directory of static client assets to serve.                                                                                                                                                                        |
-| `DB_PATH`                     | `~/.streamwall-control-server/storage.json` | lowdb storage file (auth tokens). Anchored to the home directory, not the working directory, so it stays put regardless of where the server is started from; missing parent directories are created automatically. |
+| Variable                      | Default                                     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STREAMWALL_CONTROL_URL`      | `http://localhost:3000`                     | Public base URL; its scheme selects http/https behaviour.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `STREAMWALL_CONTROL_HOSTNAME` | host from base URL                          | Interface to bind.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `STREAMWALL_CONTROL_PORT`     | port from base URL                          | Port to bind.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `STREAMWALL_CONTROL_STATIC`   | bundled client `dist`                       | Directory of static client assets to serve.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `DB_PATH`                     | `~/.streamwall-control-server/storage.json` | lowdb storage file (auth tokens). Anchored to the home directory, not the working directory, so it stays put regardless of where the server is started from; missing parent directories are created automatically, owner-only. It holds the auth salt and every token hash, so the file is kept at `0600` — a directory the server created itself at `0700`, while one you point `DB_PATH` at keeps whatever permissions you gave it. Modes are not touched on Windows. |
 
 ### Security / abuse protection
 
@@ -187,6 +187,13 @@ Restart=on-failure
 no longer depends on it (see the configuration table), but an explicit
 `DB_PATH` is still recommended in production so the storage location is
 obvious and easy to back up.
+
+Give that path a directory of its own. The storage file holds credentials —
+the auth salt and every token's scrypt hash, id and operator-chosen name — and
+the server keeps it at `0600`, but the directory around it is only tightened to
+`0700` when the server created it. Pointing `DB_PATH` into a directory shared
+with anything else leaves that directory as permissive as you made it, and a
+backup of the file deserves the same care as a key file.
 
 > [!WARNING]
 > Never run the server with `NODE_ENV=test` set. lowdb's Node preset treats
