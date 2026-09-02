@@ -54,13 +54,16 @@ class FakeWebContents {
     isMainFrame?: boolean,
   ): boolean {
     let prevented = false
-    const navEvent: NavEvent = {
-      url,
-      isMainFrame,
-      preventDefault: () => {
-        prevented = true
-      },
+    const preventDefault = () => {
+      prevented = true
     }
+    // Omitted rather than set to `undefined`, so a caller that passes no frame
+    // information reproduces an event shape that carries no `isMainFrame` key
+    // at all -- the case every guard has to fail closed on.
+    const navEvent: NavEvent =
+      isMainFrame === undefined
+        ? { url, preventDefault }
+        : { url, isMainFrame, preventDefault }
     for (const listener of this.navHandlers[event] ?? []) {
       listener(navEvent)
     }
@@ -135,6 +138,9 @@ test("secureStreamView keeps a stream URL's signed-token query out of the reload
 })
 
 test('secureStreamView blocks a redirect away once a page has committed (302 escape)', () => {
+  // Dispatched without any frame information, so this pins the fail-closed
+  // path too: an event shape that reports no frame is guarded as a main-frame
+  // navigation rather than skipped.
   const wc = new FakeWebContents('https://example.com/stream')
   secureStreamView(asWebContents(wc))
 
@@ -155,6 +161,35 @@ test('secureStreamView allows a redirect while the initial load is still resolvi
   assert.equal(
     wc.dispatchNavigation('will-redirect', 'https://cdn.example/live'),
     false,
+  )
+})
+
+test('secureStreamView lets a sub-frame resolve its own redirect', () => {
+  // `will-redirect` fires for sub-frames as well as the main frame, and a
+  // stream view exists to host embedded players whose iframes redirect
+  // (CDN handoffs, consent frames, shortlinks). Comparing such a redirect
+  // against `getURL()` -- always the *main* frame's URL -- could only ever
+  // cancel it, leaving a blank embed and no `did-fail-load` to report (#794).
+  // Those requests stay governed at the network layer by the session's SSRF
+  // guard (`installRequestSSRFGuard`).
+  const wc = new FakeWebContents('https://example.com/stream')
+  secureStreamView(asWebContents(wc))
+
+  assert.equal(
+    wc.dispatchNavigation('will-redirect', 'https://cdn.example/ad', false),
+    false,
+  )
+})
+
+test('secureStreamView still blocks a main-frame redirect away', () => {
+  // The negative control for the case above: the same event, reported as the
+  // main frame, is still the view being taken off its page.
+  const wc = new FakeWebContents('https://example.com/stream')
+  secureStreamView(asWebContents(wc))
+
+  assert.equal(
+    wc.dispatchNavigation('will-redirect', 'https://evil.example/', true),
+    true,
   )
 })
 

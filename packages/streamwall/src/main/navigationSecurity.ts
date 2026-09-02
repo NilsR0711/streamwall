@@ -6,8 +6,10 @@ import log from './logger'
 // exercised without a running Electron app.
 interface NavigationEvent {
   readonly url: string
-  // `will-redirect` fires for sub-frames as well as the main frame. Optional
-  // because `secureStreamView`'s guard does not read it (see #794).
+  // `will-redirect` fires for sub-frames as well as the main frame (Electron's
+  // navigation throttle gates only `will-navigate` on the main frame). Optional
+  // so an event shape that carries no frame at all still type-checks; every
+  // guard below treats that case as the main frame and so fails closed.
   readonly isMainFrame?: boolean
   preventDefault(): void
 }
@@ -25,6 +27,21 @@ function preventNavigationAway(
   webContents: WebContents,
   event: NavigationEvent,
 ): void {
+  // A sub-frame navigating itself is not the view leaving its page, and this
+  // check has nothing to compare it against: `getURL()` is always the *main*
+  // frame's URL, so a sub-frame's redirect target can never equal it and would
+  // always be cancelled. Stream views host operator-supplied embeds -- video
+  // players, CDN handoffs, consent frames, shortlinks -- whose iframes redirect
+  // routinely, and the cancellation would surface as a blank embed with no
+  // main-frame `did-fail-load` to report it (#794). Sub-frame requests stay
+  // governed at the network layer by the session's SSRF guard
+  // (`installRequestSSRFGuard` in partitions.ts), which re-checks every hop.
+  // An event that reports no frame at all is treated as the main frame, so an
+  // unknown event shape fails closed.
+  if (event.isMainFrame === false) {
+    return
+  }
+
   const currentURL = webContents.getURL()
 
   // Allow the page to reload itself (navigating to the URL it is already on).
@@ -84,7 +101,8 @@ function redactURL(url: string): string {
 }
 
 // Lock a stream view's web contents down: deny popups and block both navigation
-// and redirect escapes away from the intended URL, while permitting self-reloads.
+// and redirect escapes away from the intended URL, while permitting self-reloads
+// and leaving embedded sub-frames to resolve their own redirects.
 export function secureStreamView(webContents: WebContents): void {
   denyWindowOpen(webContents)
 
