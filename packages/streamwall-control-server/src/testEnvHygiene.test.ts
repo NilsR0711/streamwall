@@ -89,16 +89,13 @@ test('no spec writes process.env through a computed key', () => {
  * instead of interrupting the run, and every boot leaks two listeners.
  */
 test('every spec that boots runServer injects a fake process', () => {
+  // Checked per file rather than per call site: matching a call's own extent
+  // means brace-counting, and a spec that boots the server without an injected
+  // process alongside one that does is not a distinction worth the parser.
   const offenders = testFiles()
     .filter((file) => {
       const source = readFileSync(file, 'utf8')
-      return [...source.matchAll(/\brunServer\(\{/g)].some((match) => {
-        const call = source.slice(
-          match.index,
-          source.indexOf('})', match.index),
-        )
-        return !/\bprocess:/.test(call)
-      })
+      return /\brunServer\(/.test(source) && !/\bprocess:/.test(source)
     })
     .map((file) => path.relative(SRC_DIR, file))
 

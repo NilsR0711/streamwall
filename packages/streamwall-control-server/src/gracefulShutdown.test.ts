@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
 import { after, describe, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -9,6 +15,7 @@ import {
   fakeProcess,
   fakeUpdateChecker,
   inMemoryDb,
+  makeStaticDir,
   type LogCapture,
 } from './testHelpers.ts'
 
@@ -248,4 +255,53 @@ describe('runServer shutdown wiring', () => {
       'shutdown must flush storage rather than leave a fire-and-forget write in flight',
     )
   })
+})
+
+test('a real SIGTERM to the entry point exits 0 and leaves storage intact', async () => {
+  // The specs above inject a fake process, which is what keeps the handlers off
+  // the test runner — but that also means nothing exercises the default
+  // binding to the real `process`, or the real `process.exit`. This one boots
+  // the entry point as a child and signals it the way a container stop does.
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'sw-shutdown-'))
+  const dbPath = path.join(dataDir, 'storage.json')
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', path.join(import.meta.dirname, 'index.ts')],
+    {
+      env: {
+        ...process.env,
+        DB_PATH: dbPath,
+        LOG_LEVEL: 'info',
+        STREAMWALL_CONTROL_URL: 'http://127.0.0.1:0',
+        STREAMWALL_CONTROL_STATIC: makeStaticDir(),
+        STREAMWALL_UPDATE_CHECK: 'false',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+  after(() => child.kill('SIGKILL'))
+
+  // The credential banner is the last thing the boot prints, so seeing it
+  // means the server is up and the signal lands on a running process.
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('the server never finished booting')),
+      30000,
+    )
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (chunk.toString().includes('Admin invite')) {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+  })
+
+  child.kill('SIGTERM')
+  const [code] = (await once(child, 'exit')) as [number | null, string | null]
+
+  assert.equal(code, 0, 'a stop signal must produce a clean exit')
+  assert.doesNotThrow(
+    () => JSON.parse(readFileSync(dbPath, 'utf8')),
+    'the storage file must survive the shutdown intact',
+  )
 })

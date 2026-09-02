@@ -178,7 +178,10 @@ export function registerShutdownHandlers({
   process: ProcessLike
   forceExitAfterMs?: number
   beforeClose?: () => Promise<unknown>
-}): { isShuttingDown: () => boolean } {
+}): {
+  isShuttingDown: () => boolean
+  shutdown: (signal: 'SIGTERM' | 'SIGINT') => void
+} {
   let shuttingDown = false
 
   const shutdown = (signal: 'SIGTERM' | 'SIGINT') => {
@@ -238,9 +241,10 @@ export function registerShutdownHandlers({
     proc.on(signal, () => shutdown(signal))
   }
 
-  // Lets the caller skip work it would otherwise start on top of a teardown
-  // that is already running.
-  return { isShuttingDown: () => shuttingDown }
+  // `isShuttingDown` lets the caller skip work it would otherwise start on top
+  // of a teardown that is already running; `shutdown` lets it replay a signal
+  // that arrived before the app existed.
+  return { isShuttingDown: () => shuttingDown, shutdown }
 }
 
 export default async function runServer({
@@ -270,6 +274,18 @@ export default async function runServer({
   const url = new URL(baseURL)
   const hostname = overrideHostname ?? url.hostname
   const port = resolveListenPort(baseURL, overridePort)
+
+  // As PID 1 in a container the kernel drops a signal for which no handler is
+  // installed, so a `docker stop` during `initApp` — which creates the storage
+  // directory and may write the default storage.json — would be ignored
+  // outright until the grace period expires. Catch it here and replay it into
+  // the real handler as soon as there is an app to shut down.
+  let signalDuringInit: 'SIGTERM' | 'SIGINT' | null = null
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    proc.on(signal, () => {
+      signalDuringInit ??= signal
+    })
+  }
 
   // The startup diagnostics below run *after* `initApp` purely so they can go
   // through `app.log`: they belong in the structured stream like every other
@@ -325,13 +341,27 @@ export default async function runServer({
     await app.listen({ port, host: hostname })
   })()
 
-  const { isShuttingDown } = registerShutdownHandlers({
+  const { isShuttingDown, shutdown } = registerShutdownHandlers({
     app,
     process: proc,
     beforeClose: () => boot,
   })
 
-  await boot
+  if (signalDuringInit !== null) {
+    shutdown(signalDuringInit)
+  }
+
+  try {
+    await boot
+  } catch (err) {
+    // While shutting down, the teardown owns the outcome: rethrowing here
+    // would surface as an unhandled rejection and kill the process in the
+    // middle of the storage flush the shutdown is running.
+    if (!isShuttingDown()) {
+      throw err
+    }
+    return { server: app.server }
+  }
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
   // Skipped when a signal already arrived during the boot: the checker's first
