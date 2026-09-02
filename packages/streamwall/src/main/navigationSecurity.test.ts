@@ -12,6 +12,7 @@ import {
 
 interface NavEvent {
   url: string
+  isMainFrame?: boolean
   preventDefault(): void
 }
 
@@ -47,10 +48,15 @@ class FakeWebContents {
 
   // Dispatch a navigation event to the registered listeners and report whether
   // any of them called preventDefault().
-  dispatchNavigation(event: string, url: string): boolean {
+  dispatchNavigation(
+    event: string,
+    url: string,
+    isMainFrame?: boolean,
+  ): boolean {
     let prevented = false
     const navEvent: NavEvent = {
       url,
+      isMainFrame,
       preventDefault: () => {
         prevented = true
       },
@@ -350,6 +356,75 @@ test('secureAppWindow blocks a remote navigation even before anything has commit
 
   assert.equal(
     wc.dispatchNavigation('will-redirect', 'https://evil.example/'),
+    true,
+  )
+})
+
+// The wall's chrome layers are app pages too, but nobody is sitting at the wall
+// to receive a browser tab, and their content is operator- (or control-server-)
+// supplied -- so they get the guard with no outward path at all (#776).
+function secureFakeLayer(currentURL = APP_PAGE) {
+  vi.spyOn(log, 'info').mockImplementation(() => undefined)
+  const wc = new FakeWebContents(currentURL)
+  secureAppWindow(asWebContents(wc), { appPageURL: () => APP_PAGE })
+  return { wc }
+}
+
+test('secureAppWindow without an openExternal denies every popup and launches nothing', () => {
+  const { wc } = secureFakeLayer()
+
+  assert.ok(wc.windowOpenHandler, 'a window-open handler must be registered')
+  for (const url of [
+    'https://example.com/stream',
+    'file:///etc/passwd',
+    APP_PAGE,
+  ]) {
+    assert.deepEqual(wc.windowOpenHandler({ url }), { action: 'deny' })
+  }
+})
+
+test('secureAppWindow without an openExternal still blocks navigation away', () => {
+  const { wc } = secureFakeLayer()
+
+  assert.equal(
+    wc.dispatchNavigation('will-navigate', 'https://evil.example/', true),
+    true,
+  )
+})
+
+test('secureAppWindow lets a subframe resolve its own redirects', () => {
+  // `will-redirect` fires for sub-frames as well, and the chrome layers exist to
+  // host third-party iframes whose own 302s (shortlinks, http->https, CDNs) must
+  // resolve. Those requests are governed at the network layer by the session's
+  // SSRF guard instead (#733).
+  const { wc } = secureFakeLayer()
+
+  assert.equal(
+    wc.dispatchNavigation(
+      'will-redirect',
+      'https://cdn.example/overlay',
+      false,
+    ),
+    false,
+  )
+})
+
+test('secureAppWindow still blocks a main-frame redirect', () => {
+  const { wc } = secureFakeLayer()
+
+  assert.equal(
+    wc.dispatchNavigation('will-redirect', 'https://evil.example/', true),
+    true,
+  )
+})
+
+test('secureAppWindow guards an event that reports no frame at all', () => {
+  // Older Electron event shapes carry no `isMainFrame`; an unknown frame must
+  // fail closed rather than skip the guard.
+  const { wc } = secureFakeLayer()
+
+  assert.equal(
+    wc.dispatchNavigation('will-navigate', 'https://evil.example/'),
     true,
   )
 })

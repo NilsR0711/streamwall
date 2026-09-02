@@ -6,6 +6,9 @@ import log from './logger'
 // exercised without a running Electron app.
 interface NavigationEvent {
   readonly url: string
+  // `will-redirect` fires for sub-frames as well as the main frame. Optional
+  // because `secureStreamView`'s guard predates the field and does not read it.
+  readonly isMainFrame?: boolean
   preventDefault(): void
 }
 
@@ -110,6 +113,11 @@ export function secureStreamView(webContents: WebContents): void {
  * that URL can only ever be an app page, since nothing else is allowed to
  * commit.
  *
+ * `openExternal` is optional: the control window hands an outward link to the
+ * OS browser because an operator is sitting in front of it, while the wall's
+ * chrome layers -- which nobody is sitting at, and whose content is
+ * operator-supplied -- omit it and get no outward path at all (#776).
+ *
  * `appPageURL` and `openExternal` are injected rather than imported so the
  * guards stay testable without a running Electron app; callers pass
  * `rendererPageURL(...)` and `shell.openExternal`.
@@ -121,7 +129,7 @@ export function secureAppWindow(
     openExternal,
   }: {
     appPageURL: () => string
-    openExternal: (url: string) => void
+    openExternal?: (url: string) => void
   },
 ): void {
   webContents.setWindowOpenHandler(({ url }) => {
@@ -130,7 +138,7 @@ export function secureAppWindow(
     // privileges. Anything the OS browser has no business launching -- and the
     // app's own page, which would just be a second copy of the UI -- is dropped
     // with a breadcrumb rather than silently swallowed.
-    if (url !== appPageURL() && isExternallyOpenable(url)) {
+    if (openExternal && url !== appPageURL() && isExternallyOpenable(url)) {
       // Logged because this is the one thing here that reaches outside the app:
       // an operator wondering why their browser just opened something can
       // correlate it.
@@ -150,6 +158,15 @@ export function secureAppWindow(
   // http-equiv="refresh">`, a dropped URL), and those must not be able to launch
   // the operator's browser at a control-server-supplied address unattended.
   const guard = (event: NavigationEvent) => {
+    // A sub-frame navigating itself is not this window leaving its page: the
+    // chrome layers exist to host third-party iframes, whose own 302s
+    // (shortlinks, http->https, CDNs) have to resolve. Those requests are
+    // governed at the network layer by the session's SSRF guard instead. An
+    // event that reports no frame at all is treated as the main frame, so an
+    // unknown shape fails closed.
+    if (event.isMainFrame === false) {
+      return
+    }
     if (event.url === appPageURL() || event.url === webContents.getURL()) {
       return
     }

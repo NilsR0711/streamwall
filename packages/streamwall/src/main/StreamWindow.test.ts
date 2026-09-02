@@ -119,6 +119,15 @@ vi.mock('./loadHTML', () => ({
   // breadcrumb (issue #626) has something to attach to.
   loadHTML: vi.fn(() => Promise.resolve()),
   devServerOrigin: vi.fn((): string | undefined => undefined),
+  rendererPageURL: (name: string) =>
+    `file:///app/renderer/main_window/src/renderer/${name}.html`,
+}))
+
+// The navigation guards reach into a real Electron webContents; record which
+// views they are installed on and with what.
+vi.mock('./navigationSecurity', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./navigationSecurity')>()),
+  secureAppWindow: vi.fn(),
 }))
 
 // `hardenSession` reaches into a real Electron session; the partition allocator
@@ -129,7 +138,9 @@ vi.mock('./partitions', async (importOriginal) => ({
 }))
 
 const { default: StreamWindow } = await import('./StreamWindow')
-const { devServerOrigin, loadHTML } = await import('./loadHTML')
+const { devServerOrigin, loadHTML, rendererPageURL } =
+  await import('./loadHTML')
+const { secureAppWindow } = await import('./navigationSecurity')
 const { hardenSession } = await import('./partitions')
 
 function makeConfig(
@@ -1533,6 +1544,7 @@ describe('StreamWindow constructor', () => {
     electronStub.resetIpc()
     vi.mocked(loadHTML).mockClear()
     vi.mocked(hardenSession).mockClear()
+    vi.mocked(secureAppWindow).mockClear()
     vi.mocked(devServerOrigin).mockReturnValue(undefined)
   })
 
@@ -1649,6 +1661,32 @@ describe('StreamWindow constructor', () => {
     expect(
       vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
     ).toEqual([{ allowedOrigins: [] }, { allowedOrigins: [] }])
+  })
+
+  // The layers render the app's own page and hold the `streamwallLayer` bridge,
+  // so they need the same navigation lockdown the control window got in #732 --
+  // but with no outward path: nobody is sitting at the wall to receive a browser
+  // tab, and their content is operator-supplied (#776).
+  it('pins each layer to its own page and denies renderer-opened windows', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    const guarded = vi.mocked(secureAppWindow).mock.calls
+    expect(guarded).toHaveLength(2)
+    expect(guarded[0][0]).toBe(sw.backgroundView.webContents)
+    expect(guarded[1][0]).toBe(sw.overlayView.webContents)
+    expect(guarded.map(([, options]) => options.appPageURL())).toEqual([
+      rendererPageURL('background'),
+      rendererPageURL('overlay'),
+    ])
+  })
+
+  it("gives the layers no way to open a link in the operator's browser", () => {
+    new StreamWindow(makeConfig())
+
+    for (const [, options] of vi.mocked(secureAppWindow).mock.calls) {
+      expect(options.openExternal).toBeUndefined()
+    }
+    expect(vi.mocked(secureAppWindow)).toHaveBeenCalledTimes(2)
   })
 
   it('starts with empty view bookkeeping', () => {
