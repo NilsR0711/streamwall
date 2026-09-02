@@ -46,7 +46,9 @@ function fakeSession() {
     },
     // Overridable per test; the default reports every hostname as public so
     // tests that don't care about DNS classification aren't forced to stub it.
-    resolveHost: async (): Promise<{
+    resolveHost: async (
+      _host: string,
+    ): Promise<{
       endpoints: { address: string; family: 'ipv4' | 'ipv6' }[]
     }> => ({ endpoints: [{ address: '93.184.216.34', family: 'ipv4' }] }),
     check(permission: string): boolean {
@@ -164,13 +166,13 @@ test('hardenSession registers a permission request handler', () => {
     registered = true
     original(handler)
   }
-  hardenSession(session)
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0])
   assert.ok(registered, 'hardenSession must register a permission handler')
 })
 
 test('hardened session rejects every permission request', () => {
   const session = fakeSession()
-  hardenSession(session)
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0])
   for (const permission of [
     'media',
     'geolocation',
@@ -188,7 +190,7 @@ test('hardened session rejects every permission request', () => {
 
 test('hardenSession also installs the network-layer SSRF guard', async () => {
   const session = fakeSession()
-  hardenSession(session)
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0])
   assert.equal(
     await session.requestURL('http://169.254.169.254/latest/meta-data/'),
     true,
@@ -344,7 +346,9 @@ test('installRequestSSRFGuard survives a reporter that throws', async () => {
 test('hardenSession passes the blocked-request reporter through', async () => {
   const blocked: string[] = []
   const session = fakeSession()
-  hardenSession(session, { onBlocked: (url) => blocked.push(url) })
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0], {
+    onBlocked: (url) => blocked.push(url),
+  })
 
   await session.requestURL('http://169.254.169.254/latest/meta-data/')
 
@@ -356,7 +360,7 @@ test('hardenSession passes the blocked-request reporter through', async () => {
 // other capability probes that never raise a prompt (#789).
 test('hardenSession registers a permission check handler', () => {
   const session = fakeSession()
-  hardenSession(session)
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0])
   assert.ok(
     session.hasCheckHandler(),
     'hardenSession must register a permission check handler',
@@ -369,7 +373,7 @@ test('hardened session answers no to every permission check', () => {
   // check-only, while `display-capture`, `keyboardLock`, `speaker-selection`
   // and `window-management` are request-only.
   const session = fakeSession()
-  hardenSession(session)
+  hardenSession(session as unknown as Parameters<typeof hardenSession>[0])
   for (const permission of [
     'media',
     'mediaKeySystem',

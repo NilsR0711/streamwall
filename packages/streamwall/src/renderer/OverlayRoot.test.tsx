@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type {
-  StreamData,
-  StreamWindowConfig,
-  ViewState,
+import {
+  asCellIdx,
+  asViewId,
+  type StreamData,
+  type StreamWindowConfig,
+  type ViewState,
 } from 'streamwall-shared'
 import { afterEach, describe, expect, test } from 'vitest'
 import { Overlay } from './OverlayRoot'
@@ -36,14 +38,26 @@ function makeView(idx: number, label: string): ViewState {
   return {
     state: {
       displaying: {
-        running: { playback: 'playing', video: 'normal', audio: 'muted' },
+        running: {
+          playback: 'playing',
+          video: 'normal',
+          audio: 'muted',
+          pause: 'unpaused',
+          swap: 'idle',
+        },
       },
     },
     context: {
-      id: idx,
+      id: asViewId(idx),
       content: { url: `https://example.com/${label}`, kind: 'video' },
       info: null,
-      pos: { x: idx * 100, y: 0, width: 100, height: 100, spaces: [idx] },
+      pos: {
+        x: idx * 100,
+        y: 0,
+        width: 100,
+        height: 100,
+        spaces: [asCellIdx(idx)],
+      },
       error: null,
       volume: 1,
     },

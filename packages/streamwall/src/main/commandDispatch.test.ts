@@ -39,8 +39,8 @@ test('dispatchCommand logs and swallows a rejection instead of leaking an unhand
   await new Promise((resolve) => setImmediate(resolve))
 
   assert.equal(unhandledRejections.length, 0)
-  assert.equal(log.error.mock.calls.length, 1)
-  const [message, loggedErr] = log.error.mock.calls[0]
+  assert.equal(vi.mocked(log.error).mock.calls.length, 1)
+  const [message, loggedErr] = vi.mocked(log.error).mock.calls[0]
   assert.match(message, /uplink/)
   assert.equal(loggedErr, err)
 })
@@ -53,7 +53,7 @@ test('dispatchCommand tags the logged error with the local source', async () => 
   dispatchCommand(onCommand, { type: 'ping' }, 'local')
   await new Promise((resolve) => setImmediate(resolve))
 
-  const [message] = log.error.mock.calls[0]
+  const [message] = vi.mocked(log.error).mock.calls[0]
   assert.match(message, /local/)
 })
 
@@ -79,7 +79,7 @@ test('dispatchLocalCommand converts a rejection into an error result', async () 
   const result = await dispatchLocalCommand(onCommand, { type: 'ping' })
 
   assert.deepEqual(result, { error: 'boom' })
-  assert.equal(log.error.mock.calls.length, 1)
+  assert.equal(vi.mocked(log.error).mock.calls.length, 1)
 })
 
 test('dispatchLocalCommand returns undefined when onCommand succeeds', async () => {

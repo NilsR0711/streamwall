@@ -25,7 +25,7 @@ let fakeClient: FakeChatClient
 let chatClientOptions: { channels?: string[] } | undefined
 let staticAuthProviderArgs: unknown[]
 let setColorForUser: ReturnType<typeof vi.fn>
-let getTokenInfo: ReturnType<typeof vi.fn>
+let getTokenInfo: ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>>
 
 vi.mock('@twurple/chat', () => ({
   ChatClient: vi.fn().mockImplementation(function ChatClient(options: never) {

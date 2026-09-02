@@ -37,7 +37,18 @@ function fakeStreamwallState(
 ): StreamwallState {
   return {
     ...createInitialClientState({
-      config: { width: 0, height: 0, x: 0, y: 0, cols: 2, rows: 2 },
+      config: {
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        cols: 2,
+        rows: 2,
+        frameless: false,
+        fullscreen: false,
+        activeColor: '#fff',
+        backgroundColor: '#000',
+      },
       layoutPresets: [],
       favorites: [],
     }),
@@ -108,7 +119,18 @@ describe('createPersistedLocalStreamData', () => {
 describe('createInitialClientState', () => {
   it('carries the persisted presets and favorites into a local identity', () => {
     const state = createInitialClientState({
-      config: { width: 1, height: 2, x: 3, y: 4, cols: 3, rows: 2 },
+      config: {
+        width: 1,
+        height: 2,
+        x: 3,
+        y: 4,
+        cols: 3,
+        rows: 2,
+        frameless: false,
+        fullscreen: false,
+        activeColor: '#fff',
+        backgroundColor: '#000',
+      },
       layoutPresets: [],
       favorites: [],
     })
@@ -448,8 +470,8 @@ describe('wireWindowLifecycle', () => {
     let resolveFlush: () => void = () => undefined
     const flushStorage = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
-          resolveFlush = resolve
+        new Promise<undefined>((resolve) => {
+          resolveFlush = () => resolve(undefined)
         }),
     )
     const { app } = wire('linux', flushStorage)
@@ -588,14 +610,14 @@ describe('createDataSourceHealthReporter', () => {
     const updateState = vi.fn()
     const track = createDataSourceHealthReporter(updateState)
 
-    track('source-a', 'json')(false, 'timed out')
+    track('source-a', 'json-url')(false, 'timed out')
 
     expect(updateState).toHaveBeenCalledTimes(1)
     const health = updateState.mock.calls[0][0].dataSourceHealth
     expect(health).toEqual([
       expect.objectContaining({
         id: 'source-a',
-        type: 'json',
+        type: 'json-url',
         status: 'error',
         message: 'timed out',
       }),
@@ -618,6 +640,7 @@ describe('createBlockedLayerURLReporter', () => {
 
   const overlay = (link: string): StreamData => ({
     _id: link,
+    _dataSource: 'test',
     kind: 'overlay',
     link,
   })
@@ -716,7 +739,18 @@ describe('createBlockedLayerURLReporter', () => {
   it('starts the broadcast state at generation zero', () => {
     expect(
       createInitialClientState({
-        config: { width: 0, height: 0, x: 0, y: 0, cols: 2, rows: 2 },
+        config: {
+          width: 0,
+          height: 0,
+          x: 0,
+          y: 0,
+          cols: 2,
+          rows: 2,
+          frameless: false,
+          fullscreen: false,
+          activeColor: '#fff',
+          backgroundColor: '#000',
+        },
         layoutPresets: [],
         favorites: [],
       }).blockedLayerURLsGeneration,

@@ -1,4 +1,7 @@
-import type { ForgeConfig } from '@electron-forge/shared-types'
+import type {
+  ForgeConfig,
+  ResolvedForgeConfig,
+} from '@electron-forge/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 
 const runTypecheck = vi.fn()
@@ -11,7 +14,7 @@ const createPackagingTmpdir = vi.fn(
 const removePackagingTmpdir = vi.fn()
 const unregisterFallbackCleanup = vi.fn()
 const registerPackagingTmpdirFallbackCleanup = vi.fn(
-  () => unregisterFallbackCleanup,
+  (_dir: string) => unregisterFallbackCleanup,
 )
 vi.mock('./forge.tmpdir', () => ({
   createPackagingTmpdir: () => createPackagingTmpdir(),
@@ -22,13 +25,18 @@ vi.mock('./forge.tmpdir', () => ({
 
 const { default: config }: { default: ForgeConfig } =
   await import('./forge.config')
+// The hooks' real signature takes forge's fully-resolved config (it adds
+// fields like `pluginInterface` that only forge's own config loader fills
+// in), but these tests exercise the hook directly with the config module's
+// raw export - forge always resolves it first in the real packaging run.
+const resolvedConfig = config as unknown as ResolvedForgeConfig
 
 // `package`, `make` and `publish` all funnel through forge's package step, so
 // a single `prePackage` hook covers every path that produces a distributable
 // (#472). `start` deliberately stays fast and unchecked.
 describe('forge prePackage hook', () => {
   it('typechecks before packaging the app', async () => {
-    await config.hooks?.prePackage?.(config, '', '')
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
 
     expect(runTypecheck).toHaveBeenCalledTimes(1)
   })
@@ -38,9 +46,9 @@ describe('forge prePackage hook', () => {
       throw new Error('typecheck failed')
     })
 
-    await expect(config.hooks?.prePackage?.(config, '', '')).rejects.toThrow(
-      /typecheck failed/,
-    )
+    await expect(
+      config.hooks?.prePackage?.(resolvedConfig, '', ''),
+    ).rejects.toThrow(/typecheck failed/)
   })
 
   // #749: loading this config (e.g. for `electron-forge start`, or for the
@@ -53,9 +61,9 @@ describe('forge prePackage hook', () => {
       throw new Error('typecheck failed')
     })
 
-    await expect(config.hooks?.prePackage?.(config, '', '')).rejects.toThrow(
-      /typecheck failed/,
-    )
+    await expect(
+      config.hooks?.prePackage?.(resolvedConfig, '', ''),
+    ).rejects.toThrow(/typecheck failed/)
 
     expect(createPackagingTmpdir).not.toHaveBeenCalled()
   })
@@ -69,10 +77,10 @@ describe('forge packaging temp directory', () => {
   it('stages the app in a directory of its own once prePackage runs', async () => {
     createPackagingTmpdir.mockClear()
 
-    await config.hooks?.prePackage?.(config, '', '')
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
 
     expect(createPackagingTmpdir).toHaveBeenCalledTimes(1)
-    expect(config.packagerConfig.tmpdir).toBe(
+    expect(config.packagerConfig!.tmpdir).toBe(
       await createPackagingTmpdir.mock.results[0]?.value,
     )
   })
@@ -84,20 +92,20 @@ describe('forge packaging temp directory', () => {
   it('registers a process-exit fallback cleanup once a directory is staged', async () => {
     registerPackagingTmpdirFallbackCleanup.mockClear()
 
-    await config.hooks?.prePackage?.(config, '', '')
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
 
     expect(registerPackagingTmpdirFallbackCleanup).toHaveBeenCalledWith(
-      config.packagerConfig.tmpdir,
+      config.packagerConfig!.tmpdir,
     )
   })
 
   it('removes that directory and stands down the fallback once packaging is done', async () => {
-    await config.hooks?.prePackage?.(config, '', '')
-    const tmpdir = config.packagerConfig.tmpdir
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
+    const tmpdir = config.packagerConfig!.tmpdir
     unregisterFallbackCleanup.mockClear()
     removePackagingTmpdir.mockClear()
 
-    await config.hooks?.postPackage?.(config, {
+    await config.hooks?.postPackage?.(resolvedConfig, {
       platform: 'darwin',
       arch: 'arm64',
       outputPaths: [],
@@ -113,17 +121,17 @@ describe('forge packaging temp directory', () => {
   // cycle's directory.
   it('stages and removes a fresh directory on each successive prePackage/postPackage cycle', async () => {
     removePackagingTmpdir.mockClear()
-    await config.hooks?.prePackage?.(config, '', '')
-    const firstTmpdir = config.packagerConfig.tmpdir
-    await config.hooks?.postPackage?.(config, {
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
+    const firstTmpdir = config.packagerConfig!.tmpdir
+    await config.hooks?.postPackage?.(resolvedConfig, {
       platform: 'darwin',
       arch: 'arm64',
       outputPaths: [],
     })
 
-    await config.hooks?.prePackage?.(config, '', '')
-    const secondTmpdir = config.packagerConfig.tmpdir
-    await config.hooks?.postPackage?.(config, {
+    await config.hooks?.prePackage?.(resolvedConfig, '', '')
+    const secondTmpdir = config.packagerConfig!.tmpdir
+    await config.hooks?.postPackage?.(resolvedConfig, {
       platform: 'linux',
       arch: 'x64',
       outputPaths: [],
@@ -146,11 +154,14 @@ describe('forge packaging temp directory', () => {
     const { default: freshConfig }: { default: ForgeConfig } =
       await import('./forge.config')
 
-    await freshConfig.hooks?.postPackage?.(freshConfig, {
-      platform: 'darwin',
-      arch: 'arm64',
-      outputPaths: [],
-    })
+    await freshConfig.hooks?.postPackage?.(
+      freshConfig as unknown as ResolvedForgeConfig,
+      {
+        platform: 'darwin',
+        arch: 'arm64',
+        outputPaths: [],
+      },
+    )
 
     expect(removePackagingTmpdir).not.toHaveBeenCalled()
   })

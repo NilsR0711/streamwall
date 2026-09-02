@@ -67,7 +67,10 @@ describe('data source fan-out', () => {
         res.setHeader('content-type', 'application/json')
         res.end(
           JSON.stringify([
-            { link: `https://example.invalid${req.url}`, kind: 'video' },
+            {
+              link: `https://example.invalid${req.url}`,
+              kind: 'video' as const,
+            },
           ]),
         )
       })
@@ -110,7 +113,9 @@ describe('data source fan-out', () => {
     server = createServer((_req, res) => {
       res.setHeader('content-type', 'application/json')
       res.end(
-        JSON.stringify([{ link: 'https://good.example/s', kind: 'video' }]),
+        JSON.stringify([
+          { link: 'https://good.example/s', kind: 'video' as const },
+        ]),
       )
     })
     await new Promise<void>((resolve) =>
@@ -147,12 +152,18 @@ describe('data source fan-out', () => {
 describe('combineDataSources', () => {
   test('merges entries from multiple sources by link, letting later sources override fields', async () => {
     async function* sourceA() {
-      yield [{ kind: 'video', link: 'https://a.example/s', label: 'From A' }]
+      yield [
+        {
+          kind: 'video' as const,
+          link: 'https://a.example/s',
+          label: 'From A',
+        },
+      ]
     }
     async function* sourceB() {
       yield [
         {
-          kind: 'video',
+          kind: 'video' as const,
           link: 'https://a.example/s',
           label: 'From B',
           notes: 'extra',
@@ -178,7 +189,7 @@ describe('combineDataSources', () => {
 
   test('attaches a byURL index to the yielded list for quick lookups', async () => {
     async function* sourceA() {
-      yield [{ kind: 'video', link: 'https://a.example/s' }]
+      yield [{ kind: 'video' as const, link: 'https://a.example/s' }]
     }
     const gen = combineDataSources([sourceA()], new StreamIDGenerator())
     try {
@@ -193,7 +204,13 @@ describe('combineDataSources', () => {
 
   test('attaches a byId index keyed by the assigned stream id', async () => {
     async function* sourceA() {
-      yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]
+      yield [
+        {
+          kind: 'video' as const,
+          link: 'https://a.example/s',
+          source: 'Example',
+        },
+      ]
     }
     const gen = combineDataSources([sourceA()], new StreamIDGenerator())
     try {
@@ -209,7 +226,13 @@ describe('combineDataSources', () => {
 
   test('assigns stream ids via the provided StreamIDGenerator', async () => {
     async function* sourceA() {
-      yield [{ kind: 'video', link: 'https://a.example/s', source: 'Example' }]
+      yield [
+        {
+          kind: 'video' as const,
+          link: 'https://a.example/s',
+          source: 'Example',
+        },
+      ]
     }
     const gen = combineDataSources([sourceA()], new StreamIDGenerator())
     try {
@@ -224,10 +247,10 @@ describe('combineDataSources', () => {
 describe('markDataSource', () => {
   test('tags every stream in every yielded batch with the data source name', async () => {
     async function* source() {
-      yield [{ kind: 'video', link: 'https://a.example/s' }]
+      yield [{ kind: 'video' as const, link: 'https://a.example/s' }]
       yield [
-        { kind: 'video', link: 'https://a.example/s' },
-        { kind: 'video', link: 'https://b.example/s' },
+        { kind: 'video' as const, link: 'https://a.example/s' },
+        { kind: 'video' as const, link: 'https://b.example/s' },
       ]
     }
     const marked = markDataSource(source(), 'my-source')
@@ -335,10 +358,10 @@ describe('combineDataSources', () => {
   // this point hung forever.
   test('return() resolves after a second value has been pulled from multiple live sources', async () => {
     const a = new LocalStreamData([
-      { kind: 'video', link: 'https://a.example/s' },
+      { kind: 'video' as const, link: 'https://a.example/s' },
     ])
     const b = new LocalStreamData([
-      { kind: 'video', link: 'https://b.example/s' },
+      { kind: 'video' as const, link: 'https://b.example/s' },
     ])
 
     const gen = combineDataSources(
@@ -363,7 +386,7 @@ describe('combineDataSources', () => {
     })
     const source = new Repeater<StreamDataContent[]>(async (push, stop) => {
       try {
-        await push([{ kind: 'video', link: 'https://a.example/s' }])
+        await push([{ kind: 'video' as const, link: 'https://a.example/s' }])
         await stop
       } finally {
         markClosed()
@@ -406,7 +429,7 @@ describe('combineDataSources', () => {
     test('delivers a healthy source while another source stays silent', async () => {
       const { source: silent } = deferredSource()
       const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
-        await push([{ kind: 'video', link: 'https://good.example/s' }])
+        await push([{ kind: 'video' as const, link: 'https://good.example/s' }])
         await stop
       })
 
@@ -423,7 +446,11 @@ describe('combineDataSources', () => {
       const { source: slow, yieldBatch } = deferredSource()
       const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
         await push([
-          { kind: 'video', link: 'https://good.example/s', label: 'from fast' },
+          {
+            kind: 'video' as const,
+            link: 'https://good.example/s',
+            label: 'from fast',
+          },
         ])
         await stop
       })
@@ -443,8 +470,12 @@ describe('combineDataSources', () => {
 
       const pending = gen.next()
       yieldBatch([
-        { kind: 'video', link: 'https://good.example/s', label: 'from slow' },
-        { kind: 'video', link: 'https://slow.example/s' },
+        {
+          kind: 'video' as const,
+          link: 'https://good.example/s',
+          label: 'from slow',
+        },
+        { kind: 'video' as const, link: 'https://slow.example/s' },
       ])
       const { value } = await pending
 
@@ -461,7 +492,7 @@ describe('combineDataSources', () => {
     test('tears down while a source has never yielded', async () => {
       const { source: silent } = deferredSource()
       const healthy = new Repeater<StreamDataContent[]>(async (push, stop) => {
-        await push([{ kind: 'video', link: 'https://good.example/s' }])
+        await push([{ kind: 'video' as const, link: 'https://good.example/s' }])
         await stop
       })
 

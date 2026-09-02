@@ -15,7 +15,9 @@ class FakeElectronUpdater extends EventEmitter {
 
 function createUpdater(repository: string | null = 'NilsR0711/streamwall') {
   const backend = new FakeElectronUpdater()
-  const setIntervalImpl = vi.fn(() => 'timer-handle')
+  const setIntervalImpl = vi.fn(
+    (_fn: () => void, _ms: number) => 'timer-handle',
+  )
   const clearIntervalImpl = vi.fn()
   const updater = new AppUpdater(backend, repository, {
     setIntervalImpl,

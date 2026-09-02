@@ -49,7 +49,7 @@ link = "https://c.example/s"
         'https://c.example/s',
       ])
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -67,7 +67,7 @@ _dataSource = "attacker"
       expect(value?.[0]).not.toHaveProperty('_id')
       expect(value?.[0]).not.toHaveProperty('_dataSource')
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -78,7 +78,7 @@ _dataSource = "attacker"
       const { value } = await gen.next()
       expect(value).toEqual([])
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -113,7 +113,7 @@ link = "https://b.example/s"
         'https://b.example/s',
       ])
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -143,7 +143,7 @@ link = "https://b.example/s"
         'https://b.example/s',
       ])
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -172,7 +172,7 @@ link = "https://a.example/s"
         ),
       ).toHaveLength(1)
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
       warnSpy.mockRestore()
     }
   })
@@ -228,7 +228,7 @@ link = "https://b.example/s"
         'https://b.example/s',
       ])
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -243,7 +243,7 @@ link = "https://a.example/s"
       await gen.next()
       expect(onHealth).toHaveBeenCalledWith(true)
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -258,7 +258,7 @@ link = "https://a.example/s"
       await gen.next()
       expect(onHealth).toHaveBeenCalledWith(false, expect.any(String))
     } finally {
-      await gen.return(undefined)
+      await gen.return?.(undefined)
     }
   })
 
@@ -286,7 +286,7 @@ link = "https://a.example/s"
     // return() without waiting on one.
     await expect(
       Promise.race([
-        gen.return(undefined),
+        gen.return?.(undefined),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('return() hung')), 500),
         ),
