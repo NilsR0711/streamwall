@@ -6,6 +6,9 @@ export function LazyChangeInput({
   value = '',
   onChange,
   isEager = false,
+  onFocus: onFocusProp,
+  onBlur: onBlurProp,
+  onKeyDown: onKeyDownProp,
   ...props
 }: {
   value: string
@@ -18,24 +21,34 @@ export function LazyChangeInput({
       if (ev.target instanceof HTMLInputElement) {
         setEditingValue(ev.target.value)
       }
+      onFocusProp?.(ev)
     },
-    [],
+    [onFocusProp],
   )
 
-  const handleBlur = useCallback(() => {
+  const commitEdit = useCallback(() => {
     if (!isEager && editingValue !== undefined) {
       onChange(editingValue)
     }
     setEditingValue(undefined)
   }, [editingValue, isEager, onChange])
 
+  const handleBlur = useCallback<JSX.FocusEventHandler<HTMLInputElement>>(
+    (ev) => {
+      commitEdit()
+      onBlurProp?.(ev)
+    },
+    [commitEdit, onBlurProp],
+  )
+
   const handleKeyDown = useCallback<JSX.KeyboardEventHandler<HTMLInputElement>>(
     (ev) => {
       if (ev.key === 'Enter') {
-        handleBlur()
+        commitEdit()
       }
+      onKeyDownProp?.(ev)
     },
-    [handleBlur],
+    [commitEdit, onKeyDownProp],
   )
 
   const handleChange = useCallback<JSX.InputEventHandler<HTMLInputElement>>(
@@ -51,12 +64,12 @@ export function LazyChangeInput({
 
   return (
     <input
+      {...props}
       value={editingValue !== undefined ? editingValue : value}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       onChange={handleChange}
-      {...props}
     />
   )
 }

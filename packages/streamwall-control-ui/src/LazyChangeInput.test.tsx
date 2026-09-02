@@ -13,11 +13,9 @@ afterEach(() => {
   }
 })
 
-function renderInput(props: {
-  value: string
-  isEager?: boolean
-  onChange: (value: string) => void
-}): HTMLInputElement {
+function renderInput(
+  props: Parameters<typeof LazyChangeInput>[0],
+): HTMLInputElement {
   container = document.createElement('div')
   document.body.appendChild(container)
   act(() => {
@@ -118,5 +116,65 @@ describe('LazyChangeInput', () => {
     // Enter must not commit a second time in eager mode.
     pressEnter(input)
     expect(onChange).toHaveBeenCalledTimes(2)
+  })
+
+  // GridInput passes its own onFocus/onBlur (to track focusedInputIdx). Those
+  // must be composed with, not replace, the internal handlers - otherwise
+  // editingValue is never seeded/cleared and a stale edit lingers forever
+  // (issue #744).
+  describe('when the caller supplies its own onFocus/onBlur', () => {
+    test('still seeds and commits the edit, and still calls the caller handlers', () => {
+      const onChange = vi.fn()
+      const callerOnFocus = vi.fn()
+      const callerOnBlur = vi.fn()
+      const input = renderInput({
+        value: 'old',
+        onChange,
+        onFocus: callerOnFocus,
+        onBlur: callerOnBlur,
+      })
+
+      // Under preact/compat, onFocus is wired to the (bubbling) focusin
+      // event, mirroring onBlur/focusout.
+      act(() => {
+        input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+      })
+      expect(callerOnFocus).toHaveBeenCalledTimes(1)
+
+      type(input, 'new')
+      blur(input)
+
+      expect(callerOnBlur).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledWith('new')
+    })
+
+    test('still clears editingValue on blur, so a later prop update is not masked by the stale edit', () => {
+      const onChange = vi.fn()
+      const input = renderInput({
+        value: 'old',
+        onChange,
+        onFocus: vi.fn(),
+        onBlur: vi.fn(),
+      })
+
+      type(input, 'zzz')
+      blur(input)
+
+      // Re-render with a fresh value, as a parent does after committing
+      // elsewhere (e.g. a drag/swap calling activeElement.blur()).
+      act(() => {
+        render(
+          <LazyChangeInput
+            value="fresh"
+            onChange={onChange}
+            onFocus={vi.fn()}
+            onBlur={vi.fn()}
+          />,
+          container!,
+        )
+      })
+
+      expect(input.value).toBe('fresh')
+    })
   })
 })
