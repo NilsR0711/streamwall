@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import * as Y from 'yjs'
 
 import {
@@ -6,8 +6,10 @@ import {
   streamwallStateSchema,
 } from 'streamwall-shared'
 import { StateWrapper } from '../auth.ts'
+import type { RateLimitConfig } from '../config.ts'
 import type { AppContext } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
+import type { VerifiedTokenCache } from '../verifiedTokenCache.ts'
 import {
   bearerToken,
   createWsMessageGuard,
@@ -16,8 +18,10 @@ import {
 } from '../wsSupport.ts'
 
 export interface UplinkRouteOptions {
-  /** The strict per-IP budget for routes that derive a token hash. */
-  authRateLimit: { max: number; timeWindow: string }
+  /** Per-IP budgets: the strict one guards routes that derive a token hash. */
+  rateLimit: RateLimitConfig
+  /** Shared cache of recently verified credentials. */
+  verifiedTokens: VerifiedTokenCache
 }
 
 /**
@@ -29,17 +33,42 @@ export interface UplinkRouteOptions {
 export function registerUplinkRoute(
   app: FastifyInstance,
   ctx: AppContext,
-  { authRateLimit }: UplinkRouteOptions,
+  { rateLimit, verifiedTokens }: UplinkRouteOptions,
 ): void {
+  /** Whether this handshake will have to derive the bearer token's hash. */
+  // Typed against the bare request the rate-limit hooks are handed, which does
+  // not carry this route's params generic.
+  const derives = (request: FastifyRequest): boolean => {
+    const token = bearerToken(request.headers.authorization)
+    const { id } = (request.params ?? {}) as { id?: string }
+    return (
+      token !== null &&
+      id !== undefined &&
+      verifiedTokens.get(id, token) === null
+    )
+  }
+
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
     {
       websocket: true,
       // The handshake below verifies a bearer token against its scrypt hash,
-      // so it carries the strict budget rather than the global one: without it
-      // a bogus `Authorization` header is a cheap way to burn ~16 MiB and tens
-      // of milliseconds of thread-pool work per request (issue #735).
-      config: { rateLimit: authRateLimit },
+      // so a bogus `Authorization` header is otherwise a cheap way to burn
+      // ~16 MiB and tens of milliseconds of thread-pool work per request
+      // (issue #735). Only a handshake that actually derives is charged
+      // against the strict budget: a desktop reconnecting through a flapping
+      // link presents a token the server verified moments ago, and must not be
+      // locked out of its own uplink by its own retries — nor by anyone else
+      // spraying bogus tokens from the same address.
+      config: {
+        rateLimit: {
+          keyGenerator: (request: FastifyRequest) =>
+            `${request.ip}:${derives(request) ? 'derive' : 'verified'}`,
+          max: (request: FastifyRequest) =>
+            derives(request) ? rateLimit.authMax : rateLimit.globalMax,
+          timeWindow: rateLimit.timeWindow,
+        },
+      },
     },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'
@@ -67,11 +96,15 @@ export function registerUplinkRoute(
         return
       }
 
-      const tokenInfo = await ctx.auth.validateToken(id, token)
+      const cached = verifiedTokens.get(id, token)
+      const tokenInfo = cached ?? (await ctx.auth.validateToken(id, token))
       if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()
         return
+      }
+      if (!cached) {
+        verifiedTokens.set(id, token, tokenInfo)
       }
 
       const log = request.log.child(identityFields(tokenInfo))

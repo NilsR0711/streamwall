@@ -6,15 +6,14 @@ import * as Y from 'yjs'
 import {
   controlCommandMessageSchema,
   roleCan,
-  type AuthTokenInfo,
   type StreamwallRole,
 } from 'streamwall-shared'
 import { uniqueRand62 } from '../auth.ts'
 import { SESSION_COOKIE_NAME, type RateLimitConfig } from '../config.ts'
 import { type AppContext, type Client } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
-import { createSessionCache } from '../sessionCache.ts'
 import { applyValidatedDocUpdate } from '../stateDocGuard.ts'
+import { type VerifiedTokenCache } from '../verifiedTokenCache.ts'
 import {
   createWsMessageGuard,
   queueWebSocketMessages,
@@ -26,6 +25,25 @@ export interface ClientRouteOptions {
   clientStaticPath: string
   /** Per-IP budgets: the strict one guards routes that derive a token hash. */
   rateLimit: RateLimitConfig
+  /** Shared cache of recently verified credentials. */
+  verifiedTokens: VerifiedTokenCache
+}
+
+/** Splits an `s` cookie into its token id and secret, or null if malformed. */
+function parseSessionCookie(
+  cookie: string | undefined,
+): { tokenId: string; secret: string } | null {
+  if (!cookie) {
+    return null
+  }
+  // Exactly two parts: a trailing third would otherwise be discarded silently,
+  // so `id:secret:anything` would authenticate under an unbounded number of
+  // distinct spellings — one cache entry each.
+  const parts = cookie.split(':')
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return null
+  }
+  return { tokenId: parts[0], secret: parts[1] }
 }
 
 /**
@@ -41,46 +59,52 @@ export interface ClientRouteOptions {
 export function registerClientRoutes(
   app: FastifyInstance,
   ctx: AppContext,
-  { clientStaticPath, rateLimit }: ClientRouteOptions,
+  { clientStaticPath, rateLimit, verifiedTokens }: ClientRouteOptions,
 ): void {
-  const sessions = createSessionCache({ auth: ctx.auth })
-
-  /** The session cookie's remembered identity, without deriving anything. */
-  const cachedIdentity = (request: FastifyRequest): AuthTokenInfo | null => {
-    const sessionCookie = request.cookies[SESSION_COOKIE_NAME]
-    return sessionCookie ? sessions.get(sessionCookie) : null
+  /** Whether serving this request will have to derive a token hash. */
+  const derives = (request: FastifyRequest): boolean => {
+    const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
+    // No cookie means no verification at all, so such a request must not be
+    // charged against the budget that exists to bound scrypt work: a logged-out
+    // tab retrying its socket would otherwise spend the whole budget and lock
+    // out the operator trying to log in from the same address.
+    return (
+      session !== null &&
+      verifiedTokens.get(session.tokenId, session.secret) === null
+    )
   }
 
   /**
-   * A request that can be answered from the session cache costs no scrypt, so
-   * it stays on the global budget; only one that has to derive is charged
-   * against the strict one. The two live in separate buckets, so a browser
-   * reconnecting on a known session can never be locked out by an attacker
-   * spraying unknown cookies from the same IP.
+   * Only a request that actually has to derive is charged against the strict
+   * budget; everything else stays on the global one. The two live in separate
+   * buckets, so a browser reconnecting on a known session can never be locked
+   * out by an attacker spraying unknown cookies from the same IP.
    */
   const derivationRateLimit = {
     keyGenerator: (request: FastifyRequest) =>
-      `${request.ip}:${cachedIdentity(request) ? 'session' : 'derive'}`,
+      `${request.ip}:${derives(request) ? 'derive' : 'verified'}`,
     max: (request: FastifyRequest) =>
-      cachedIdentity(request) ? rateLimit.globalMax : rateLimit.authMax,
+      derives(request) ? rateLimit.authMax : rateLimit.globalMax,
     timeWindow: rateLimit.timeWindow,
   }
 
   const authenticate = async (request: FastifyRequest) => {
-    const sessionCookie = request.cookies[SESSION_COOKIE_NAME]
-    if (!sessionCookie) {
+    const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
+    if (!session) {
       return
     }
-    const cached = sessions.get(sessionCookie)
+    const cached = verifiedTokens.get(session.tokenId, session.secret)
     if (cached) {
       request.identity = cached
       return
     }
-    const [tokenId, tokenSecret] = sessionCookie.split(':', 2)
-    const tokenInfo = await ctx.auth.validateToken(tokenId, tokenSecret)
+    const tokenInfo = await ctx.auth.validateToken(
+      session.tokenId,
+      session.secret,
+    )
     if (tokenInfo && tokenInfo.kind === 'session') {
       request.identity = tokenInfo
-      sessions.set(sessionCookie, tokenInfo)
+      verifiedTokens.set(session.tokenId, session.secret, tokenInfo)
     }
   }
 

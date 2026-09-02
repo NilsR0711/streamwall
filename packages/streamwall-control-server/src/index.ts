@@ -36,6 +36,7 @@ import {
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 import { createUpdateChecker, type UpdateChecker } from './updateCheck.ts'
+import { createVerifiedTokenCache } from './verifiedTokenCache.ts'
 import { registerClientRoutes } from './ws/client.ts'
 import { registerUplinkRoute } from './ws/uplink.ts'
 
@@ -237,15 +238,19 @@ export async function initApp({
       timeWindow: rateLimitConfig.timeWindow,
     },
   })
+  // One cache for both routes: a credential verified for the uplink or for a
+  // browser session is the same derivation either way, and a single instance
+  // means a single listener clearing it when the token set changes.
+  const verifiedTokens = createVerifiedTokenCache({ auth })
+
   registerUplinkRoute(app, ctx, {
-    authRateLimit: {
-      max: rateLimitConfig.authMax,
-      timeWindow: rateLimitConfig.timeWindow,
-    },
+    rateLimit: rateLimitConfig,
+    verifiedTokens,
   })
   registerClientRoutes(app, ctx, {
     clientStaticPath,
     rateLimit: rateLimitConfig,
+    verifiedTokens,
   })
 
   auth.on('state', (state) => {

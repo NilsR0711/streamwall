@@ -163,15 +163,42 @@ describe('scrypt-bearing routes', () => {
     )
   })
 
-  test('a repeated session cookie keeps reconnecting past the strict budget', async () => {
-    // Operators behind one NAT share an IP; their reconnects cost no scrypt
-    // once the session is known, so they must not spend the strict budget.
+  test('a spent strict budget never locks a known session out of its socket', async () => {
+    // Operators behind one NAT share an IP with whoever else is on it. Their
+    // reconnects cost no scrypt once the session is known, so an attacker
+    // spraying unknown cookies from that address must not be able to shut them
+    // out by exhausting the strict budget.
     setEnvForTest({
       STREAMWALL_RATE_LIMIT_MAX: '100',
       STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
     })
     const { app, cookie } = await appWithSession()
     const port = await listenTestApp(app)
+
+    // Warm the session, then let the attacker burn the strict budget.
+    const warmup = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie },
+    })
+    assert.equal(warmup.statusCode, 200)
+    for (let i = 0; i < 4; i++) {
+      await app.inject({
+        method: 'GET',
+        url: '/admin/status',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:bbbb${i}` },
+      })
+    }
+    const sprayed = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:cccc` },
+    })
+    assert.equal(
+      sprayed.statusCode,
+      429,
+      'the strict budget must be spent for this spec to mean anything',
+    )
 
     for (let i = 0; i < 5; i++) {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
@@ -185,6 +212,57 @@ describe('scrypt-bearing routes', () => {
         error: 'streamwall disconnected',
       })
       ws.terminate()
+    }
+  })
+
+  test('a request without a cookie never spends the strict budget', async () => {
+    // Nothing is verified without a cookie, so such a request costs no scrypt.
+    // A logged-out tab retrying its socket would otherwise spend the whole
+    // budget and lock out the operator logging in from the same address.
+    setEnvForTest({
+      STREAMWALL_RATE_LIMIT_MAX: '100',
+      STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+    })
+    const { app, cookie } = await appWithSession()
+
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({ method: 'GET', url: '/admin/status' })
+      assert.equal(res.statusCode, 403, 'no cookie means no identity')
+    }
+
+    const authenticated = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie },
+    })
+    assert.equal(
+      authenticated.statusCode,
+      200,
+      'a first real login must still have budget left',
+    )
+  })
+
+  test('a reconnecting uplink is not throttled on its own verified token', async () => {
+    // The desktop retries every few seconds through a flapping link, well
+    // above the strict budget — on a token the server verified moments ago.
+    setEnvForTest({
+      STREAMWALL_RATE_LIMIT_MAX: '100',
+      STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+    })
+    const { app, auth } = await buildTestApp()
+    after(() => app.close())
+    const port = await listenTestApp(app)
+    const { base, secret } = await mintUplinkToken(auth, port)
+
+    for (let i = 0; i < 5; i++) {
+      const ws = new WebSocket(base, {
+        headers: { authorization: `Bearer ${secret}` },
+      })
+      ws.on('error', () => {})
+      await once(ws, 'open')
+      ws.terminate()
+      // The slot is released on close; wait for that before reconnecting.
+      await once(ws, 'close')
     }
   })
 
