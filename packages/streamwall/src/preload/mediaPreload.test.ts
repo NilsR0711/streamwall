@@ -26,6 +26,46 @@ function importedMediaApi(): MediaApi {
   return call[1] as MediaApi
 }
 
+// Looks up the handler a describe block's own import registered for
+// `channel`. Every describe here clears the `on` mock in its own afterEach
+// before the next one imports the module (see the comment on the
+// 'RotationController' describe below), so at most one registration per
+// channel is ever live when a test calls this -- it takes the first match
+// rather than the last purely to preserve that existing contract.
+function registeredHandler(channel: string): (...args: unknown[]) => void {
+  const call = on.mock.calls.find(([ch]) => ch === channel)
+  if (!call) {
+    throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+  }
+  return call[1] as (...args: unknown[]) => void
+}
+
+function viewLoadedCalls() {
+  return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+}
+
+function viewErrorCalls() {
+  return send.mock.calls.filter(([channel]) => channel === 'view-error')
+}
+
+// happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+// truthy value to skip findMedia's "wait for playing" branch on acquisition.
+// Pass `doc` for an iframe's own document (defaults to the top-level
+// `document`); pass `append: true` to attach the element under `doc.body`
+// immediately, for tests that need it already in the DOM before importing
+// the module.
+function playableVideo({
+  doc = document,
+  append = false,
+}: { doc?: Document; append?: boolean } = {}): HTMLVideoElement {
+  const video = doc.createElement('video')
+  ;(video as unknown as { videoWidth: number }).videoWidth = 100
+  if (append) {
+    doc.body.appendChild(video)
+  }
+  return video
+}
+
 describe('mediaPreload visibility spoofing', () => {
   afterEach(() => {
     vi.resetModules()
@@ -116,10 +156,6 @@ describe('mediaPreload initial acquireMedia rejection', () => {
     on.mockClear()
     exposeInMainWorld.mockClear()
   })
-
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
 
   // Resolves view-init with 'video' content (so main() reaches the
   // acquireMedia() call) and fires process's 'loaded' event (so main()'s own
@@ -266,10 +302,6 @@ describe("mediaPreload emptied handler's re-acquisition rejection", () => {
     document.body.innerHTML = ''
   })
 
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
-
   it("honors the unbounded elementTimeout passed to the emptied handler's re-acquisition instead of always falling back to INITIAL_TIMEOUT", async () => {
     const video = document.createElement('video')
     // happy-dom's HTMLVideoElement never implements videoWidth (always
@@ -334,10 +366,6 @@ describe('mediaPreload acquisition play() rejection (issue #626)', () => {
     document.body.innerHTML = ''
   })
 
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
-
   it('logs and swallows the acquisition play() rejection instead of leaving it unhandled', async () => {
     const video = document.createElement('video')
     // happy-dom never sets videoWidth, so give it a truthy value to skip
@@ -396,10 +424,6 @@ describe('mediaPreload iframe video extraction (issue #413)', () => {
     exposeInMainWorld.mockClear()
     document.body.innerHTML = ''
   })
-
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
 
   // A same-origin iframe embed: the <video> lives in the iframe's own
   // document, so the top-level waitForQuery never finds it and the iframe
@@ -515,10 +539,6 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
     document.body.innerHTML = ''
   })
 
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
-
   async function loadVideoContent() {
     invoke.mockResolvedValueOnce({
       content: { kind: 'video', link: 'https://example.com/stream' },
@@ -529,14 +549,6 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'))
     process.emit('loaded' as never)
     await vi.advanceTimersByTimeAsync(0)
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(doc: Document): HTMLVideoElement {
-    const video = doc.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    return video
   }
 
   // An empty same-origin frame whose player arrives later.
@@ -556,7 +568,7 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
 
   it('acquires an iframe-embedded video without waiting out the initial timeout', async () => {
     const { iframe, frameDocument } = appendEmptyIframe()
-    frameDocument.body.appendChild(playableVideo(frameDocument))
+    frameDocument.body.appendChild(playableVideo({ doc: frameDocument }))
 
     await loadVideoContent()
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
@@ -574,7 +586,7 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
     // MutationObserver sees the insertion, so the scan must run again rather
     // than only once at the very end of the initial wait.
     const { iframe, frameDocument } = appendEmptyIframe()
-    frameDocument.body.appendChild(playableVideo(frameDocument))
+    frameDocument.body.appendChild(playableVideo({ doc: frameDocument }))
 
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
 
@@ -592,7 +604,7 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
     await loadVideoContent()
     await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS / 2)
 
-    frameDocument.body.appendChild(playableVideo(frameDocument))
+    frameDocument.body.appendChild(playableVideo({ doc: frameDocument }))
     iframe.dispatchEvent(new Event('load'))
 
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
@@ -603,7 +615,7 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
   })
 
   it('scans iframes during an unbounded re-acquisition, which never reaches a timeout', async () => {
-    const video = playableVideo(document)
+    const video = playableVideo()
     document.body.appendChild(video)
 
     await loadVideoContent()
@@ -614,7 +626,7 @@ describe('mediaPreload late iframe rescanning (issue #485)', () => {
     // when the search times out would never run at all here.
     video.remove()
     const { iframe, frameDocument } = appendEmptyIframe()
-    frameDocument.body.appendChild(playableVideo(frameDocument))
+    frameDocument.body.appendChild(playableVideo({ doc: frameDocument }))
     video.dispatchEvent(new Event('emptied'))
 
     await vi.advanceTimersByTimeAsync(INITIAL_TIMEOUT_MS * 3)
@@ -672,10 +684,6 @@ describe('mediaPreload in-frame document observation (issue #534)', () => {
     document.body.innerHTML = ''
   })
 
-  function viewErrorCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-error')
-  }
-
   async function loadVideoContent() {
     invoke.mockResolvedValueOnce({
       content: { kind: 'video', link: 'https://example.com/stream' },
@@ -686,14 +694,6 @@ describe('mediaPreload in-frame document observation (issue #534)', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'))
     process.emit('loaded' as never)
     await vi.advanceTimersByTimeAsync(0)
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(doc: Document): HTMLVideoElement {
-    const video = doc.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    return video
   }
 
   function appendEmptyIframe(): {
@@ -719,7 +719,7 @@ describe('mediaPreload in-frame document observation (issue #534)', () => {
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
     expect(send).not.toHaveBeenCalledWith('view-loaded')
 
-    frameDocument.body.appendChild(playableVideo(frameDocument))
+    frameDocument.body.appendChild(playableVideo({ doc: frameDocument }))
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
 
     expect(viewErrorCalls()).toEqual([])
@@ -748,7 +748,7 @@ describe('mediaPreload in-frame document observation (issue #534)', () => {
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
     expect(send).not.toHaveBeenCalledWith('view-loaded')
 
-    nextDocument.body.appendChild(playableVideo(nextDocument))
+    nextDocument.body.appendChild(playableVideo({ doc: nextDocument }))
     await vi.advanceTimersByTimeAsync(SCAN_THROTTLE_MS)
 
     expect(viewErrorCalls()).toEqual([])
@@ -910,14 +910,6 @@ describe('mediaPreload pause/resume handling (issue #374)', () => {
     exposeInMainWorld.mockClear()
     document.body.innerHTML = ''
   })
-
-  function registeredHandler(channel: string): () => void {
-    const call = on.mock.calls.find(([ch]) => ch === channel)
-    if (!call) {
-      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
-    }
-    return call[1] as () => void
-  }
 
   // Same acquisition setup as the emptied-handler tests above: a real <video>
   // with a truthy videoWidth so findMedia() resolves immediately instead of
@@ -1202,28 +1194,6 @@ describe('mediaPreload re-acquisition keeps operator-set state (issues #620/#621
     document.body.innerHTML = ''
   })
 
-  function registeredHandler(
-    channel: string,
-  ): (ev: unknown, ...args: unknown[]) => void {
-    const call = on.mock.calls.find(([ch]) => ch === channel)
-    if (!call) {
-      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
-    }
-    return call[1] as (ev: unknown, ...args: unknown[]) => void
-  }
-
-  function viewLoadedCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(): HTMLVideoElement {
-    const video = document.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    return video
-  }
-
   async function loadAcquiredVideo(
     options: Record<string, unknown> = {},
   ): Promise<HTMLVideoElement> {
@@ -1341,28 +1311,6 @@ describe('mediaPreload initial paused state from view-init (issue #658)', () => 
     document.body.innerHTML = ''
   })
 
-  function registeredHandler(
-    channel: string,
-  ): (ev: unknown, ...args: unknown[]) => void {
-    const call = on.mock.calls.find(([ch]) => ch === channel)
-    if (!call) {
-      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
-    }
-    return call[1] as (ev: unknown, ...args: unknown[]) => void
-  }
-
-  function viewLoadedCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(): HTMLVideoElement {
-    const video = document.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    return video
-  }
-
   async function loadAcquiredVideo(
     init: Record<string, unknown> = {},
   ): Promise<HTMLVideoElement> {
@@ -1474,18 +1422,6 @@ describe('mediaPreload paused acquisition announces the park to the page world (
     document.body.innerHTML = ''
   })
 
-  function registeredHandler(channel: string): () => void {
-    const call = on.mock.calls.find(([ch]) => ch === channel)
-    if (!call) {
-      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
-    }
-    return call[1] as () => void
-  }
-
-  function viewLoadedCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
-  }
-
   // The bundled HLS player (renderer/playHLS.ts) only stops segment fetching
   // via these document events (issue #384); its hls.js instance lives in a
   // closure the preload cannot reach. Records every park/unpark announcement
@@ -1496,14 +1432,6 @@ describe('mediaPreload paused acquisition announces the park to the page world (
     document.addEventListener('streamwall:media-pause', record)
     document.addEventListener('streamwall:media-resume', record)
     return names
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(): HTMLVideoElement {
-    const video = document.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    return video
   }
 
   async function loadAcquiredVideo(
@@ -1614,29 +1542,6 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
     return on.mock.calls.map(([channel]) => channel as string)
   }
 
-  function registeredHandler(
-    channel: string,
-  ): (ev: unknown, ...args: unknown[]) => void {
-    const call = on.mock.calls.find(([ch]) => ch === channel)
-    if (!call) {
-      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
-    }
-    return call[1] as (ev: unknown, ...args: unknown[]) => void
-  }
-
-  function viewLoadedCalls() {
-    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
-  }
-
-  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
-  // truthy value to skip findMedia's "wait for playing" branch.
-  function playableVideo(): HTMLVideoElement {
-    const video = document.createElement('video')
-    ;(video as unknown as { videoWidth: number }).videoWidth = 100
-    document.body.appendChild(video)
-    return video
-  }
-
   // Imports the preload with the 'view-init' round trip still in flight, so a
   // test can deliver IPC in exactly the window this issue is about: after the
   // main process answered 'view-init' and dispatched to the view actor, but
@@ -1688,7 +1593,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('honors a pause delivered before view-init resolved', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     registeredHandler('pause')(null)
@@ -1699,7 +1604,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('does not let the view-init payload clobber a resume delivered before it resolved', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     registeredHandler('resume')(null)
@@ -1710,7 +1615,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('announces an early pause to the page world at acquisition time too', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
     const events: string[] = []
     document.addEventListener('streamwall:media-pause', (ev) =>
@@ -1728,7 +1633,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('does not let the view-init payload clobber a volume delivered before it resolved', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     registeredHandler('volume')(null, 0.25)
@@ -1740,7 +1645,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   it('keeps an early volume of 0, which a truthiness check would discard', async () => {
     // The defaulting has to be nullish (`??=`), not `||=`: a muted view is a
     // legitimate operator choice and must not fall back to the payload.
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     registeredHandler('volume')(null, 0)
@@ -1750,7 +1655,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('does not let the view-init payload clobber options delivered before it resolved', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     registeredHandler('options')(null, { rotation: 90 })
@@ -1760,7 +1665,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
   })
 
   it('still applies the view-init payload when no message arrived early', async () => {
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     await settleViewInit({
@@ -1779,7 +1684,7 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
     // object once it has seen an OPTIONS event, so the payload legitimately
     // carries null. Dereferencing it must not abort main() before the
     // acquisition it now precedes.
-    const video = playableVideo()
+    const video = playableVideo({ append: true })
     const settleViewInit = await loadWithPendingViewInit()
 
     await settleViewInit({ options: null })
