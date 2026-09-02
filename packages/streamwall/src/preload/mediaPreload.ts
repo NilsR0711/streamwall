@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { throttle } from 'lodash-es'
-import { ContentDisplayOptions } from 'streamwall-shared'
+import {
+  ContentDisplayOptions,
+  MAX_VIEW_INFO_TITLE_LENGTH,
+} from 'streamwall-shared'
 import { MEDIA_PAUSE_EVENT, MEDIA_RESUME_EVENT } from './mediaParkEvents'
 import { VolumeController } from './volumeController'
 
@@ -692,9 +695,14 @@ async function main() {
       hasReportedMediaError = true
       ipcRenderer.send('view-error', { error })
     })
+    // document.title is fully page-controlled and unbounded; truncate before
+    // it crosses the IPC boundary so an untrusted page cannot grow the
+    // shared, server-broadcast state without limit (issue #734). The schema
+    // (MAX_VIEW_INFO_TITLE_LENGTH, streamwall-shared/src/schemas.ts) enforces
+    // the same bound as a backstop in case this truncation is ever bypassed.
     ipcRenderer.send('view-info', {
       info: {
-        title: document.title,
+        title: document.title.slice(0, MAX_VIEW_INFO_TITLE_LENGTH),
       },
     })
   } else if (content.kind === 'web') {
