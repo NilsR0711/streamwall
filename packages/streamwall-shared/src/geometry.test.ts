@@ -11,6 +11,7 @@ import {
   hasGridAssignments,
   idxToCoords,
   parseGridDimensionInput,
+  remapCellIdx,
   remapGridAssignments,
 } from './geometry.ts'
 import { asCellIdx, asViewId, type CellIdx } from './viewAddressing.ts'
@@ -377,6 +378,36 @@ describe('fullscreenViewContentMap', () => {
     )
     expect(boxes).toHaveLength(1)
     expect(boxes[0].spaces).toEqual([0])
+  })
+})
+
+describe('remapCellIdx', () => {
+  it('follows a cell to its new index when the grid grows', () => {
+    // 2x2: idx 3 is (1,1); in a 3x3 grid that position is idx 4.
+    expect(remapCellIdx(2, 2, 3, 3, asCellIdx(3))).toBe(4)
+  })
+
+  it('follows a cell to its new index when the grid shrinks', () => {
+    // 3x3: idx 4 is (1,1); in a 2x2 grid that position is idx 3.
+    expect(remapCellIdx(3, 3, 2, 2, asCellIdx(4))).toBe(3)
+  })
+
+  it('returns null when the cell falls outside the new grid', () => {
+    // 3x3: idx 8 is (2,2), which does not exist in a 2x2 grid.
+    expect(remapCellIdx(3, 3, 2, 2, asCellIdx(8))).toBeNull()
+  })
+
+  it('returns null for a cell outside the old grid', () => {
+    // A stale index left over from a previously larger grid (issue #17).
+    expect(remapCellIdx(2, 2, 3, 3, asCellIdx(7))).toBeNull()
+  })
+
+  it('returns null for a null input', () => {
+    expect(remapCellIdx(2, 2, 3, 3, null)).toBeNull()
+  })
+
+  it('keeps the index unchanged when the column count is unchanged', () => {
+    expect(remapCellIdx(3, 3, 3, 2, asCellIdx(4))).toBe(4)
   })
 })
 

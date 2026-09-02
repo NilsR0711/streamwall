@@ -1,5 +1,7 @@
 import {
+  asCellIdx,
   boxesFromViewContentMap,
+  type CellIdx,
   GRID_MAX,
   GRID_MIN,
   type ViewContentMap,
@@ -83,15 +85,33 @@ function setupWall(cols: number, rows: number) {
     wall.setViews(viewContentMap)
   }
 
+  // The expanded cell (issue #362), mirroring `clientState.fullscreenViewIdx`
+  // in the main process.
+  let fullscreenViewIdx: CellIdx | null = null
+
   const ctx: GridResizeContext = {
     viewsState,
     transact: (fn) => doc.transact(fn),
     getCols: () => wall.cols,
     getRows: () => wall.rows,
     setGridSize: (c, r) => wall.setGridSize(c, r),
+    getFullscreenViewIdx: () => fullscreenViewIdx,
+    setFullscreenViewIdx: (idx) => {
+      fullscreenViewIdx = idx
+    },
   }
 
-  return { doc, viewsState, wall, updateViewsFromStateDoc, ctx }
+  return {
+    doc,
+    viewsState,
+    wall,
+    updateViewsFromStateDoc,
+    ctx,
+    getFullscreenViewIdx: () => fullscreenViewIdx,
+    setFullscreenViewIdx: (idx: CellIdx | null) => {
+      fullscreenViewIdx = idx
+    },
+  }
 }
 
 /** Seeds `viewsState` with a full grid; `streams` maps cell index -> streamId. */
@@ -161,6 +181,8 @@ describe('applyGridResize', () => {
         cols = c
         rows = r
       },
+      getFullscreenViewIdx: () => null,
+      setFullscreenViewIdx: () => {},
     }
 
     applyGridResize(ctx, 3, 3)
@@ -303,5 +325,66 @@ describe('applyGridResize', () => {
       expect(viewData.get('streamId')).not.toBe('ghost')
     }
     expect(viewsState.get('0')?.get('streamId')).toBe('stream-a')
+  })
+})
+
+// `fullscreenViewIdx` is a *cell* index, so it has to follow the same (x, y)
+// remapping as the assignments themselves -- otherwise a resize while a stream
+// is expanded silently swaps the wall over to whichever stream now sits at the
+// stale index (issue #739).
+describe('applyGridResize fullscreen expansion (issue #739)', () => {
+  it('follows the expanded cell into the new grid', () => {
+    const { viewsState, ctx, setFullscreenViewIdx, getFullscreenViewIdx } =
+      setupWall(2, 2)
+    seedAssignments(viewsState, 2, 2, { 3: 'stream-a' })
+    // Cell 3 = (1,1) is expanded.
+    setFullscreenViewIdx(asCellIdx(3))
+
+    applyGridResize(ctx, 3, 3)
+
+    // (1,1) is cell 4 in a 3x3 grid -- where 'stream-a' also moved.
+    expect(getFullscreenViewIdx()).toBe(4)
+    expect(viewsState.get('4')?.get('streamId')).toBe('stream-a')
+  })
+
+  it('clears the expansion when the expanded cell falls outside the new grid', () => {
+    const { viewsState, ctx, setFullscreenViewIdx, getFullscreenViewIdx } =
+      setupWall(3, 3)
+    seedAssignments(viewsState, 3, 3, { 8: 'stream-a' })
+    // Cell 8 = (2,2) does not exist in a 2x2 grid.
+    setFullscreenViewIdx(asCellIdx(8))
+
+    applyGridResize(ctx, 2, 2)
+
+    expect(getFullscreenViewIdx()).toBeNull()
+  })
+
+  it('leaves a collapsed wall collapsed', () => {
+    const { viewsState, ctx, getFullscreenViewIdx } = setupWall(2, 2)
+    seedAssignments(viewsState, 2, 2, { 0: 'stream-a' })
+
+    applyGridResize(ctx, 3, 3)
+
+    expect(getFullscreenViewIdx()).toBeNull()
+  })
+
+  it('applies the remapped expansion before the transact observer runs', () => {
+    const { viewsState, ctx, setFullscreenViewIdx, getFullscreenViewIdx } =
+      setupWall(2, 2)
+    seedAssignments(viewsState, 2, 2, { 3: 'stream-a' })
+    setFullscreenViewIdx(asCellIdx(3))
+
+    // The observer re-derives the wall layout synchronously at the end of the
+    // transact and reads the expanded cell, so it must already be remapped --
+    // same ordering constraint as the grid dimensions (issue #15).
+    const observed: (number | null)[] = []
+    viewsState.observeDeep(() => observed.push(getFullscreenViewIdx()))
+
+    applyGridResize(ctx, 3, 3)
+
+    expect(observed.length).toBeGreaterThan(0)
+    for (const idx of observed) {
+      expect(idx).toBe(4)
+    }
   })
 })

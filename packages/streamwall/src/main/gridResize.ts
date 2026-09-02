@@ -2,6 +2,7 @@ import {
   asCellIdx,
   type CellIdx,
   clampGridDimension,
+  remapCellIdx,
   remapGridAssignments,
 } from 'streamwall-shared'
 import * as Y from 'yjs'
@@ -27,6 +28,10 @@ export interface GridResizeContext {
   getRows: () => number
   /** Applies the new grid dimensions to the wall (mutates the shared config). */
   setGridSize: (cols: number, rows: number) => void
+  /** The cell currently expanded to fill the wall, or null (issue #362). */
+  getFullscreenViewIdx: () => CellIdx | null
+  /** Publishes the expanded cell remapped into the new grid (issue #739). */
+  setFullscreenViewIdx: (idx: CellIdx | null) => void
 }
 
 /**
@@ -73,6 +78,16 @@ export function applyGridResize(
   // Update the grid dimensions BEFORE the transact so the synchronous observer
   // lays the wall out against the new grid. See the ordering note above.
   ctx.setGridSize(cols, rows)
+
+  // `fullscreenViewIdx` addresses the expanded tile by *cell*, so it has to
+  // follow the same (x, y) mapping as the assignments -- otherwise the resize
+  // silently expands whichever stream now sits at the stale index, or collapses
+  // the expansion if that cell is empty (issue #739). Published before the
+  // transact for the same reason as the dimensions: the observer re-derives the
+  // wall layout from it synchronously.
+  ctx.setFullscreenViewIdx(
+    remapCellIdx(oldCols, oldRows, cols, rows, ctx.getFullscreenViewIdx()),
+  )
 
   ctx.transact(() => {
     for (const key of [...ctx.viewsState.keys()]) {

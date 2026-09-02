@@ -196,6 +196,9 @@ export function createOnCommand(deps: CommandHandlerDeps) {
           getRows: () => deps.streamWindowConfig.rows,
           setGridSize: (cols, rows) =>
             deps.streamWindow.setGridSize(cols, rows),
+          getFullscreenViewIdx: () => deps.getClientState().fullscreenViewIdx,
+          setFullscreenViewIdx: (fullscreenViewIdx) =>
+            deps.updateState({ fullscreenViewIdx }),
         },
         msg.cols,
         msg.rows,
@@ -239,6 +242,8 @@ export function createOnCommand(deps: CommandHandlerDeps) {
             transact: deps.transact,
             setGridSize: (cols, rows) =>
               deps.streamWindow.setGridSize(cols, rows),
+            setFullscreenViewIdx: (fullscreenViewIdx) =>
+              deps.updateState({ fullscreenViewIdx }),
           },
           preset,
         )

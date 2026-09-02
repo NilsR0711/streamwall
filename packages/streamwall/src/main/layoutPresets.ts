@@ -48,6 +48,8 @@ export interface LayoutPresetLoadContext {
   transact: (fn: () => void) => void
   /** Applies the preset's grid dimensions to the wall (mutates the shared config). */
   setGridSize: (cols: number, rows: number) => void
+  /** Drops the cell-based fullscreen expansion, if any (issue #739). */
+  setFullscreenViewIdx: (idx: null) => void
 }
 
 /**
@@ -64,6 +66,13 @@ export function applyLayoutPreset(
   preset: LayoutPreset,
 ): void {
   ctx.setGridSize(preset.cols, preset.rows)
+
+  // The preset replaces every assignment wholesale, so a cell index recorded
+  // before the load addresses nothing meaningful afterwards: drop the expansion
+  // instead of pointing it at whatever the preset happened to put there
+  // (issue #739). Cleared before the transact, like the dimensions above, so
+  // the synchronous observer never re-derives the wall from a stale index.
+  ctx.setFullscreenViewIdx(null)
 
   ctx.transact(() => {
     for (const key of [...ctx.viewsState.keys()]) {

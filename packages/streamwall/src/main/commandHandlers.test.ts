@@ -1,4 +1,8 @@
-import { type ControlCommand, type StreamwallState } from 'streamwall-shared'
+import {
+  asCellIdx,
+  type ControlCommand,
+  type StreamwallState,
+} from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import {
@@ -281,6 +285,50 @@ describe('createOnCommand — grid and layout presets', () => {
 
     expect(streamWindow.setGridSize).toHaveBeenCalledWith(4, 2)
     expect(deps.updateState).toHaveBeenCalledWith({})
+  })
+
+  it('remaps the expanded cell when the grid is resized (issue #739)', async () => {
+    const ctx = makeDeps()
+    ctx.deps.streamWindowConfig.cols = 2
+    ctx.deps.streamWindowConfig.rows = 2
+    ctx.setClientState({ fullscreenViewIdx: asCellIdx(3) })
+    const onCommand = createOnCommand(ctx.deps)
+
+    await onCommand(cmd({ type: 'set-grid-size', cols: 3, rows: 3 }))
+
+    // Cell 3 = (1,1) in a 2x2 grid is cell 4 in a 3x3 grid.
+    expect(ctx.deps.updateState).toHaveBeenCalledWith({ fullscreenViewIdx: 4 })
+    expect(ctx.getClientState().fullscreenViewIdx).toBe(4)
+  })
+
+  it('clears the expansion when its cell falls outside the resized grid (issue #739)', async () => {
+    const ctx = makeDeps()
+    ctx.deps.streamWindowConfig.cols = 3
+    ctx.deps.streamWindowConfig.rows = 3
+    ctx.setClientState({ fullscreenViewIdx: asCellIdx(8) })
+    const onCommand = createOnCommand(ctx.deps)
+
+    await onCommand(cmd({ type: 'set-grid-size', cols: 2, rows: 2 }))
+
+    expect(ctx.getClientState().fullscreenViewIdx).toBeNull()
+  })
+
+  it('clears the expansion when a layout preset is loaded (issue #739)', async () => {
+    const ctx = makeDeps()
+    const preset = buildLayoutPreset(
+      { viewsState: ctx.viewsState, cols: 3, rows: 3 },
+      'preset-id',
+      'Saved',
+    )
+    ctx.setClientState({
+      layoutPresets: [preset],
+      fullscreenViewIdx: asCellIdx(1),
+    })
+    const onCommand = createOnCommand(ctx.deps)
+
+    await onCommand(cmd({ type: 'load-layout-preset', presetId: 'preset-id' }))
+
+    expect(ctx.getClientState().fullscreenViewIdx).toBeNull()
   })
 
   it('saves a layout preset and persists it', async () => {
