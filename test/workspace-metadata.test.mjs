@@ -92,6 +92,15 @@ test('every workspace that packages with electron-forge typechecks first', () =>
 // `# fail 0` with a non-zero exit, which reads as an unexplained flake. The
 // floor keeps the timeout a hang detector rather than a per-file budget.
 // Issue #492.
+//
+// The same class recurred as #804 against `gracefulShutdown.test.ts`, which
+// spawns a real child process and waits for it to finish booting: under
+// `node --test`'s default per-file-process concurrency plus several other
+// `node --test` invocations running at once (parallel worktrees), the file's
+// cumulative wall-clock cost pushed past the 60s value this floor used to
+// equal. `streamwall-control-server` now configures 120000ms — comfortably
+// above this floor, which stays at the original value so it keeps acting as a
+// minimum rather than tracking every package's current setting.
 const NODE_TEST_TIMEOUT_FLOOR_MS = 60_000
 
 test('node:test workspaces leave room for whole-file runtime in --test-timeout', () => {
