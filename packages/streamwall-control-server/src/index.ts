@@ -28,6 +28,7 @@ import {
 } from './context.ts'
 import { registerInviteRoutes } from './inviteExchange/invite.ts'
 import { getLoggerOptions, type LogLevel } from './logger.ts'
+import type { Clock } from './rateLimiter.ts'
 import {
   captureException,
   initSentry,
@@ -75,6 +76,7 @@ export async function initApp({
   updateChecker: injectedUpdateChecker,
   uplinkPing: injectedUplinkPing,
   verifiedTokenTtlMs,
+  verifiedTokenClock,
 }: AppOptions & {
   db?: StorageDB
   /**
@@ -124,6 +126,12 @@ export async function initApp({
    * spec can exercise expiry without waiting a minute for it.
    */
   verifiedTokenTtlMs?: number
+  /**
+   * Test-only override for the clock the verified-token cache reads its TTL
+   * from, so a spec can step across many TTLs deterministically (e.g. with
+   * `node:test`'s mock timers) instead of waiting on the wall clock.
+   */
+  verifiedTokenClock?: Clock
 }) {
   const expectedOrigin = new URL(baseURL).origin
   const isSecure = baseURL.startsWith('https')
@@ -250,6 +258,7 @@ export async function initApp({
   const verifiedTokens = createVerifiedTokenCache({
     auth,
     ...(verifiedTokenTtlMs !== undefined && { ttlMs: verifiedTokenTtlMs }),
+    ...(verifiedTokenClock !== undefined && { clock: verifiedTokenClock }),
   })
 
   registerUplinkRoute(app, ctx, {
