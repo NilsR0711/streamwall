@@ -1858,6 +1858,24 @@ describe('StreamWindow constructor', () => {
       ])
     })
 
+    // The mirror: a renderer going away can make `send` throw without
+    // `isDestroyed()` having caught up, and the operator on another machine
+    // must still be told.
+    it('still reports to the control UI when the overlay send throws', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+      vi.mocked(sw.overlayView.webContents.send).mockImplementation(() => {
+        throw new Error('render frame was disposed')
+      })
+      const emitted: string[] = []
+      sw.on('blockedURL', (url) => emitted.push(url))
+
+      background('http://192.168.1.50/bg', 'private network')
+
+      expect(emitted).toEqual(['http://192.168.1.50/bg'])
+    })
+
     it('stops emitting blocked URLs once disposed', () => {
       const sw = new StreamWindow(makeConfig())
       const { background } = reportersOf(sw)

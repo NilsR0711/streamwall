@@ -287,19 +287,26 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     if (this.disposed) {
       return
     }
-    if (this.overlayLoaded) {
-      this.sendBlockedURL(url)
-    } else if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
-      // Drops the newcomer rather than the oldest, so a layer page issuing a
-      // stream of refused requests cannot push the operator's own refused link
-      // out of the queue before the overlay is listening.
-      this.pendingBlockedURLs.push(url)
+    // Two audiences, two transports, neither allowed to lose its notice to the
+    // other's failure -- so each is guarded. `webContents.send` can throw on a
+    // renderer that is going away without `isDestroyed()` having caught up,
+    // and the `blockedURL` listener synchronously runs the whole state
+    // broadcast (uplink included). Whatever escapes either would otherwise
+    // land in the request guard's own catch as a single log line.
+    try {
+      if (this.overlayLoaded) {
+        this.sendBlockedURL(url)
+      } else if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
+        // Drops the newcomer rather than the oldest, so a layer page issuing a
+        // stream of refused requests cannot push the operator's own refused
+        // link out of the queue before the overlay is listening.
+        this.pendingBlockedURLs.push(url)
+      }
+    } catch (err) {
+      log.warn('error reporting blocked layer URL to the wall', err)
     }
-    // The control UI's copy of the report (#797) travels a path of its own: it
-    // is announced even while the overlay renderer has not come up, which
-    // gates the delivery above, and it is announced last and guarded, because
-    // this listener runs the whole state broadcast synchronously and neither
-    // audience may lose its notice to the other's transport failing.
+    // The control UI's copy of the report (#797) is announced even while the
+    // overlay renderer has not come up, which gates the delivery above.
     try {
       this.emit('blockedURL', url)
     } catch (err) {
