@@ -364,6 +364,10 @@ test('hardenSession registers a permission check handler', () => {
 })
 
 test('hardened session answers no to every permission check', () => {
+  // Electron's `setPermissionCheckHandler` union, which is not the request
+  // handler's: `hid`, `serial`, `usb` and `deprecated-sync-clipboard-read` are
+  // check-only, while `display-capture`, `keyboardLock`, `speaker-selection`
+  // and `window-management` are request-only.
   const session = fakeSession()
   hardenSession(session)
   for (const permission of [
@@ -374,6 +378,9 @@ test('hardened session answers no to every permission check', () => {
     'midi',
     'midiSysex',
     'clipboard-read',
+    'clipboard-sanitized-write',
+    'deprecated-sync-clipboard-read',
+    'fileSystem',
     'fullscreen',
     'openExternal',
     'serial',
@@ -382,7 +389,6 @@ test('hardened session answers no to every permission check', () => {
     'idle-detection',
     'storage-access',
     'top-level-storage-access',
-    'speaker-selection',
     'pointerLock',
   ]) {
     assert.equal(

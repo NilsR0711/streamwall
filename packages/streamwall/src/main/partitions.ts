@@ -185,12 +185,17 @@ export function installRequestSSRFGuard(
  * prompt path; Chromium consults the check handler on its own for
  * `navigator.permissions.query`, device enumeration and other capability probes
  * that never raise a prompt, and grants them by default when no handler is set.
- * They govern the same permission names, so answering no to both says one thing
- * consistently rather than leaving content able to learn what it would be
- * refused (#789).
+ * The two permission names overlap on everything Streamwall's content can
+ * reach, `mediaKeySystem` (EME) included, so answering no to both says one
+ * thing consistently rather than leaving content able to learn what it would be
+ * refused. The check-only names (`hid`, `serial`, `usb`,
+ * `deprecated-sync-clipboard-read`) have no request-path equivalent: the first
+ * three additionally need a `select-*-device` listener, which the app never
+ * registers, and the last was simply default-granted before (#789).
  *
- * All three handlers are per-session in Electron, so this must be called for
- * each isolated partition rather than once for a shared one.
+ * The two permission handlers and the request listener are all per-session in
+ * Electron, so this must be called for each isolated partition rather than once
+ * for a shared one.
  */
 export function hardenSession(
   session: Pick<
