@@ -11,15 +11,32 @@ name: Packaging
 # installer is cross-built there, so a native Windows `make` stays this
 # matrix's job.
 #
-# Deliberately not part of PR CI: `make` costs several minutes per platform,
-# while the failure modes shared by every platform (Vite/Forge config, asar
-# packing, native module unpacking) are already covered by the much cheaper
-# `package` smoke job in ci.yml. Weekly is enough to catch Dependabot's Forge
-# and maker bumps well before the next release.
+# Deliberately not part of PR CI for most PRs: `make` costs several minutes
+# per platform, while the failure modes shared by every platform (Vite/Forge
+# config, asar packing, native module unpacking) are already covered by the
+# much cheaper `package` smoke job in ci.yml. Weekly is enough to catch most
+# Forge and maker bumps well before the next release.
+#
+# The exception is the exact class of change that caused the v0.10.5 release
+# to fail a maker after the tag already existed (#697): a lockfile
+# regeneration can silently hoist a package between the workspace root and a
+# nested `node_modules`, which is invisible to `package` but breaks a maker
+# that resolves its dependencies by walking the filesystem (electron-builder
+# did, for `electron`, in #696). Running the real makers on the PRs that can
+# cause that class of regression closes the gap between "weekly" and "the
+# tag already exists" for the changes most likely to need it, without paying
+# the full matrix cost on every PR. This run is advisory only — it is not a
+# required check, so a red leg here does not block the PR from merging.
 on:
   schedule:
     # Mondays, 05:17 UTC — off the hour to avoid GitHub's scheduling peak.
     - cron: '17 5 * * 1'
+  pull_request:
+    paths:
+      - 'package-lock.json'
+      - 'packages/*/package.json'
+      - 'packages/streamwall/forge.*.ts'
+      - '.github/workflows/packaging.yml'
   workflow_dispatch:
     inputs:
       debug:
@@ -30,11 +47,14 @@ on:
 permissions:
   contents: read
 
-# Never cancel a running matrix: a scheduled run and a manual re-run are
-# independent verdicts, and each leg is expensive.
+# A scheduled run and a manual re-run are independent verdicts, and each leg
+# is expensive, so those never cancel each other. A pull_request run is not:
+# a new push supersedes the previous one, so letting it cancel the stale run
+# saves the several-minutes-per-platform cost instead of finishing a verdict
+# nobody will read.
 concurrency:
   group: packaging-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   make:
@@ -89,9 +109,16 @@ jobs:
   # scheduled run, so the report goes into the issue tracker instead (#514).
   # `fail-fast: false` above means one red leg still leaves the others' verdict
   # intact, and `needs.*.result` aggregates the matrix into a single one.
+  #
+  # Restricted to `schedule`: this workflow is now also `pull_request`-
+  # triggered (#697), and a PR's own checks tab already shows a failing leg
+  # to whoever pushed it, so filing or reusing the shared "scheduled workflow
+  # failing" tracking issue for that would be both noise and wrong — that
+  # issue is meant to represent the current state of the *weekly* run, not
+  # any one PR's.
   report:
     needs: [make]
-    if: always()
+    if: always() && github.event_name == 'schedule'
     permissions:
       issues: write
     uses: ./.github/workflows/scheduled-report.yml
