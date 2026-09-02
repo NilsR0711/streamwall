@@ -311,8 +311,20 @@ const viewContentSchema = z.object({
   kind: contentKindSchema,
 })
 
+/**
+ * Longest allowed `document.title` reported by a stream page (issue #734).
+ * The page is untrusted and this value crosses into the shared,
+ * server-broadcast state, so it needs the same kind of bound every other
+ * externally-supplied growable string in this file has (e.g.
+ * {@link MAX_LAYOUT_PRESET_NAME_LENGTH}) - otherwise a hostile page can grow
+ * its title without limit and push a `state` frame over the uplink's
+ * `maxPayload`, repeatedly dropping the connection. The preload truncates to
+ * the same length before this ever reaches the wire; this bound is the
+ * server-side backstop in case that truncation is ever bypassed.
+ */
+export const MAX_VIEW_INFO_TITLE_LENGTH = 200
 const contentViewInfoSchema = z.object({
-  title: z.string(),
+  title: z.string().max(MAX_VIEW_INFO_TITLE_LENGTH),
 })
 
 const viewPosSchema = z.object({

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   type ControlCommand,
   MAX_VIEW_IDX,
+  MAX_VIEW_INFO_TITLE_LENGTH,
   type ServerStatus,
   controlCommandMessageSchema,
   controlStateMessageSchema,
@@ -644,6 +645,50 @@ describe('streamwallStateSchema', () => {
     }
     const result = streamwallStateSchema.safeParse(full)
     expect(result.success).toBe(true)
+  })
+
+  // #734: an untrusted stream page controls document.title, which flows
+  // unbounded into a view's info.title. Without a cap, a hostile page can
+  // grow it without limit and push a broadcast state frame over the
+  // uplink's maxPayload, repeatedly dropping the connection.
+  test('rejects a view info title longer than the allowed length', () => {
+    const tooLong = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: { url: 'https://example.com/s', kind: 'video' },
+            info: { title: 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH + 1) },
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+  })
+
+  test('accepts a view info title at exactly the allowed length', () => {
+    const atLimit = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: { url: 'https://example.com/s', kind: 'video' },
+            info: { title: 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH) },
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
   })
 
   test('rejects a state missing the required streams field', () => {
