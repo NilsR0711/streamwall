@@ -100,6 +100,26 @@ describe('ServerUpdateBanner', () => {
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
 
+  // `releaseUrl` is narrowed to a valid http(s) URL (or `null`) at the schema
+  // boundary (issue #773), but the banner applies its own check too rather
+  // than trusting that every caller went through `serverStatusSchema` first.
+  test('omits the release link for a non-http(s) releaseUrl', () => {
+    const el = renderBanner({
+      ...AVAILABLE_STATUS,
+      releaseUrl: 'javascript:alert(1)',
+    })
+    const banner = el.querySelector('.server-update-banner')
+    expect(banner?.textContent).toContain('1.0.0')
+    expect(banner?.querySelector('a')).toBeNull()
+  })
+
+  test('still shows the notice without a link when releaseUrl is null', () => {
+    const el = renderBanner({ ...AVAILABLE_STATUS, releaseUrl: null })
+    const banner = el.querySelector('.server-update-banner')
+    expect(banner?.textContent).toContain('1.0.0')
+    expect(banner?.querySelector('a')).toBeNull()
+  })
+
   test('renders English copy', () => {
     const el = renderBanner(AVAILABLE_STATUS)
     const text = el.querySelector('.server-update-banner')?.textContent
