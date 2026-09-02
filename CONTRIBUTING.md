@@ -450,7 +450,7 @@ other packages several workspaces share (`yjs`, `xstate`, `zod`,
 `jsondiffpatch`, `lodash-es`, `react-icons`) are deliberately left to npm's own
 hoisting choice — anchoring every shared dependency pre-emptively would just
 be guessing at which one breaks next, and the guard test above catches it in
-CI if one of them does (#729).
+CI if one of them does (#728).
 
 ### Changelog
 
