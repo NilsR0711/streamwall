@@ -72,6 +72,16 @@ interface WsRef {
 }
 
 /**
+ * How long a pending response callback is kept before being evicted
+ * unanswered. The control server only replies to a couple of request/
+ * response commands; every other command is forwarded with no reply, so this
+ * bounds `responseMap`'s lifetime for those instead of leaking until the next
+ * close (issue #745). A few seconds is ample for a same-machine/LAN control
+ * server to answer the commands that do reply.
+ */
+const RESPONSE_TIMEOUT_MS = 5000
+
+/**
  * WebSocket adapter: the transport-specific half of the collab wiring the
  * shared `useCollabConnection` hook consumes. It owns only what is unique to
  * the socket - the reconnect policy, the JSON message protocol (responses,
@@ -92,9 +102,28 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
           throw new Error('Websocket not initialized')
         }
         const { ws, msgId, responseMap } = wsRef.current
+        if (!isSocketOpen(ws)) {
+          // maxEnqueuedMessages: 0 means the frame would just be dropped
+          // silently; fail the caller's callback immediately instead of
+          // leaving it pending forever (issue #745).
+          cb?.({ response: true, error: 'Not connected' })
+          return
+        }
         ws.send(JSON.stringify({ ...msg, id: msgId }))
         if (cb) {
           responseMap.set(msgId, cb)
+          // The control server only ever answers a handful of commands
+          // (create-invite, delete-token); every other command is forwarded
+          // to the uplink with no reply. createErrorSurfacingSend always
+          // supplies a callback (to surface `{ error }` responses), so
+          // without this eviction a forwarded command's entry - and the
+          // closure it holds - would sit in responseMap for the lifetime of
+          // the socket instead of just until the next close (issue #745). A
+          // reply that does arrive after eviction is simply ignored, same as
+          // any other late reply for an id no longer in the map.
+          setTimeout(() => {
+            responseMap.delete(msgId)
+          }, RESPONSE_TIMEOUT_MS)
         }
         wsRef.current.msgId++
       },
