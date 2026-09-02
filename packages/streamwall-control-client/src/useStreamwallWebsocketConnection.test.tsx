@@ -1,7 +1,11 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import type { StreamwallConnection } from 'streamwall-control-ui'
-import type { ControlCommand, StreamwallState } from 'streamwall-shared'
+import {
+  asViewId,
+  type ControlCommand,
+  type StreamwallState,
+} from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
@@ -15,6 +19,10 @@ const { FakeSocket, instances } = vi.hoisted(() => {
     closed = false
     reconnectCount = 0
     listeners = new Map<string, Set<Listener>>()
+    sentMessages: unknown[] = []
+    // Mirrors streamwall-shared's SOCKET_OPEN (1): the existing tests all
+    // assume an already-connected socket, so this defaults open.
+    readyState = 1
 
     constructor(url: string, _protocols: unknown, options: unknown) {
       this.url = url
@@ -33,7 +41,9 @@ const { FakeSocket, instances } = vi.hoisted(() => {
       this.listeners.get(type)?.delete(cb)
     }
 
-    send() {}
+    send(data: unknown) {
+      this.sentMessages.push(data)
+    }
 
     close() {
       this.closed = true
@@ -229,6 +239,120 @@ describe('useStreamwallWebsocketConnection', () => {
     })
 
     expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  // The control server only ever answers create-invite/delete-token; every
+  // other command is forwarded to the uplink with no reply. Since
+  // createErrorSurfacingSend (streamwall-control-ui) always supplies a
+  // callback so it can surface `{ error }` responses, a forwarded command's
+  // callback would otherwise sit in responseMap forever - not just until the
+  // next close, for the lifetime of the socket (issue #745).
+  describe('pending response eviction for commands the server never answers (issue #745)', () => {
+    const setViewVolumeCommand: ControlCommand = {
+      type: 'set-view-volume',
+      viewId: asViewId(0),
+      volume: 0.5,
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('does not grow responseMap forever for a forwarded command that never gets a reply', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+
+      for (let i = 0; i < 500; i++) {
+        act(() => {
+          getConnection().send(setViewVolumeCommand, vi.fn())
+        })
+      }
+
+      // No reply ever arrives and the socket never closes - only time
+      // passes. Advance well past the eviction window.
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+
+      // If any of the 500 callbacks were still pending, a late close would
+      // still invoke them. None should fire, because they were already
+      // evicted by the timeout, not by this close.
+      const lateCallbacks = Array.from({ length: 500 }, () => vi.fn())
+      for (const cb of lateCallbacks) {
+        act(() => {
+          getConnection().send(setViewVolumeCommand, cb)
+        })
+      }
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      act(() => {
+        socket.dispatch('close')
+      })
+
+      for (const cb of lateCallbacks) {
+        expect(cb).not.toHaveBeenCalled()
+      }
+    })
+
+    it('still resolves a reply that arrives before the eviction window closes', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      const cb = vi.fn()
+
+      act(() => {
+        getConnection().send(createInviteCommand, cb)
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ response: true, id: 0, tokenId: 't' }),
+        })
+      })
+
+      expect(cb).toHaveBeenCalledTimes(1)
+      expect(cb).toHaveBeenCalledWith(
+        expect.objectContaining({ response: true, id: 0, tokenId: 't' }),
+      )
+    })
+  })
+
+  describe('sending while disconnected (issue #745)', () => {
+    it('fails fast with an error instead of silently dropping the frame when the socket is not open', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      socket.readyState = 3 // CLOSED
+      const cb = vi.fn()
+
+      act(() => {
+        getConnection().send(createInviteCommand, cb)
+      })
+
+      expect(socket.sentMessages).toHaveLength(0)
+      expect(cb).toHaveBeenCalledTimes(1)
+      expect(cb).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      )
+    })
+
+    it('still sends normally once the socket is open', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      const cb = vi.fn()
+
+      act(() => {
+        getConnection().send(createInviteCommand, cb)
+      })
+
+      expect(socket.sentMessages).toHaveLength(1)
+      expect(cb).not.toHaveBeenCalled()
+    })
   })
 
   it('marks the connection open on a full state message', () => {
