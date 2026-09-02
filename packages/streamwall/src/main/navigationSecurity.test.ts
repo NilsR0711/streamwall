@@ -125,7 +125,7 @@ test("secureStreamView keeps a stream URL's signed-token query out of the reload
 
   const logged = info.mock.calls.map((args) => args.join(' ')).join('\n')
   assert.doesNotMatch(logged, /secret-token/)
-  assert.match(logged, /https:\/\/cdn\.example\/live\.m3u8/)
+  assert.ok(logged.includes('https://cdn.example/live.m3u8'))
 })
 
 test('secureStreamView blocks a redirect away once a page has committed (302 escape)', () => {
@@ -215,7 +215,7 @@ test('secureAppWindow records the external open, without the credentials a link 
   })
 
   assert.match(logged(), /Opening link in the OS browser/)
-  assert.match(logged(), /https:\/\/example\.com\/invite/)
+  assert.ok(logged().includes('https://example.com/invite'))
   assert.doesNotMatch(logged(), /secret-query|secret-fragment/)
 })
 
@@ -246,7 +246,7 @@ test('secureAppWindow logs no userinfo credentials', () => {
   wc.windowOpenHandler!({ url: 'https://user:secret-password@example.com/x' })
 
   assert.doesNotMatch(logged(), /secret-password/)
-  assert.match(logged(), /https:\/\/example\.com\/x/)
+  assert.ok(logged().includes('https://example.com/x'))
 })
 
 test('secureAppWindow keeps credentials out of the log when it blocks a navigation', () => {
