@@ -137,7 +137,8 @@ vi.mock('./partitions', async (importOriginal) => ({
   hardenSession: vi.fn(),
 }))
 
-const { default: StreamWindow } = await import('./StreamWindow')
+const { default: StreamWindow, MAX_PENDING_BLOCKED_URLS } =
+  await import('./StreamWindow')
 const { devServerOrigin, loadHTML, rendererPageURL } =
   await import('./loadHTML')
 const { secureAppWindow } = await import('./navigationSecurity')
@@ -1748,6 +1749,26 @@ describe('StreamWindow constructor', () => {
       expect(sw.overlayView.webContents.send.mock.calls).toEqual([
         ['layer:blocked-url', 'http://192.168.1.50/bg'],
       ])
+    })
+
+    it("drops further held reports rather than the operator's own once the queue is full", () => {
+      // A layer page can issue a stream of refused requests; the first report,
+      // which is the one for the operator's own link, must survive it.
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+
+      background('http://192.168.1.50/the-operators-link', 'private network')
+      for (let i = 0; i < 100; i++) {
+        background(`http://192.168.1.50/?churn=${i}`, 'private network')
+      }
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+
+      const replayed = sw.overlayView.webContents.send.mock.calls
+      expect(replayed[0]).toEqual([
+        'layer:blocked-url',
+        'http://192.168.1.50/the-operators-link',
+      ])
+      expect(replayed.length).toBeLessThanOrEqual(MAX_PENDING_BLOCKED_URLS)
     })
 
     it('does not replay held reports when it is the background layer that loads', () => {

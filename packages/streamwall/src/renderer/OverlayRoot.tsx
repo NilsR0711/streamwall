@@ -6,6 +6,7 @@ import packageInfo from '../../package.json'
 import { BlockedLayerNotices } from './BlockedLayerNotice'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 import { OverlayViewTile } from './OverlayViewTile'
+import { layerLinksKey } from './useBlockedLayerURLs'
 
 // Extracted from overlay.tsx so it can be rendered and tested in isolation,
 // without pulling in the module-level `render(<App />, document.body)` call.
@@ -25,6 +26,7 @@ export function Overlay({
     matchesState('displaying', state),
   )
   const overlays = streams.filter((s) => s.kind === 'overlay')
+  const linksKey = layerLinksKey(streams)
   return (
     <OverlayContainer>
       <VersionFooter />
@@ -79,7 +81,11 @@ export function Overlay({
       })}
       {overlays.map((s) => (
         <OverlayIFrame
-          key={s._id}
+          // Remounted whenever any layer link is edited, not just this one's:
+          // a refused frame is requested exactly once, so a layer that is still
+          // blocked has to be re-requested to report itself again once the
+          // notice has been cleared (#790).
+          key={`${linksKey}:${s._id}`}
           src={s.link}
           sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"

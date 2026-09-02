@@ -44,9 +44,14 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
  * once, so a report can never expire on its own evidence, and the layer page is
  * never reloaded on a config change — new streams are pushed into the live
  * page. Passing a key derived from the layer links means the notice survives
- * until the operator actually changes them, at which point the frames are
- * remounted and anything still refused is reported again. A wall-clock timeout
- * cannot tell "the operator fixed it" from "the operator was not looking".
+ * until the operator actually changes them, at which point every layer frame is
+ * remounted (see `layerLinksKey`'s callers) and anything still refused is
+ * reported again. A wall-clock timeout cannot tell "the operator fixed it" from
+ * "the operator was not looking".
+ *
+ * `undefined` means "no state yet" and never clears: the reports the main
+ * process replays for the window before the first state arrives would otherwise
+ * be thrown away by the very first real key.
  *
  * Reports are buffered and flushed on an interval rather than rendered as they
  * arrive: a page inside a layer can poll a refused endpoint with a
@@ -57,9 +62,10 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
  */
 export function useBlockedLayerURLs(
   subscribe: BlockedURLSubscribe,
-  resetKey: string,
+  resetKey: string | undefined,
 ): readonly string[] {
   const seen = useRef(new Set<string>())
+  const previousKey = useRef<string | undefined>(undefined)
   const [urls, setURLs] = useState<readonly string[]>([])
 
   useEffect(() => {
@@ -82,6 +88,15 @@ export function useBlockedLayerURLs(
   }, [subscribe])
 
   useEffect(() => {
+    if (resetKey === undefined) {
+      return
+    }
+    const previous = previousKey.current
+    previousKey.current = resetKey
+    // Learning the links for the first time is not an operator edit.
+    if (previous === undefined || previous === resetKey) {
+      return
+    }
     seen.current = new Set()
     setURLs([])
   }, [resetKey])

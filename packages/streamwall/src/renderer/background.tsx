@@ -8,6 +8,7 @@ import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
+import { layerLinksKey } from './useBlockedLayerURLs'
 
 declare global {
   interface Window {
@@ -19,11 +20,16 @@ initRendererSentry()
 
 function Background({ streams }: { streams: StreamList }) {
   const backgrounds = streams.filter((s) => s.kind === 'background')
+  const linksKey = layerLinksKey(streams)
   return (
     <div>
       {backgrounds.map((s) => (
         <BackgroundIFrame
-          key={s._id}
+          // Remounted whenever any layer link is edited, not just this one's:
+          // a refused frame is requested exactly once, so a layer that is still
+          // blocked has to be re-requested to report itself again once the
+          // overlay's notice has been cleared (#790).
+          key={`${linksKey}:${s._id}`}
           src={s.link}
           sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"

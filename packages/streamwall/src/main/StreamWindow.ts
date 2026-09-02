@@ -46,7 +46,7 @@ import { resolveWindowPlacement } from './windowPlacement'
  * announced itself yet. The reports come from whatever the layers are framing,
  * so the queue cannot be unbounded.
  */
-const MAX_PENDING_BLOCKED_URLS = 20
+export const MAX_PENDING_BLOCKED_URLS = 20
 
 function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   if (!stream) {
@@ -284,9 +284,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       return
     }
     if (!this.overlayLoaded) {
-      this.pendingBlockedURLs.push(url)
-      if (this.pendingBlockedURLs.length > MAX_PENDING_BLOCKED_URLS) {
-        this.pendingBlockedURLs.shift()
+      // Drops the newcomer rather than the oldest, so a layer page issuing a
+      // stream of refused requests cannot push the operator's own refused link
+      // out of the queue before the overlay is listening.
+      if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
+        this.pendingBlockedURLs.push(url)
       }
       return
     }

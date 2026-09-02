@@ -27,12 +27,14 @@ afterEach(() => {
 
 // Renders the hook's list as one line per URL so a test can read it back out,
 // and counts renders so the report coalescing can be observed.
+// `resetKey` is passed positionally rather than defaulted: `undefined` is a
+// meaningful value here (no state yet), which a default parameter would swallow.
 function renderHook(
   subscribe: Parameters<typeof useBlockedLayerURLs>[0],
-  resetKey = 'links',
+  resetKey: string | undefined,
 ) {
   let renders = 0
-  function Probe({ resetKey: key }: { resetKey: string }) {
+  function Probe({ resetKey: key }: { resetKey: string | undefined }) {
     renders++
     const blocked = useBlockedLayerURLs(subscribe, key)
     return (
@@ -52,7 +54,7 @@ function renderHook(
     urls: () =>
       [...container!.querySelectorAll('li')].map((li) => li.textContent),
     renders: () => renders,
-    setResetKey: (key: string) =>
+    setResetKey: (key: string | undefined) =>
       act(() => {
         render(<Probe resetKey={key} />, container!)
       }),
@@ -60,7 +62,7 @@ function renderHook(
 }
 
 /** Renders the hook and hands back the reporter the subscription captured. */
-function renderHookWithReporter(resetKey = 'links') {
+function renderHookWithReporter(resetKey: string | undefined = 'links') {
   let report: ((url: string) => void) | undefined
   const probe = renderHook((handleBlocked) => {
     report = handleBlocked
@@ -70,6 +72,23 @@ function renderHookWithReporter(resetKey = 'links') {
     ...probe,
     report: (url: string) => report!(url),
     /** Advances past the next flush, so buffered reports reach the render. */
+    flush: () =>
+      act(() => {
+        vi.advanceTimersByTime(BLOCKED_URL_FLUSH_MS)
+      }),
+  }
+}
+
+/** Renders the hook before any state has arrived, so `resetKey` is undefined. */
+function renderHookNoState() {
+  let report: ((url: string) => void) | undefined
+  const probe = renderHook((handleBlocked) => {
+    report = handleBlocked
+    return () => {}
+  }, undefined)
+  return {
+    ...probe,
+    report: (url: string) => report!(url),
     flush: () =>
       act(() => {
         vi.advanceTimersByTime(BLOCKED_URL_FLUSH_MS)
@@ -178,6 +197,19 @@ describe('useBlockedLayerURLs', () => {
     expect(urls()).toEqual([])
   })
 
+  test('keeps reports made before the first state arrives', () => {
+    // The main process replays what it refused while the overlay renderer was
+    // still loading, and that replay lands before the first state message -- so
+    // learning the links for the first time must not throw it away.
+    const { urls, report, flush, setResetKey } = renderHookNoState()
+
+    report('http://192.168.1.50/a')
+    setResetKey('https://the.example/overlay')
+    flush()
+
+    expect(urls()).toEqual(['http://192.168.1.50/a'])
+  })
+
   test('keeps the notice while the operator has changed nothing', () => {
     const { urls, report, flush } = renderHookWithReporter()
     report('http://192.168.1.50/a')
@@ -191,7 +223,7 @@ describe('useBlockedLayerURLs', () => {
 
   test('unsubscribes and stops its timer when the layer unmounts', () => {
     const unsubscribe = vi.fn()
-    renderHook(() => unsubscribe)
+    renderHook(() => unsubscribe, 'links')
 
     act(() => render(null, container!))
 

@@ -27,7 +27,7 @@ function App() {
   // never stacked over), so the notice clears when either layer's links change.
   const blockedURLs = useBlockedLayerURLs(
     subscribeBlockedURLs,
-    layerLinksKey(state?.streams ?? []),
+    state && layerLinksKey(state.streams),
   )
 
   useEffect(() => {
