@@ -147,13 +147,17 @@ vi.mock('./storage', () => ({
 }))
 
 vi.mock('./ControlWindow', () => ({
-  default: class FakeControlWindow {},
+  default: class FakeControlWindow {
+    onState() {}
+  },
 }))
 
 vi.mock('./StreamWindow', () => ({
   // An EventEmitter, like the real one: `main()` subscribes to its
   // `blockedURL` reports on the way to the broadcast state (issue #797).
-  default: class FakeStreamWindow extends EventEmitter {},
+  default: class FakeStreamWindow extends EventEmitter {
+    onState() {}
+  },
 }))
 
 vi.mock('./updaterSetup', () => ({
@@ -240,7 +244,7 @@ afterEach(() => {
 })
 
 describe('main() startup sequence', () => {
-  it('invokes the bootstrap phases in the documented order', async () => {
+  it('invokes the bootstrap phases in the documented order and routes state through the blocked-URL reporter', async () => {
     // A guard against an actual startup failure surfacing as a hard process
     // exit instead of a readable assertion failure below.
     const exitSpy = vi
@@ -272,5 +276,26 @@ describe('main() startup sequence', () => {
 
     expect(exitSpy).not.toHaveBeenCalled()
     expect(actualPhaseOrder()).toEqual(EXPECTED_PHASE_ORDER)
+
+    // Every state update has to pass through the reporter, which is what takes
+    // a blocked-URL notice down again once the operator edits a layer link
+    // (issue #797). Nothing else in the suite would notice `updateState`
+    // merging the state itself and skipping it.
+    const syncBlockedLayerURLs = vi.mocked(
+      mocks.bootstrap.createBlockedLayerURLReporter,
+    ).mock.results[0]!.value as ReturnType<typeof vi.fn>
+    const { updateState, getClientState } =
+      mocks.bootstrap.wireWindowIpc.mock.calls[0]![0]
+    const cleared = { blockedLayerURLs: [] as string[] }
+    syncBlockedLayerURLs.mockImplementationOnce(
+      (state: Record<string, unknown>) => ({ ...state, ...cleared }),
+    )
+
+    updateState({ favorites: ['https://example.com/s'] })
+
+    expect(syncBlockedLayerURLs).toHaveBeenCalledWith(
+      expect.objectContaining({ favorites: ['https://example.com/s'] }),
+    )
+    expect(getClientState()).toMatchObject(cleared)
   }, 20_000)
 })

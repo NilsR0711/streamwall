@@ -93,20 +93,23 @@ describe('BlockedLayerURLNotice', () => {
     expect(el.querySelector('.blocked-layer-capped')).not.toBeNull()
   })
 
-  // Dismissing entries must not leave a "list is full" caption describing one
-  // remaining address.
-  test('stops saying the list is full once entries are dismissed', () => {
-    const urls = Array.from(
-      { length: MAX_BLOCKED_LAYER_URLS },
+  // What matters is what the desktop collected, not what survived dismissal:
+  // its list is full, so it is dropping every further refusal, and the
+  // operator has to be told that even while looking at fewer addresses.
+  test('still says the list is full when only some entries are visible', () => {
+    const dismissedFirst = Array.from(
+      { length: MAX_BLOCKED_LAYER_URLS - 2 },
       (_unused, i) => `http://192.168.1.5/${i}`,
     )
-    const el = renderNotice(urls)
+    const el = renderNotice(dismissedFirst)
     act(() => {
       dismissButton(el)!.click()
     })
-    rerender([...urls, 'http://10.0.0.9/bg'].slice(1))
 
-    expect(el.querySelector('.blocked-layer-capped')).toBeNull()
+    rerender([...dismissedFirst, 'http://10.0.0.9/a', 'http://10.0.0.9/b'])
+
+    expect(shownURLs(el)).toEqual(['http://10.0.0.9/a', 'http://10.0.0.9/b'])
+    expect(el.querySelector('.blocked-layer-capped')).not.toBeNull()
   })
 
   test('says nothing about a full list while there is room', () => {
