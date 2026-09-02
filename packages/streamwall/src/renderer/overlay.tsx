@@ -1,11 +1,11 @@
 import { render } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { StreamwallState } from 'streamwall-shared'
+import { layerLinksKey, StreamwallState } from 'streamwall-shared'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
 import { Overlay } from './OverlayRoot'
-import { layerLinksKey, useBlockedLayerURLs } from './useBlockedLayerURLs'
+import { useBlockedLayerURLs } from './useBlockedLayerURLs'
 
 import '@fontsource/noto-sans'
 import 'streamwall-control-ui/src/index.css'

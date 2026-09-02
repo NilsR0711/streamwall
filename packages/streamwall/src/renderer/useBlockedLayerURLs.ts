@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
-import type { StreamList } from 'streamwall-shared'
 
 /** Subscribes to the layer's blocked-URL reports; returns an unsubscribe. */
 export type BlockedURLSubscribe = (
@@ -11,18 +10,6 @@ export const MAX_BLOCKED_URLS = 5
 
 /** How often buffered reports are folded into rendered state (see below). */
 export const BLOCKED_URL_FLUSH_MS = 500
-
-/**
- * A `resetKey` for {@link useBlockedLayerURLs}: the links the wall's two chrome
- * layers are framing. Changing one of them is the operator's edit, which
- * remounts the frames and re-reports whatever is still refused.
- */
-export function layerLinksKey(streams: StreamList): string {
-  return streams
-    .filter((s) => s.kind === 'overlay' || s.kind === 'background')
-    .map((s) => s.link)
-    .join('\n')
-}
 
 /**
  * The `key` a layer's iframe must carry. Keyed by the whole link set rather

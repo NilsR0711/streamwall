@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'preact/hooks'
 import { FaExclamationTriangle } from 'react-icons/fa'
+import { MAX_BLOCKED_LAYER_URLS } from 'streamwall-shared'
 import { styled } from 'styled-components'
 
 /**
@@ -56,12 +57,8 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
           <div className="blocked-layer-heading">
             <FaExclamationTriangle />
             <span>Blocked: not a public address</span>
-            <button
-              type="button"
-              aria-label="Dismiss blocked layer URLs"
-              onClick={handleDismiss}
-            >
-              x
+            <button type="button" onClick={handleDismiss}>
+              Dismiss
             </button>
           </div>
           {visible.map((url) => (
@@ -69,6 +66,13 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
               {url}
             </div>
           ))}
+          {urls.length >= MAX_BLOCKED_LAYER_URLS && (
+            // The desktop stops collecting at this point, so what is listed is
+            // not necessarily everything that was refused (issue #797).
+            <div className="blocked-layer-capped">
+              List is full — more may have been refused.
+            </div>
+          )}
         </>
       )}
     </StyledBlockedLayerURLNotice>
@@ -78,6 +82,10 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
 const StyledBlockedLayerURLNotice = styled.div`
   font-size: 12px;
   color: #e0a800;
+  /* The content is supplied by whatever the layer framed, so it must never be
+     able to push the operator's own custom-stream controls out of view. */
+  max-height: 8em;
+  overflow: auto;
 
   .blocked-layer-heading {
     display: flex;
@@ -87,7 +95,8 @@ const StyledBlockedLayerURLNotice = styled.div`
 
   /* The addresses come from whatever the layer framed, so a long one has to
      wrap instead of widening the sidebar. */
-  .blocked-layer-url {
+  .blocked-layer-url,
+  .blocked-layer-capped {
     word-break: break-all;
     opacity: 0.8;
   }

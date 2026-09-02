@@ -1,6 +1,6 @@
 import EventEmitter from 'node:events'
 import { join } from 'node:path'
-import type { StreamwallState, ViewId } from 'streamwall-shared'
+import type { StreamData, StreamwallState, ViewId } from 'streamwall-shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import {
@@ -9,6 +9,7 @@ import {
   type PreventableEvent,
   configureElectronRuntime,
   configureSentry,
+  createBlockedLayerURLReporter,
   createBrowseWindow,
   createDataSourceHealthReporter,
   createInitialClientState,
@@ -599,6 +600,67 @@ describe('createDataSourceHealthReporter', () => {
         message: 'timed out',
       }),
     ])
+  })
+})
+
+describe('createBlockedLayerURLReporter', () => {
+  function setup() {
+    const updateState = vi.fn()
+    let report: ((url: string) => void) | undefined
+    const syncLayerLinks = createBlockedLayerURLReporter({
+      onBlockedURL: (listener) => {
+        report = listener
+      },
+      updateState,
+    })
+    return { updateState, report: report!, syncLayerLinks }
+  }
+
+  const overlay = (link: string): StreamData => ({
+    _id: link,
+    kind: 'overlay',
+    link,
+  })
+
+  it("folds the wall's refused URLs into the broadcast state", () => {
+    const { updateState, report } = setup()
+
+    report('http://192.168.1.5/overlay')
+
+    expect(updateState).toHaveBeenCalledTimes(1)
+    expect(updateState.mock.calls[0][0]).toEqual({
+      blockedLayerURLs: ['http://192.168.1.5/overlay'],
+    })
+  })
+
+  // A framed page can poll a refused endpoint; re-broadcasting the whole state
+  // per request is exactly what must not happen.
+  it('does not broadcast a URL it already reported', () => {
+    const { updateState, report } = setup()
+
+    report('http://192.168.1.5/overlay')
+    report('http://192.168.1.5/overlay')
+
+    expect(updateState).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the broadcast list once a layer link is edited', () => {
+    const { report, syncLayerLinks } = setup()
+    syncLayerLinks([overlay('https://example.com/o')])
+    report('http://192.168.1.5/overlay')
+
+    expect(syncLayerLinks([overlay('https://example.com/fixed')])).toEqual([])
+  })
+
+  // `updateState` is what calls the returned function, so anything but `null`
+  // for an unchanged state would be a broadcast loop.
+  it('asks for no further update while the layer links stand still', () => {
+    const { report, syncLayerLinks } = setup()
+    const links = [overlay('https://example.com/o')]
+    syncLayerLinks(links)
+    report('http://192.168.1.5/overlay')
+
+    expect(syncLayerLinks(links)).toBeNull()
   })
 })
 

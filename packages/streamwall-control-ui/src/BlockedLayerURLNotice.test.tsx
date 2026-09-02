@@ -1,5 +1,6 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import { MAX_BLOCKED_LAYER_URLS } from 'streamwall-shared'
 import { afterEach, describe, expect, test } from 'vitest'
 import { BlockedLayerURLNotice } from './BlockedLayerURLNotice.tsx'
 
@@ -77,6 +78,25 @@ describe('BlockedLayerURLNotice', () => {
     const el = renderNotice(['http://192.168.1.5/overlay'])
 
     expect(el.querySelector('a')).toBeNull()
+  })
+
+  // The desktop stops collecting once the list is full, so the operator must
+  // not read five addresses as "these are all of them".
+  test('says so when the list is full', () => {
+    const el = renderNotice(
+      Array.from(
+        { length: MAX_BLOCKED_LAYER_URLS },
+        (_unused, i) => `http://192.168.1.5/${i}`,
+      ),
+    )
+
+    expect(el.querySelector('.blocked-layer-capped')).not.toBeNull()
+  })
+
+  test('says nothing about a full list while there is room', () => {
+    const el = renderNotice(['http://192.168.1.5/overlay'])
+
+    expect(el.querySelector('.blocked-layer-capped')).toBeNull()
   })
 
   test('dismisses the notice on the operator ask', () => {

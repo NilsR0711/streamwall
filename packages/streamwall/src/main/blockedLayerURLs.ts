@@ -1,22 +1,9 @@
 import {
+  layerLinksKey,
   MAX_BLOCKED_LAYER_URL_LENGTH,
   MAX_BLOCKED_LAYER_URLS,
   type StreamData,
 } from 'streamwall-shared'
-
-/**
- * The links the wall's two chrome layers are framing, as one comparable
- * string. Changing any of them is the operator's edit, which is what clears
- * the notice: a refused frame is requested exactly once, so a report can never
- * expire on its own evidence, and a wall-clock timeout cannot tell "the
- * operator fixed it" from "the operator was not looking" (#790).
- */
-function layerLinksKey(streams: readonly StreamData[]): string {
-  return streams
-    .filter((s) => s.kind === 'overlay' || s.kind === 'background')
-    .map((s) => s.link)
-    .join('\n')
-}
 
 function truncate(url: string): string {
   return url.length > MAX_BLOCKED_LAYER_URL_LENGTH

@@ -14,10 +14,10 @@ import {
 } from '../sentryConfig'
 import { parseRepositorySlug } from '../updateStatus'
 import { createSessionHostResolver, ensureValidURL } from '../util'
-import { BlockedLayerURLTracker } from './blockedLayerURLs'
 import {
   configureElectronRuntime,
   configureSentry,
+  createBlockedLayerURLReporter,
   createBrowseWindow,
   createDataSourceHealthReporter,
   createInitialClientState,
@@ -218,21 +218,20 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   // What the wall's layer sessions refused, on its way to every control
   // client -- the operator who typed an overlay or background link may be on
   // another machine with no view of the wall's own notice (issue #797).
-  const blockedLayerURLs = new BlockedLayerURLTracker()
-  streamWindow.on('blockedURL', (url) => {
-    const urls = blockedLayerURLs.report(url)
-    if (urls) {
-      updateState({ blockedLayerURLs: urls })
-    }
+  const syncBlockedLayerURLs = createBlockedLayerURLReporter({
+    onBlockedURL: (listener) => {
+      streamWindow.on('blockedURL', listener)
+    },
+    updateState: (newState) => updateState(newState),
   })
 
   function updateState(newState: Partial<StreamwallState>) {
     const next = { ...clientState, ...newState }
-    // Every state update funnels through here, so this is where an operator's
+    // Every state update passes through here, so this is where an operator's
     // edit to a layer link is seen -- which is what takes the notice down
-    // again. Returns null unless the links actually changed, so the update
-    // above cannot loop back into itself.
-    const cleared = blockedLayerURLs.syncLayerLinks(next.streams)
+    // again. Answers null unless the links actually changed, so the update the
+    // reporter makes cannot loop back into itself.
+    const cleared = syncBlockedLayerURLs(next.streams)
     clientState = cleared ? { ...next, blockedLayerURLs: cleared } : next
     streamWindow.onState(clientState)
     controlWindow.onState(clientState)

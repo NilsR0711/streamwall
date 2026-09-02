@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  * This test imports index.ts for its side effect (it calls `init()` at
  * module scope) with every startup collaborator stubbed, including the whole
  * `./bootstrap` module, and asserts the exact order its 14 startup-time
- * phase calls happen in. `createBrowseWindow`, the bootstrap module's 15th
+ * phase calls happen in. `createBrowseWindow`, the bootstrap module's 16th
  * export, is registered as an on-demand callback rather than invoked during
  * startup, so it is intentionally not part of the asserted sequence.
  */
@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => {
       setupStreamdelayClient: vi.fn(() => null),
       setupTwitchBot: vi.fn(() => null),
       createDataSourceHealthReporter: vi.fn(() => vi.fn(() => vi.fn())),
+      createBlockedLayerURLReporter: vi.fn(() => vi.fn(() => null)),
       createBrowseWindow: vi.fn(),
       configureSentry: vi.fn(),
       configureElectronRuntime: vi.fn(),
@@ -196,7 +197,7 @@ vi.mock('./data', async (importOriginal) => {
 })
 
 /**
- * The exact order `main()`/`init()` invoke the 14 bootstrap phases that run
+ * The exact order `main()`/`init()` invoke the 15 bootstrap phases that run
  * during a normal startup, written out explicitly so a future reordering
  * produces a readable diff (`expected[i] !== actual[i]`) instead of a
  * cryptic assertion failure.
@@ -211,6 +212,7 @@ const EXPECTED_PHASE_ORDER = [
   'createStateDocPersister',
   'seedAndObserveViewsState',
   'startPlaylistScheduler',
+  'createBlockedLayerURLReporter',
   'wireWindowIpc',
   'wireWindowLifecycle',
   'setupStreamdelayClient',

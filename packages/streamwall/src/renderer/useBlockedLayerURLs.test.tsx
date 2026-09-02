@@ -1,11 +1,9 @@
 // @vitest-environment happy-dom
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
-import type { StreamData } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   BLOCKED_URL_FLUSH_MS,
-  layerLinksKey,
   MAX_BLOCKED_URLS,
   useBlockedLayerURLs,
 } from './useBlockedLayerURLs'
@@ -95,33 +93,6 @@ function renderHookNoState() {
       }),
   }
 }
-
-describe('layerLinksKey', () => {
-  const stream = (kind: StreamData['kind'], link: string): StreamData => ({
-    _id: link,
-    _dataSource: 'custom',
-    kind,
-    link,
-  })
-
-  test('covers both layers and ignores everything else', () => {
-    const key = layerLinksKey([
-      stream('overlay', 'https://a.example'),
-      stream('video', 'https://ignored.example'),
-      stream('background', 'https://b.example'),
-    ])
-
-    expect(key).toContain('https://a.example')
-    expect(key).toContain('https://b.example')
-    expect(key).not.toContain('ignored')
-  })
-
-  test('changes when a layer link is edited', () => {
-    expect(layerLinksKey([stream('overlay', 'https://a.example')])).not.toBe(
-      layerLinksKey([stream('overlay', 'https://b.example')]),
-    )
-  })
-})
 
 describe('useBlockedLayerURLs', () => {
   test('starts empty and collects each reported URL in order', () => {

@@ -102,7 +102,11 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       layoutPresets,
       favorites,
       dataSourceHealth,
-      blockedLayerURLs,
+      // Defaulted, not assumed: a control server older than #797 sends no such
+      // field, and a snapshot arrives here straight off the wire without
+      // passing through `streamwallStateSchema` (which would have defaulted
+      // it), so an undefined value would reach the sidebar as a crash.
+      blockedLayerURLs = [],
     } = state
     const stateIdxMap = new Map<CellIdx, ViewInfo>()
     const views: ViewInfo[] = []
