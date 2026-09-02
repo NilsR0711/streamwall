@@ -1841,6 +1841,23 @@ describe('StreamWindow constructor', () => {
       expect(emitted).toEqual(['http://192.168.1.50/bg'])
     })
 
+    // The listener runs the whole state broadcast synchronously, and the wall's
+    // own notice must not be lost because that failed.
+    it('still reaches the overlay when the state listener throws', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+      sw.on('blockedURL', () => {
+        throw new Error('broadcast failed')
+      })
+
+      background('http://192.168.1.50/bg', 'private network')
+
+      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+        ['layer:blocked-url', 'http://192.168.1.50/bg'],
+      ])
+    })
+
     it('stops emitting blocked URLs once disposed', () => {
       const sw = new StreamWindow(makeConfig())
       const { background } = reportersOf(sw)

@@ -287,20 +287,24 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     if (this.disposed) {
       return
     }
-    // Announced before the overlay's own delivery, which is gated on the
-    // renderer having announced itself: the control UI's path is separate and
-    // must not inherit that wait (#797).
-    this.emit('blockedURL', url)
-    if (!this.overlayLoaded) {
+    if (this.overlayLoaded) {
+      this.sendBlockedURL(url)
+    } else if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
       // Drops the newcomer rather than the oldest, so a layer page issuing a
       // stream of refused requests cannot push the operator's own refused link
       // out of the queue before the overlay is listening.
-      if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
-        this.pendingBlockedURLs.push(url)
-      }
-      return
+      this.pendingBlockedURLs.push(url)
     }
-    this.sendBlockedURL(url)
+    // The control UI's copy of the report (#797) travels a path of its own: it
+    // is announced even while the overlay renderer has not come up, which
+    // gates the delivery above, and it is announced last and guarded, because
+    // this listener runs the whole state broadcast synchronously and neither
+    // audience may lose its notice to the other's transport failing.
+    try {
+      this.emit('blockedURL', url)
+    } catch (err) {
+      log.warn('error reporting blocked layer URL to the control UI', err)
+    }
   }
 
   private sendBlockedURL(url: string) {
