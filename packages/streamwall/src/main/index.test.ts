@@ -1,3 +1,4 @@
+import EventEmitter from 'events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -11,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  * This test imports index.ts for its side effect (it calls `init()` at
  * module scope) with every startup collaborator stubbed, including the whole
  * `./bootstrap` module, and asserts the exact order its 14 startup-time
- * phase calls happen in. `createBrowseWindow`, the bootstrap module's 15th
+ * phase calls happen in. `createBrowseWindow`, the bootstrap module's 16th
  * export, is registered as an on-demand callback rather than invoked during
  * startup, so it is intentionally not part of the asserted sequence.
  */
@@ -55,6 +56,7 @@ const mocks = vi.hoisted(() => {
       setupStreamdelayClient: vi.fn(() => null),
       setupTwitchBot: vi.fn(() => null),
       createDataSourceHealthReporter: vi.fn(() => vi.fn(() => vi.fn())),
+      createBlockedLayerURLReporter: vi.fn(() => vi.fn((state) => state)),
       createBrowseWindow: vi.fn(),
       configureSentry: vi.fn(),
       configureElectronRuntime: vi.fn(),
@@ -145,11 +147,17 @@ vi.mock('./storage', () => ({
 }))
 
 vi.mock('./ControlWindow', () => ({
-  default: class FakeControlWindow {},
+  default: class FakeControlWindow {
+    onState() {}
+  },
 }))
 
 vi.mock('./StreamWindow', () => ({
-  default: class FakeStreamWindow {},
+  // An EventEmitter, like the real one: `main()` subscribes to its
+  // `blockedURL` reports on the way to the broadcast state (issue #797).
+  default: class FakeStreamWindow extends EventEmitter {
+    onState() {}
+  },
 }))
 
 vi.mock('./updaterSetup', () => ({
@@ -193,7 +201,7 @@ vi.mock('./data', async (importOriginal) => {
 })
 
 /**
- * The exact order `main()`/`init()` invoke the 14 bootstrap phases that run
+ * The exact order `main()`/`init()` invoke the 15 bootstrap phases that run
  * during a normal startup, written out explicitly so a future reordering
  * produces a readable diff (`expected[i] !== actual[i]`) instead of a
  * cryptic assertion failure.
@@ -208,6 +216,7 @@ const EXPECTED_PHASE_ORDER = [
   'createStateDocPersister',
   'seedAndObserveViewsState',
   'startPlaylistScheduler',
+  'createBlockedLayerURLReporter',
   'wireWindowIpc',
   'wireWindowLifecycle',
   'setupStreamdelayClient',
@@ -235,7 +244,7 @@ afterEach(() => {
 })
 
 describe('main() startup sequence', () => {
-  it('invokes the bootstrap phases in the documented order', async () => {
+  it('invokes the bootstrap phases in the documented order and routes state through the blocked-URL reporter', async () => {
     // A guard against an actual startup failure surfacing as a hard process
     // exit instead of a readable assertion failure below.
     const exitSpy = vi
@@ -267,5 +276,26 @@ describe('main() startup sequence', () => {
 
     expect(exitSpy).not.toHaveBeenCalled()
     expect(actualPhaseOrder()).toEqual(EXPECTED_PHASE_ORDER)
+
+    // Every state update has to pass through the reporter, which is what takes
+    // a blocked-URL notice down again once the operator edits a layer link
+    // (issue #797). Nothing else in the suite would notice `updateState`
+    // merging the state itself and skipping it.
+    const syncBlockedLayerURLs = vi.mocked(
+      mocks.bootstrap.createBlockedLayerURLReporter,
+    ).mock.results[0]!.value as ReturnType<typeof vi.fn>
+    const { updateState, getClientState } =
+      mocks.bootstrap.wireWindowIpc.mock.calls[0]![0]
+    const cleared = { blockedLayerURLs: [] as string[] }
+    syncBlockedLayerURLs.mockImplementationOnce(
+      (state: Record<string, unknown>) => ({ ...state, ...cleared }),
+    )
+
+    updateState({ favorites: ['https://example.com/s'] })
+
+    expect(syncBlockedLayerURLs).toHaveBeenCalledWith(
+      expect.objectContaining({ favorites: ['https://example.com/s'] }),
+    )
+    expect(getClientState()).toMatchObject(cleared)
   }, 20_000)
 })

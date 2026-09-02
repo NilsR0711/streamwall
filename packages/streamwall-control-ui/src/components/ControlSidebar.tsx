@@ -11,6 +11,7 @@ import {
 } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { AuthTokenLine, CreateInviteInput } from '../AccessPanel.tsx'
+import { BlockedLayerURLNotice } from '../BlockedLayerURLNotice.tsx'
 import { type Invite } from '../invite.ts'
 import { Stack } from '../layout.tsx'
 import {
@@ -41,6 +42,7 @@ export function ControlSidebar({
   customStreams,
   onChangeCustomStream,
   onDeleteCustomStream,
+  blockedLayerURLs,
   authState,
   newInvite,
   onCreateInvite,
@@ -60,6 +62,7 @@ export function ControlSidebar({
   customStreams: StreamData[]
   onChangeCustomStream: (url: string, customStream: LocalStreamData) => void
   onDeleteCustomStream: (url: string) => void
+  blockedLayerURLs: string[]
   authState: StreamwallState['auth'] | undefined
   newInvite: Invite | undefined
   onCreateInvite: (args: { name: string; role: InvitableRole }) => void
@@ -142,6 +145,13 @@ export function ControlSidebar({
           roleCan(role, 'delete-custom-stream') && (
             <>
               <h2>Custom Streams</h2>
+              {/*
+                Beside the inputs the overlay/background links are typed into,
+                because that is what the refusal is about: the wall shows the
+                same thing to whoever stands in front of it, which is nobody in
+                a control-server deployment (issue #797).
+              */}
+              <BlockedLayerURLNotice urls={blockedLayerURLs} />
               <div>
                 {/*
                   Keyed by `link` (each custom stream's stable id) rather

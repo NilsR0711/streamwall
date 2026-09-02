@@ -80,6 +80,7 @@ function makeConnection(
     layoutPresets: [],
     favorites,
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 

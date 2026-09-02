@@ -70,6 +70,7 @@ export function ControlUI({
     layoutPresets,
     favorites,
     dataSourceHealth,
+    blockedLayerURLs,
   } = connection
   const {
     cols,
@@ -264,6 +265,7 @@ export function ControlUI({
         customStreams={customStreams}
         onChangeCustomStream={handleChangeCustomStream}
         onDeleteCustomStream={handleDeleteCustomStream}
+        blockedLayerURLs={blockedLayerURLs}
         authState={authState}
         newInvite={newInvite}
         onCreateInvite={handleCreateInvite}

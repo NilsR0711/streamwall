@@ -8,6 +8,7 @@ import type {
   ViewState,
 } from 'streamwall-shared'
 import * as Y from 'yjs'
+import { BlockedLayerURLTracker } from './blockedLayerURLs'
 import type { StreamwallConfig } from './cliArgs'
 import type { ControlCommandHandler } from './ControlWindow'
 import { LocalStreamData } from './data'
@@ -115,6 +116,7 @@ export function createInitialClientState(
     layoutPresets: deps.layoutPresets,
     favorites: deps.favorites,
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 
@@ -492,6 +494,40 @@ export function createDataSourceHealthReporter(
         dataSourceHealth: dataSourceHealthTracker.report(id, type, ok, message),
       })
     }
+  }
+}
+
+export interface BlockedLayerURLReporterDeps {
+  /** Subscribes to `StreamWindow`'s `blockedURL` reports. */
+  onBlockedURL: (listener: (url: string) => void) => void
+  updateState: (newState: Partial<StreamwallState>) => void
+}
+
+/**
+ * Wires the URLs the wall's hardened layer sessions refused into the broadcast
+ * state, so the control UI can name them where the operator typed them --
+ * possibly on another machine, with no view of the wall's own notice
+ * (issue #797).
+ *
+ * Returns the function every assembled state has to pass through on its way to
+ * being broadcast: an operator's edit to a layer link is what takes the notice
+ * down again, and `updateState` is the one place every state change goes
+ * through. It hands back the state unchanged unless the links actually
+ * changed, so the update it feeds cannot loop back into itself.
+ */
+export function createBlockedLayerURLReporter(
+  deps: BlockedLayerURLReporterDeps,
+): (state: StreamwallState) => StreamwallState {
+  const tracker = new BlockedLayerURLTracker()
+  deps.onBlockedURL((url) => {
+    const blockedLayerURLs = tracker.report(url)
+    if (blockedLayerURLs) {
+      deps.updateState({ blockedLayerURLs })
+    }
+  })
+  return (state) => {
+    const cleared = tracker.syncLayerLinks(state.streams)
+    return cleared ? { ...state, blockedLayerURLs: cleared } : state
   }
 }
 

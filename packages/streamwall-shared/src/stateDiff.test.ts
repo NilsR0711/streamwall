@@ -53,6 +53,7 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
     ...overrides,
   }
 }

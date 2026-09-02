@@ -156,6 +156,17 @@ export interface StreamwallState {
   /** Stream URLs (`StreamDataContent.link`) a user has starred for quick access. */
   favorites: string[]
   dataSourceHealth: DataSourceHealth[]
+  /**
+   * URLs the wall's hardened layer sessions refused to fetch, so the operator
+   * who typed an overlay or background link learns why it does nothing --
+   * possibly from another machine, with no view of the wall (issue #797).
+   *
+   * This is what the guard cancelled, not necessarily the link that was typed:
+   * a redirect hop or a refused sub-resource is reported under its own address.
+   * Bounded and truncated at the producer; see `MAX_BLOCKED_LAYER_URLS` and
+   * `MAX_BLOCKED_LAYER_URL_LENGTH`.
+   */
+  blockedLayerURLs: string[]
 }
 
 type MessageMeta = {

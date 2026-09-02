@@ -17,6 +17,7 @@ import { createSessionHostResolver, ensureValidURL } from '../util'
 import {
   configureElectronRuntime,
   configureSentry,
+  createBlockedLayerURLReporter,
   createBrowseWindow,
   createDataSourceHealthReporter,
   createInitialClientState,
@@ -214,8 +215,22 @@ async function main(argv: ReturnType<typeof parseArgs>) {
 
   const stateEmitter = new EventEmitter<{ state: [StreamwallState] }>()
 
+  // What the wall's layer sessions refused, on its way to every control
+  // client -- the operator who typed an overlay or background link may be on
+  // another machine with no view of the wall's own notice (issue #797).
+  const syncBlockedLayerURLs = createBlockedLayerURLReporter({
+    onBlockedURL: (listener) => {
+      streamWindow.on('blockedURL', listener)
+    },
+    updateState: (newState) => updateState(newState),
+  })
+
   function updateState(newState: Partial<StreamwallState>) {
-    clientState = { ...clientState, ...newState }
+    // Every state update passes through here, so this is where an operator's
+    // edit to a layer link is seen -- which is what takes the notice down
+    // again. The state comes back untouched unless the links actually changed,
+    // so the update the reporter makes cannot loop back into itself.
+    clientState = syncBlockedLayerURLs({ ...clientState, ...newState })
     streamWindow.onState(clientState)
     controlWindow.onState(clientState)
     stateEmitter.emit('state', clientState)

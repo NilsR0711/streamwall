@@ -75,6 +75,7 @@ function renderControlUI(
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
     ...connectionOverrides,
   }
 

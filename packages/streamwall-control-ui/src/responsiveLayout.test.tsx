@@ -71,6 +71,7 @@ function renderControlUI(): HTMLDivElement {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 
   act(() => {

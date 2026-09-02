@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'vitest'
 import {
   type ControlCommand,
+  controlCommandMessageSchema,
+  controlStateMessageSchema,
+  localStreamDataSchema,
+  MAX_BLOCKED_LAYER_URL_LENGTH,
+  MAX_BLOCKED_LAYER_URLS,
   MAX_URL_LENGTH,
   MAX_VIEW_ERROR_LENGTH,
   MAX_VIEW_IDX,
   MAX_VIEW_INFO_TITLE_LENGTH,
-  type ServerStatus,
-  controlCommandMessageSchema,
-  controlStateMessageSchema,
-  localStreamDataSchema,
   parseStreamList,
+  type ServerStatus,
   serverStatusSchema,
   streamDataInputSchema,
   streamwallStateSchema,
@@ -37,6 +39,7 @@ const VALID_STATE = {
   layoutPresets: [],
   favorites: [],
   dataSourceHealth: [],
+  blockedLayerURLs: [],
 }
 
 describe('streamDataInputSchema', () => {
@@ -890,6 +893,51 @@ describe('streamwallStateSchema', () => {
       ],
     }
     expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
+  })
+
+  // Issue #797: the refused layer URLs are reported by whatever the wall's
+  // chrome layers are framing, so they are attacker-influenced content that
+  // is re-broadcast on every state update -- bounded in both count and
+  // length for the same reason #734 bounded the view info title.
+  test('accepts blocked layer URLs at exactly the allowed bounds', () => {
+    const atLimit = {
+      ...VALID_STATE,
+      blockedLayerURLs: Array.from(
+        { length: MAX_BLOCKED_LAYER_URLS },
+        (_unused, i) => `${i}`.padEnd(MAX_BLOCKED_LAYER_URL_LENGTH, 'x'),
+      ),
+    }
+    expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
+  })
+
+  test('rejects a blocked layer URL longer than the allowed length', () => {
+    const tooLong = {
+      ...VALID_STATE,
+      blockedLayerURLs: ['x'.repeat(MAX_BLOCKED_LAYER_URL_LENGTH + 1)],
+    }
+    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+  })
+
+  test('rejects more blocked layer URLs than the allowed count', () => {
+    const tooMany = {
+      ...VALID_STATE,
+      blockedLayerURLs: Array.from(
+        { length: MAX_BLOCKED_LAYER_URLS + 1 },
+        (_unused, i) => `https://example.com/${i}`,
+      ),
+    }
+    expect(streamwallStateSchema.safeParse(tooMany).success).toBe(false)
+  })
+
+  // The desktop and the control server are deployed separately, so a desktop
+  // that predates #797 must not fail validation outright -- which would take
+  // its whole state broadcast down, not just the missing field.
+  test('defaults blocked layer URLs to empty when a desktop omits them', () => {
+    const { blockedLayerURLs: _blockedLayerURLs, ...withoutBlocked } =
+      VALID_STATE
+    const result = streamwallStateSchema.safeParse(withoutBlocked)
+    expect(result.success).toBe(true)
+    expect(result.data?.blockedLayerURLs).toEqual([])
   })
 
   test('rejects a state missing the required streams field', () => {

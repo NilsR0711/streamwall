@@ -404,8 +404,28 @@ function makeState(): StreamwallState {
     ],
     favorites: ['https://example.com/stream'],
     dataSourceHealth: [],
+    blockedLayerURLs: ['http://192.168.1.5/overlay'],
   }
 }
+
+// Issue #797: the refused layer URLs exist for whoever typed the overlay or
+// background link. They name addresses the wall tried and was refused -- often
+// on the operator's own network -- so a role that cannot manage custom streams
+// has no use for them and is not told about them either.
+for (const role of ['admin', 'operator', 'local'] satisfies StreamwallRole[]) {
+  test(`StateWrapper.view("${role}") carries the refused layer URLs`, () => {
+    const state = makeState()
+    const view = new StateWrapper(state).view(role)
+
+    assert.deepEqual(view.blockedLayerURLs, state.blockedLayerURLs)
+  })
+}
+
+test('StateWrapper.view("monitor") withholds the refused layer URLs', () => {
+  const view = new StateWrapper(makeState()).view('monitor')
+
+  assert.deepEqual(view.blockedLayerURLs, [])
+})
 
 test('StateWrapper.view("admin") exposes the auth token list', () => {
   const state = makeState()

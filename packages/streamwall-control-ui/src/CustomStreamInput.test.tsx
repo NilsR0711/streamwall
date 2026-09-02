@@ -71,6 +71,7 @@ function makeConnection(customStreams: StreamData[]): StreamwallConnection {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 

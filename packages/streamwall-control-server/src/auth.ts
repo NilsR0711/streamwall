@@ -3,6 +3,7 @@ import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto'
 import EventEmitter from 'events'
 import {
   type AuthTokenInfo,
+  roleCan,
   type StreamwallRole,
   type StreamwallState,
   validRolesSet,
@@ -113,6 +114,7 @@ export class StateWrapper extends EventEmitter {
       layoutPresets,
       favorites,
       dataSourceHealth,
+      blockedLayerURLs,
     } = this._value
 
     const state: StreamwallState = {
@@ -128,6 +130,12 @@ export class StateWrapper extends EventEmitter {
       layoutPresets,
       favorites,
       dataSourceHealth,
+      // The refused layer URLs name addresses on the wall's own network and
+      // exist for whoever typed the overlay/background link (issue #797), so
+      // a role that cannot manage custom streams is not told about them.
+      blockedLayerURLs: roleCan(role, 'update-custom-stream')
+        ? blockedLayerURLs
+        : [],
     }
     if (role === 'admin') {
       state.auth = auth

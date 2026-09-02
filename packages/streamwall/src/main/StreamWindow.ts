@@ -68,6 +68,13 @@ export interface StreamWindowEventMap {
   close: [ElectronEvent]
   state: [ViewState[]]
   resize: []
+  /**
+   * A URL one of the layer sessions refused, on its way to the broadcast
+   * state so the control UI can name it too (#797). Fired for every refusal,
+   * independently of the wall's own notice: the operator who typed the link
+   * may be on another machine with no view of the wall at all.
+   */
+  blockedURL: [string]
 }
 
 export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
@@ -280,16 +287,31 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     if (this.disposed) {
       return
     }
-    if (!this.overlayLoaded) {
-      // Drops the newcomer rather than the oldest, so a layer page issuing a
-      // stream of refused requests cannot push the operator's own refused link
-      // out of the queue before the overlay is listening.
-      if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
+    // Two audiences, two transports, neither allowed to lose its notice to the
+    // other's failure -- so each is guarded. `webContents.send` can throw on a
+    // renderer that is going away without `isDestroyed()` having caught up,
+    // and the `blockedURL` listener synchronously runs the whole state
+    // broadcast (uplink included). Whatever escapes either would otherwise
+    // land in the request guard's own catch as a single log line.
+    try {
+      if (this.overlayLoaded) {
+        this.sendBlockedURL(url)
+      } else if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
+        // Drops the newcomer rather than the oldest, so a layer page issuing a
+        // stream of refused requests cannot push the operator's own refused
+        // link out of the queue before the overlay is listening.
         this.pendingBlockedURLs.push(url)
       }
-      return
+    } catch (err) {
+      log.warn('error reporting blocked layer URL to the wall', err)
     }
-    this.sendBlockedURL(url)
+    // The control UI's copy of the report (#797) is announced even while the
+    // overlay renderer has not come up, which gates the delivery above.
+    try {
+      this.emit('blockedURL', url)
+    } catch (err) {
+      log.warn('error reporting blocked layer URL to the control UI', err)
+    }
   }
 
   private sendBlockedURL(url: string) {

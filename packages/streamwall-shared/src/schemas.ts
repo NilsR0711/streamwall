@@ -481,6 +481,37 @@ const layoutPresetSchema = z.object({
   views: z.record(z.string(), z.object({ streamId: z.string() })),
 })
 
+/**
+ * How many refused layer URLs the desktop broadcasts at once, and how much of
+ * each one travels (issue #797).
+ *
+ * The wall's chrome layers frame operator-supplied overlay/background pages,
+ * and the SSRF guard reports every request those pages make that it refuses -
+ * so both the count and the length of these strings are ultimately controlled
+ * by whatever the layer is framing, not by the operator. A page polling a
+ * refused endpoint with a cache-busting query string, or requesting one very
+ * long URL, must not be able to grow a re-broadcast `state` frame past the
+ * uplink's `maxPayload` (the denial-of-service loop #734 fixed for
+ * `document.title`). The producer truncates and caps before publishing; these
+ * bounds are the enforcement at the trust boundary.
+ *
+ * Deliberately much shorter than {@link MAX_URL_LENGTH}: this value is only
+ * ever shown to a human, who needs the host and the beginning of the path to
+ * recognise the address they typed. The untruncated URL stays in the desktop's
+ * own log.
+ */
+export const MAX_BLOCKED_LAYER_URLS = 5
+export const MAX_BLOCKED_LAYER_URL_LENGTH = 200
+
+const blockedLayerURLsSchema = z
+  .array(z.string().max(MAX_BLOCKED_LAYER_URL_LENGTH))
+  .max(MAX_BLOCKED_LAYER_URLS)
+  // A desktop older than #797 sends no such field, and the desktop and the
+  // control server are released and deployed separately. Rejecting the
+  // payload would take that desktop's entire state broadcast down rather
+  // than costing it one notice.
+  .default([])
+
 const dataSourceHealthSchema = z.object({
   id: z.string(),
   type: z.enum(['json-url', 'toml-file']),
@@ -516,6 +547,7 @@ export const streamwallStateSchema = z.object({
   layoutPresets: z.array(layoutPresetSchema),
   favorites: z.array(z.string()),
   dataSourceHealth: z.array(dataSourceHealthSchema),
+  blockedLayerURLs: blockedLayerURLsSchema,
 })
 
 /**

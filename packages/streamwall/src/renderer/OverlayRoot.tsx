@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'preact/hooks'
-import { StreamwallState, type ViewPos } from 'streamwall-shared'
+import { layerLinksKey, StreamwallState, type ViewPos } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import packageInfo from '../../package.json'
 import { BlockedLayerNotices } from './BlockedLayerNotice'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 import { OverlayViewTile } from './OverlayViewTile'
-import { layerFrameKey, layerLinksKey } from './useBlockedLayerURLs'
+import { layerFrameKey } from './useBlockedLayerURLs'
 
 // Extracted from overlay.tsx so it can be rendered and tested in isolation,
 // without pulling in the module-level `render(<App />, document.body)` call.

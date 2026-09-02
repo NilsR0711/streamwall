@@ -4,11 +4,12 @@ import 'streamwall-control-ui/src/index.css'
 import { render } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
 import { styled } from 'styled-components'
+import { layerLinksKey } from '../../../streamwall-shared/src/layerLinks'
 import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
-import { layerFrameKey, layerLinksKey } from './useBlockedLayerURLs'
+import { layerFrameKey } from './useBlockedLayerURLs'
 
 declare global {
   interface Window {

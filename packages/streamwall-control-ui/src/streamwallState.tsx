@@ -67,6 +67,8 @@ export interface StreamwallConnection {
   layoutPresets: LayoutPreset[]
   favorites: string[]
   dataSourceHealth: DataSourceHealth[]
+  /** Layer URLs the wall's sessions refused to fetch (issue #797). */
+  blockedLayerURLs: string[]
 }
 
 export function useStreamwallState(state: StreamwallState | undefined) {
@@ -85,6 +87,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
         layoutPresets: [],
         favorites: [],
         dataSourceHealth: [],
+        blockedLayerURLs: [],
       }
     }
 
@@ -99,6 +102,11 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       layoutPresets,
       favorites,
       dataSourceHealth,
+      // Defaulted, not assumed: a control server older than #797 sends no such
+      // field, and a snapshot arrives here straight off the wire without
+      // passing through `streamwallStateSchema` (which would have defaulted
+      // it), so an undefined value would reach the sidebar as a crash.
+      blockedLayerURLs = [],
     } = state
     const stateIdxMap = new Map<CellIdx, ViewInfo>()
     const views: ViewInfo[] = []
@@ -155,6 +163,7 @@ export function useStreamwallState(state: StreamwallState | undefined) {
       layoutPresets,
       favorites,
       dataSourceHealth,
+      blockedLayerURLs,
     }
   }, [state])
 }

@@ -86,6 +86,7 @@ function makeState(views: ViewState[]): StreamwallState {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 
@@ -181,6 +182,25 @@ describe('useStreamwallState', () => {
     // @ts-expect-error - the map is keyed by cell index, not by view id
     stateIdxMap.get(asViewId(0))
     expect(stateIdxMap.size).toBe(1)
+  })
+
+  test('carries the refused layer URLs through', () => {
+    const state = makeState([])
+    state.blockedLayerURLs = ['http://192.168.1.5/overlay']
+
+    expect(runHook(state).blockedLayerURLs).toEqual([
+      'http://192.168.1.5/overlay',
+    ])
+  })
+
+  // A control server older than #797 sends no such field, and a snapshot
+  // reaches the client without passing through `streamwallStateSchema`, which
+  // is where the default would otherwise have been applied.
+  test('defaults the refused layer URLs when a server omits them', () => {
+    const state = makeState([])
+    delete (state as Partial<StreamwallState>).blockedLayerURLs
+
+    expect(runHook(state).blockedLayerURLs).toEqual([])
   })
 
   test('keeps the view-id and cell-index axes apart', () => {
