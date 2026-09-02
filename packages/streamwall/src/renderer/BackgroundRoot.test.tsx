@@ -26,7 +26,7 @@ function makeBackground(link: string): StreamData {
 
 function renderBackground(
   streams: StreamData[],
-  blockedURLs?: ReadonlyMap<string, string>,
+  blockedURLs?: readonly string[],
 ): HTMLDivElement {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -40,53 +40,41 @@ function renderBackground(
 }
 
 describe('Background blocked-URL rendering', () => {
-  test('frames a background whose URL the session accepted', () => {
+  test('frames each background and says nothing while none was refused', () => {
     const root = renderBackground([makeBackground('https://ok.example/bg')])
 
-    const frame = root.querySelector('iframe')
-    expect(frame?.getAttribute('src')).toBe('https://ok.example/bg')
+    expect(root.querySelector('iframe')?.getAttribute('src')).toBe(
+      'https://ok.example/bg',
+    )
+    expect(root.querySelector('[role="alert"]')).toBeNull()
   })
 
-  test('replaces a blocked background with a notice naming the URL and reason', () => {
+  test('names a refused URL on the wall', () => {
     const root = renderBackground(
       [makeBackground('http://192.168.1.50/bg')],
-      new Map([
-        [
-          'http://192.168.1.50/bg',
-          'blocking request to private-network address',
-        ],
-      ]),
+      ['http://192.168.1.50/bg'],
     )
 
-    expect(root.querySelector('iframe')).toBeNull()
     expect(root.textContent).toContain('http://192.168.1.50/bg')
-    expect(root.textContent).toContain(
-      'blocking request to private-network address',
-    )
+    expect(root.textContent).toContain('not a public address')
   })
 
-  test('leaves the other backgrounds framed when only one is blocked', () => {
+  test('leaves every frame mounted, so a URL refused once can still succeed', () => {
+    // The guard reports the request it cancelled, which for a redirected link
+    // or a refused sub-resource is not the URL the operator typed -- so the
+    // notice never decides which frame to take down.
     const root = renderBackground(
       [
         makeBackground('http://192.168.1.50/bg'),
         makeBackground('https://ok.example/bg'),
       ],
-      new Map([['http://192.168.1.50/bg', 'private network']]),
+      ['http://192.168.1.50/bg'],
     )
 
-    const frames = [...root.querySelectorAll('iframe')].map((frame) =>
-      frame.getAttribute('src'),
-    )
-    expect(frames).toEqual(['https://ok.example/bg'])
-  })
-
-  test('ignores a blocked URL that belongs to no background', () => {
-    const root = renderBackground(
-      [makeBackground('https://ok.example/bg')],
-      new Map([['http://192.168.1.50/somewhere-else', 'private network']]),
-    )
-
-    expect(root.querySelector('iframe')).not.toBeNull()
-    expect(root.textContent).not.toContain('192.168.1.50')
+    expect(
+      [...root.querySelectorAll('iframe')].map((frame) =>
+        frame.getAttribute('src'),
+      ),
+    ).toEqual(['http://192.168.1.50/bg', 'https://ok.example/bg'])
   })
 })

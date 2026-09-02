@@ -2,12 +2,6 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { StreamwallState } from 'streamwall-shared'
 import './sentryPreload'
 
-/** A request the layer's session cancelled, and why. */
-export interface BlockedLayerURL {
-  url: string
-  reason: string
-}
-
 const api = {
   openDevTools: () => ipcRenderer.send('devtools-overlay'),
   load: () => ipcRenderer.invoke('layer:load'),
@@ -24,9 +18,9 @@ const api = {
    * them at the network layer, which the layer would otherwise experience only
    * as an iframe that never paints (#790).
    */
-  onBlockedURL: (handleBlocked: (blocked: BlockedLayerURL) => void) => {
-    const internalHandler = (_ev: IpcRendererEvent, blocked: BlockedLayerURL) =>
-      handleBlocked(blocked)
+  onBlockedURL: (handleBlocked: (url: string) => void) => {
+    const internalHandler = (_ev: IpcRendererEvent, url: string) =>
+      handleBlocked(url)
     ipcRenderer.on('layer:blocked-url', internalHandler)
     return () => {
       ipcRenderer.off('layer:blocked-url', internalHandler)

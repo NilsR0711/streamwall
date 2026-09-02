@@ -3,7 +3,7 @@ import { StreamwallState, type ViewPos } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import packageInfo from '../../package.json'
-import { BlockedLayerNotice } from './BlockedLayerNotice'
+import { BlockedLayerNotices } from './BlockedLayerNotice'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 import { OverlayViewTile } from './OverlayViewTile'
 
@@ -13,10 +13,10 @@ export function Overlay({
   config,
   views,
   streams,
-  blockedURLs = new Map(),
+  blockedURLs = [],
 }: Pick<StreamwallState, 'config' | 'views' | 'streams'> & {
-  /** URLs the session refused to fetch, keyed by URL, with the reason (#790). */
-  blockedURLs?: ReadonlyMap<string, string>
+  /** URLs this layer's session refused to fetch (#790). */
+  blockedURLs?: readonly string[]
 }) {
   const { width, height, activeColor } = config
   // Keep error views on the wall (instead of leaving a silent black cell) so the
@@ -77,27 +77,16 @@ export function Overlay({
           </SpaceBorder>
         )
       })}
-      {overlays.map((s) => {
-        // A blocked URL would otherwise leave an iframe that never paints, with
-        // nothing on the wall to say why (#790).
-        const blockedReason = blockedURLs.get(s.link)
-        if (blockedReason !== undefined) {
-          return (
-            <BlockedOverlayNotice key={s._id}>
-              <BlockedLayerNotice url={s.link} reason={blockedReason} />
-            </BlockedOverlayNotice>
-          )
-        }
-        return (
-          <OverlayIFrame
-            key={s._id}
-            src={s.link}
-            sandbox={LAYER_FRAME_SANDBOX}
-            allow="autoplay"
-            scrolling="no"
-          />
-        )
-      })}
+      {overlays.map((s) => (
+        <OverlayIFrame
+          key={s._id}
+          src={s.link}
+          sandbox={LAYER_FRAME_SANDBOX}
+          allow="autoplay"
+          scrolling="no"
+        />
+      ))}
+      <BlockedLayerNotices urls={blockedURLs} />
     </OverlayContainer>
   )
 }
@@ -126,15 +115,6 @@ function VersionFooter() {
 
 const OverlayContainer = styled.div`
   overflow: hidden;
-`
-
-// Sits where the overlay iframe would have, so the failure is visible without
-// covering the wall's video tiles.
-const BlockedOverlayNotice = styled.div`
-  position: fixed;
-  left: 1em;
-  bottom: 1em;
-  max-width: 40vw;
 `
 
 const SpaceBorder = styled.div.attrs<{

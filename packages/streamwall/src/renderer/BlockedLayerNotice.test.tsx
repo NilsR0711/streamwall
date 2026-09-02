@@ -2,7 +2,7 @@
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
 import { afterEach, describe, expect, test } from 'vitest'
-import { BlockedLayerNotice } from './BlockedLayerNotice'
+import { BlockedLayerNotices } from './BlockedLayerNotice'
 
 let container: HTMLDivElement | undefined
 
@@ -14,30 +14,45 @@ afterEach(() => {
   }
 })
 
-function renderNotice(url: string, reason: string): HTMLDivElement {
+function renderNotices(urls: readonly string[]): HTMLDivElement {
   container = document.createElement('div')
   document.body.appendChild(container)
   act(() => {
-    render(<BlockedLayerNotice url={url} reason={reason} />, container!)
+    render(<BlockedLayerNotices urls={urls} />, container!)
   })
   return container
 }
 
-describe('BlockedLayerNotice', () => {
-  test('names the URL that was refused and why', () => {
-    const root = renderNotice(
+describe('BlockedLayerNotices', () => {
+  test('renders nothing while no URL has been refused', () => {
+    const root = renderNotices([])
+
+    expect(root.textContent).toBe('')
+  })
+
+  test('names every refused URL and says why once', () => {
+    const root = renderNotices([
       'http://192.168.1.50/overlay',
-      'blocking request to private-network address',
-    )
+      'http://169.254.169.254/meta',
+    ])
 
     expect(root.textContent).toContain('http://192.168.1.50/overlay')
-    expect(root.textContent).toContain(
-      'blocking request to private-network address',
-    )
+    expect(root.textContent).toContain('http://169.254.169.254/meta')
+    expect(root.textContent).toContain('not a public address')
+  })
+
+  test('shows every refused URL rather than only the most recent', () => {
+    const root = renderNotices([
+      'http://192.168.1.50/a',
+      'http://192.168.1.50/b',
+      'http://192.168.1.50/c',
+    ])
+
+    expect(root.querySelectorAll('[role="alert"] > div')).toHaveLength(3)
   })
 
   test('is announced as an alert, so it is not just decoration', () => {
-    const root = renderNotice('http://192.168.1.50/overlay', 'private network')
+    const root = renderNotices(['http://192.168.1.50/overlay'])
 
     expect(root.querySelector('[role="alert"]')).not.toBeNull()
   })

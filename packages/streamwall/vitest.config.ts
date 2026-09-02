@@ -46,6 +46,11 @@ export default defineConfig({
     },
   },
   test: {
+    // happy-dom otherwise really fetches an <iframe src>, which would make the
+    // layer renderer tests depend on the network.
+    environmentOptions: {
+      happyDOM: { settings: { disableIframePageLoading: true } },
+    },
     server: {
       deps: {
         inline: [/react-icons/, /styled-components/],

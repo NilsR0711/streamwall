@@ -227,12 +227,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       // cancelled load inside one of its iframes would not reach one anyway --
       // so a blocked URL would just go blank. Tell the layer, which renders it
       // as a visible error in place of the iframe (#790).
-      onBlocked: (url, reason) => {
+      onBlocked: (url) => {
         const { webContents } = layerView
         if (webContents.isDestroyed()) {
           return
         }
-        webContents.send('layer:blocked-url', { url, reason })
+        // Only the URL: the guard's per-request reason already embeds it, and
+        // it refuses for one reason -- the address is not a public one -- which
+        // the layer states once. The full wording stays in the main log.
+        webContents.send('layer:blocked-url', url)
       },
     })
     layerView.setBackgroundColor('#0000')

@@ -1714,17 +1714,11 @@ describe('StreamWindow constructor', () => {
 
     expect(sw.backgroundView.webContents.send).toHaveBeenCalledWith(
       'layer:blocked-url',
-      {
-        url: 'http://192.168.1.50/bg',
-        reason: 'blocking request to private-network address',
-      },
+      'http://192.168.1.50/bg',
     )
     expect(sw.overlayView.webContents.send).toHaveBeenCalledWith(
       'layer:blocked-url',
-      {
-        url: 'http://169.254.169.254/meta',
-        reason: 'blocking request to private-network address',
-      },
+      'http://169.254.169.254/meta',
     )
     // Each layer hears only about its own session.
     expect(sw.backgroundView.webContents.send).toHaveBeenCalledTimes(1)

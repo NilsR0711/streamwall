@@ -20,7 +20,7 @@ type LayerApi = {
   openDevTools: () => unknown
   load: () => unknown
   onState: (handleState: (state: unknown) => void) => () => void
-  onBlockedURL: (handleBlocked: (blocked: unknown) => void) => () => void
+  onBlockedURL: (handleBlocked: (url: string) => void) => () => void
 }
 
 function importedLayerApi(): LayerApi {
@@ -116,10 +116,9 @@ describe('layerPreload onBlockedURL listener lifecycle', () => {
     const [, internalHandler] = on.mock.calls.find(
       ([ch]) => ch === 'layer:blocked-url',
     )!
-    const blocked = { url: 'http://192.168.1.50/x', reason: 'private network' }
-    internalHandler({}, blocked)
+    internalHandler({}, 'http://192.168.1.50/x')
 
-    expect(handleBlocked).toHaveBeenCalledWith(blocked)
+    expect(handleBlocked).toHaveBeenCalledWith('http://192.168.1.50/x')
   })
 
   it('removes the same listener it registered when unsubscribed', async () => {

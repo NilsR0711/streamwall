@@ -18,9 +18,8 @@ declare global {
 
 initRendererSentry()
 
-const subscribeBlockedURLs = (
-  handleBlocked: Parameters<StreamwallLayerGlobal['onBlockedURL']>[0],
-) => window.streamwallLayer.onBlockedURL(handleBlocked)
+const subscribeBlockedURLs = (handleBlocked: (url: string) => void) =>
+  window.streamwallLayer.onBlockedURL(handleBlocked)
 
 function App() {
   const [state, setState] = useState<StreamwallState | undefined>()
