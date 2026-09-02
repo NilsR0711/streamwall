@@ -91,6 +91,47 @@ describe('filterStreams', () => {
     const [, live, other] = filterStreams(streams, new Set(), new Set(), '')
     expect(live.length + other.length).toBe(2)
   })
+
+  // label/source/state/city are all optional (streamwall-shared schemas), so
+  // a stream carrying only a link - every freshly added custom stream, and
+  // any sparse external source row - has all four undefined. Naively
+  // template-interpolating them produces the literal string
+  // "undefinedundefinedundefinedundefined", which then matches any substring
+  // of "undefined" (issue #747).
+  describe('streams with no label/source/state/city metadata (issue #747)', () => {
+    test('does not match a filter that is a substring of the literal word "undefined"', () => {
+      const bareStream = makeStream('a')
+
+      for (const substring of ['un', 'def', 'ine', 'ned', 'fin']) {
+        const [, , other] = filterStreams(
+          [bareStream],
+          new Set(),
+          new Set(),
+          substring,
+        )
+        expect(other).toEqual([])
+      }
+    })
+
+    test('is excluded by any non-empty filter, having no metadata to match', () => {
+      const bareStream = makeStream('a')
+      const [wall, live, other, favorites] = filterStreams(
+        [bareStream],
+        new Set(),
+        new Set(),
+        'anything',
+      )
+      expect([...wall, ...live, ...other, ...favorites]).toEqual([])
+    })
+
+    test('does not let a match span a field boundary', () => {
+      // Without a separator, label "foo" + source "bar" reads as "foobar",
+      // which would wrongly match a filter for "oob".
+      const stream = makeStream('a', { label: 'foo', source: 'bar' })
+      const [, , other] = filterStreams([stream], new Set(), new Set(), 'oob')
+      expect(other).toEqual([])
+    })
+  })
 })
 
 let container: HTMLDivElement | undefined
