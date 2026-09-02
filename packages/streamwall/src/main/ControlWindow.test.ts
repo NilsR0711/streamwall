@@ -19,11 +19,6 @@ class FakeWebContents {
   windowOpenHandler: ((details: { url: string }) => { action: string }) | null =
     null
   navHandlers: Record<string, Array<(event: NavEvent) => void>> = {}
-  url = APP_PAGE
-
-  getURL(): string {
-    return this.url
-  }
 
   on(event: string, listener: (event: NavEvent) => void): this {
     const handlers = this.navHandlers[event] ?? []
@@ -431,6 +426,16 @@ describe('ControlWindow navigation hardening', () => {
       webContents.dispatchNavigation('will-navigate', 'https://evil.example/'),
     ).toBe(true)
     expect(openExternal).toHaveBeenCalledWith('https://evil.example/')
+  })
+
+  it("lets the window stay on the app's own page", () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(webContents.dispatchNavigation('will-navigate', APP_PAGE)).toBe(
+      false,
+    )
+    expect(openExternal).not.toHaveBeenCalled()
   })
 
   it('cancels a redirect escape too, so a 302 cannot do what a click cannot', () => {

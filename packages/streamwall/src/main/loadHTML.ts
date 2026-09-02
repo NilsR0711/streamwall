@@ -31,9 +31,11 @@ function rendererRoot(): string {
  * target a window rendering Streamwall's own UI may reach (#732).
  *
  * In development that is the Vite dev server's origin; in a packaged build it is
- * a `file:` URL inside the bundled renderer directory. The `file:` path is
- * resolved before the prefix check -- `new URL()` cannot be relied on to fold
- * `..` segments away -- so a crafted path cannot climb out of that directory.
+ * a `file:` URL inside the bundled renderer directory. The prefix check carries
+ * the trailing separator so a sibling directory that merely starts with the same
+ * name (`.../main_window_evil/`) is not accepted, and the path is resolved first
+ * so the answer does not depend on the URL parser having folded `..` segments
+ * away.
  */
 export function isAppPageURL(url: string): boolean {
   let parsed: URL

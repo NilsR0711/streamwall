@@ -134,8 +134,10 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
 
     this.handleFromControlWindow('control:open-release-notes', () => {
       // Deliberately takes no URL from the renderer: main owns the updater
-      // status, so a compromised renderer cannot turn this into an
-      // open-anything shell.openExternal gadget.
+      // status, so this channel always opens the release notes of the release
+      // the updater actually found. Outward *links* are a separate, deliberate
+      // path -- the navigation guard above forwards them to the OS browser,
+      // restricted to http(s).
       this.updateHandlers?.openReleaseNotes()
     })
   }

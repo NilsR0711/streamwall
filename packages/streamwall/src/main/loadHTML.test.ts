@@ -42,6 +42,22 @@ describe('isAppPageURL in a packaged build', () => {
     ).toBe(false)
   })
 
+  it('rejects a sibling directory that merely starts with the renderer directory name', () => {
+    // What the trailing separator in the prefix check is for: without it,
+    // `.../main_window_evil/` passes as `.../main_window` + more.
+    packaged()
+
+    expect(
+      isAppPageURL(pathToFileURL(`${rendererRoot}_evil/control.html`).href),
+    ).toBe(false)
+  })
+
+  it('rejects the renderer directory itself, which is not a page', () => {
+    packaged()
+
+    expect(isAppPageURL(pathToFileURL(rendererRoot).href)).toBe(false)
+  })
+
   it('rejects remote origins', () => {
     packaged()
 
