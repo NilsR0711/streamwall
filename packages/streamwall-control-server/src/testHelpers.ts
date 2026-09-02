@@ -421,14 +421,29 @@ export function recordJsonMessages<T = unknown>(ws: WebSocket) {
  * so an error the server sends immediately on connect is never missed to a
  * listener-attachment race. `next(timeoutMs)` resolves with that message or
  * null if none arrives within the window.
+ *
+ * Like `recordJsonMessages`, binary Yjs frames and unparsable text frames are
+ * skipped rather than treated as "first" — a binary frame can race in front
+ * of the JSON frame a caller is actually waiting for.
  */
 export function messageCollector(ws: WebSocket) {
   let first: unknown | undefined
   const received = new Promise<void>((resolve) => {
-    ws.once('message', (data) => {
-      first = JSON.parse(data.toString())
+    const onMessage = (data: WebSocket.RawData, isBinary: boolean) => {
+      if (isBinary) {
+        return
+      }
+      let msg: unknown
+      try {
+        msg = JSON.parse(data.toString())
+      } catch {
+        return
+      }
+      ws.off('message', onMessage)
+      first = msg
       resolve()
-    })
+    }
+    ws.on('message', onMessage)
   })
   return async (timeoutMs: number): Promise<unknown | null> => {
     await Promise.race([received, delay(timeoutMs)])
