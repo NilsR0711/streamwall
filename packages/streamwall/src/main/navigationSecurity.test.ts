@@ -123,9 +123,9 @@ test("secureStreamView keeps a stream URL's signed-token query out of the reload
 
   wc.dispatchNavigation('will-navigate', streamURL)
 
-  const logged = info.mock.calls.map((args) => args.join(' ')).join('\n')
-  assert.doesNotMatch(logged, /secret-token/)
-  assert.ok(logged.includes('https://cdn.example/live.m3u8'))
+  assert.deepEqual(info.mock.calls, [
+    ['Allowing page to reload:', 'https://cdn.example/live.m3u8'],
+  ])
 })
 
 test('secureStreamView blocks a redirect away once a page has committed (302 escape)', () => {
@@ -189,7 +189,7 @@ function secureFakeAppWindow(currentURL = APP_PAGE) {
     openExternal,
   })
   const logged = () => info.mock.calls.map((args) => args.join(' ')).join('\n')
-  return { wc, openExternal, logged }
+  return { wc, openExternal, logged, info }
 }
 
 test('secureAppWindow hands an http(s) popup to the OS browser and denies the in-app window', () => {
@@ -208,15 +208,15 @@ test('secureAppWindow hands an http(s) popup to the OS browser and denies the in
 test('secureAppWindow records the external open, without the credentials a link may carry', () => {
   // The file log transport persists everything from `info` down, and the
   // control UI renders links whose secret lives in the fragment (invite links).
-  const { wc, logged } = secureFakeAppWindow()
+  const { wc, info } = secureFakeAppWindow()
 
   wc.windowOpenHandler!({
     url: 'https://example.com/invite?key=secret-query#token=secret-fragment',
   })
 
-  assert.match(logged(), /Opening link in the OS browser/)
-  assert.ok(logged().includes('https://example.com/invite'))
-  assert.doesNotMatch(logged(), /secret-query|secret-fragment/)
+  assert.deepEqual(info.mock.calls, [
+    ['Opening link in the OS browser:', 'https://example.com/invite'],
+  ])
 })
 
 test('secureAppWindow keeps credentials out of the log when it denies a link too', () => {
@@ -241,12 +241,13 @@ test('secureAppWindow logs nothing but the scheme of an opaque-path URL', () => 
 })
 
 test('secureAppWindow logs no userinfo credentials', () => {
-  const { wc, logged } = secureFakeAppWindow()
+  const { wc, info } = secureFakeAppWindow()
 
   wc.windowOpenHandler!({ url: 'https://user:secret-password@example.com/x' })
 
-  assert.doesNotMatch(logged(), /secret-password/)
-  assert.ok(logged().includes('https://example.com/x'))
+  assert.deepEqual(info.mock.calls, [
+    ['Opening link in the OS browser:', 'https://example.com/x'],
+  ])
 })
 
 test('secureAppWindow keeps credentials out of the log when it blocks a navigation', () => {
