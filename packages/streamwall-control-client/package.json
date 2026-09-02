@@ -18,7 +18,7 @@
     "jsondiffpatch": "^0.7.6",
     "reconnecting-websocket": "^4.4.0",
     "streamwall-shared": "*",
-    "yjs": "^13.6.31"
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
