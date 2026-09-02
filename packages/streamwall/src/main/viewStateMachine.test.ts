@@ -1727,3 +1727,175 @@ describe('viewStateMachine resyncSwappedView pause re-send (issue #621)', () => 
     expect(nextSend).not.toHaveBeenCalledWith('pause')
   })
 })
+
+/**
+ * `performSwap` moves a finished preload into the wall in place of the view it
+ * replaces. A cell parked behind a fullscreen expansion (issue #369) is no
+ * longer a child of the wall window at all, so the swap must not put its
+ * replacement there either -- it would pop up on top of the expansion at the
+ * parked cell's old rectangle, playing, with nothing to remove it until the
+ * next layout change (issue #741).
+ */
+describe('viewStateMachine performSwap while the cell is parked (issue #741)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Minimal stand-in for electron's `contentView` child list. */
+  function makeFakeContentView() {
+    const children: unknown[] = []
+    return {
+      children,
+      addChildView: vi.fn((child: unknown, index?: number) => {
+        if (index === undefined) {
+          children.push(child)
+        } else {
+          children.splice(index, 0, child)
+        }
+      }),
+      removeChildView: vi.fn((child: unknown) => {
+        const idx = children.indexOf(child)
+        if (idx !== -1) {
+          children.splice(idx, 1)
+        }
+      }),
+    }
+  }
+
+  function makeFakeWindow(width = 100, height = 100) {
+    return {
+      contentView: makeFakeContentView(),
+      getBounds: () => ({ width, height }),
+    }
+  }
+
+  /**
+   * Runs the *real* `performSwap` (every other electron-touching action is
+   * stubbed) against fake windows/views, driving a full preload swap.
+   */
+  function runSwap({ parked }: { parked: boolean }) {
+    const win = makeFakeWindow(1920, 1080)
+    const overlay = { setBounds: vi.fn() }
+    const view = { setBounds: vi.fn() }
+    const offscreenWin = makeFakeWindow()
+    const nextView = { setBounds: vi.fn() }
+    const nextOffscreenWin = makeFakeWindow(640, 360)
+    const disposeView = vi.fn()
+
+    // The overlay always sits on top of the wall; the current view is a child
+    // of the wall window only while the cell is actually on it.
+    if (!parked) {
+      win.contentView.children.push(view)
+    } else {
+      offscreenWin.contentView.children.push(view)
+    }
+    win.contentView.children.push(overlay)
+    nextOffscreenWin.contentView.children.push(nextView)
+
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenView: noop,
+        positionView: noop,
+        offscreenNextView: noop,
+        resyncSwappedView: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        sendViewPause: noop,
+        sendViewResume: noop,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: 1,
+        view: view as never,
+        win: win as never,
+        offscreenWin: offscreenWin as never,
+        retry: makeRetry(),
+        createNextView: () => ({
+          view: nextView as never,
+          offscreenWin: nextOffscreenWin as never,
+        }),
+        disposeView,
+      },
+    })
+
+    return {
+      actor,
+      win,
+      overlay,
+      view,
+      offscreenWin,
+      nextView,
+      nextOffscreenWin,
+      disposeView,
+    }
+  }
+
+  /** Drives a running actor through a content swap to its promotion. */
+  async function swap(actor: ReturnType<typeof runSwap>['actor']) {
+    actor.start()
+    await reachRunning(actor)
+    actor.send({ type: 'DISPLAY', pos: POS, content: OTHER_CONTENT })
+    await vi.advanceTimersByTimeAsync(0)
+    actor.send({ type: 'NEXT_VIEW_INIT' })
+    actor.send({ type: 'NEXT_VIEW_LOADED' })
+  }
+
+  it('adds the promoted view to the wall at the retired view index when the cell is visible', async () => {
+    const ctx = runSwap({ parked: false })
+
+    await swap(ctx.actor)
+
+    expect(ctx.win.contentView.children).toContain(ctx.nextView)
+    // Takes the retired view's z-index, i.e. still below the overlay.
+    expect(ctx.win.contentView.children.indexOf(ctx.nextView)).toBeLessThan(
+      ctx.win.contentView.children.indexOf(ctx.overlay),
+    )
+    expect(ctx.nextView.setBounds).toHaveBeenCalledWith(POS)
+    expect(ctx.win.contentView.children).not.toContain(ctx.view)
+    expect(ctx.disposeView).toHaveBeenCalledWith(ctx.view, ctx.offscreenWin)
+  })
+
+  it('leaves the promoted view offscreen when the cell is parked', async () => {
+    const ctx = runSwap({ parked: true })
+
+    await swap(ctx.actor)
+
+    // Nothing new on the wall: the expansion keeps the whole window.
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+    // The promoted view stays on the offscreen host it already lives on --
+    // the one `promoteNextView` adopts as this actor's offscreen window.
+    expect(ctx.nextOffscreenWin.contentView.children).toContain(ctx.nextView)
+    // Sized to the offscreen host, never to the parked cell's stale rect.
+    expect(ctx.nextView.setBounds).not.toHaveBeenCalledWith(POS)
+    expect(ctx.nextView.setBounds).toHaveBeenCalledWith({
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 360,
+    })
+    // The retired view and its host window are reclaimed either way.
+    expect(ctx.disposeView).toHaveBeenCalledWith(ctx.view, ctx.offscreenWin)
+  })
+
+  it('adopts the promoted view and its offscreen window as the actor context', async () => {
+    const ctx = runSwap({ parked: true })
+
+    await swap(ctx.actor)
+
+    const { context } = ctx.actor.getSnapshot()
+    expect(context.view).toBe(ctx.nextView)
+    expect(context.offscreenWin).toBe(ctx.nextOffscreenWin)
+    expect(context.next).toBeNull()
+  })
+})
