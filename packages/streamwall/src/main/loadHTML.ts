@@ -10,7 +10,7 @@ import { pathToFileURL } from 'url'
  * guard must allow this origin explicitly or it would cancel the HLS renderer
  * page and its bundled assets while developing.
  */
-export function devServerOrigin(): string | undefined {
+function devServerOrigin(): string | undefined {
   if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     return undefined
   }
@@ -19,6 +19,23 @@ export function devServerOrigin(): string | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * The origins a session must be allowed to reach on top of the public internet,
+ * for any session that may load one of the app's own renderer pages.
+ *
+ * In development those pages and their assets are served from the Vite dev
+ * server on loopback, which the SSRF request guard would otherwise cancel --
+ * along with the dev server's own ws: HMR socket, covered by the same entry
+ * because the guard matches on host rather than full origin. Empty in a
+ * packaged build, where the pages come off disk. Shared by every such call site
+ * because getting it wrong only shows up when someone runs the dev server
+ * (#791).
+ */
+export function devServerAllowedOrigins(): string[] {
+  const origin = devServerOrigin()
+  return origin === undefined ? [] : [origin]
 }
 
 /** The renderer HTML pages the app ships. */
