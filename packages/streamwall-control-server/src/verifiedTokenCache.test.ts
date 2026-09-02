@@ -5,10 +5,7 @@ import type { AuthTokenInfo } from 'streamwall-shared'
 
 import type { Auth } from './auth.ts'
 import type { Clock } from './rateLimiter.ts'
-import {
-  createVerifiedTokenCache,
-  DEFAULT_DERIVATION_CLAIM_TTL_MS,
-} from './verifiedTokenCache.ts'
+import { createVerifiedTokenCache } from './verifiedTokenCache.ts'
 
 const IDENTITY: AuthTokenInfo = {
   tokenId: 'abc',
@@ -161,40 +158,63 @@ describe('createVerifiedTokenCache', async () => {
     )
   })
 
-  test('charges the first request on an unknown credential, not the herd', async () => {
-    // The rate limiter classifies a request before the handler runs, so the
-    // first of a burst claims the derivation the rest will share; once it
-    // settles, a later request is charged again.
-    const { cache, advance } = harness()
+  test('charges a request only when it will really derive', async () => {
+    // The classification may over-charge (a cold burst is charged per request),
+    // but it must never let a derivation through uncharged.
+    const { cache, seed } = harness()
 
-    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
+    assert.equal(
+      cache.willDerive('session', 'abc', 'secret'),
+      true,
+      'an unknown credential has to be derived, so it is charged',
+    )
+
+    let release: (identity: AuthTokenInfo) => void = () => {}
+    const inFlight = cache.verify(
+      'session',
+      'abc',
+      'secret',
+      () =>
+        new Promise<AuthTokenInfo | null>((resolve) => {
+          release = resolve
+        }),
+    )
     assert.equal(
       cache.willDerive('session', 'abc', 'secret'),
       false,
-      'the rest of the herd rides on the claim',
+      'joining a running verification costs no derivation of its own',
     )
-    assert.equal(
-      cache.willDerive('session', 'other', 'secret'),
-      true,
-      'a different credential is its own derivation',
-    )
-
-    // A claim whose request never verifies must not shield that credential
-    // forever.
-    advance(DEFAULT_DERIVATION_CLAIM_TTL_MS)
-    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
-  })
-
-  test('releases the claim as soon as its verification settles', async () => {
-    const { cache } = harness()
-
-    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
-    await cache.verify('session', 'abc', 'secret', async () => null)
+    release(IDENTITY)
+    await inFlight
 
     assert.equal(
       cache.willDerive('session', 'abc', 'secret'),
-      true,
-      'a failed verification must leave the next attempt chargeable',
+      false,
+      'a cache hit costs no derivation either',
+    )
+
+    await seed('session', 'other', 'secret')
+    assert.equal(cache.willDerive('session', 'unknown', 'secret'), true)
+  })
+
+  test('a result of the wrong kind is never remembered', async () => {
+    // Defence in depth behind the routes' own kind checks: a derive that comes
+    // back with another kind must not seed this kind's entry.
+    const { cache } = harness()
+    const uplink = { ...IDENTITY, kind: 'streamwall' } as AuthTokenInfo
+
+    const result = await cache.verify(
+      'session',
+      'abc',
+      'secret',
+      async () => uplink,
+    )
+
+    assert.equal(result, uplink, 'the caller still sees what it derived')
+    assert.equal(
+      cache.get('session', 'abc', 'secret'),
+      null,
+      'but nothing of another kind is cached under this one',
     )
   })
 

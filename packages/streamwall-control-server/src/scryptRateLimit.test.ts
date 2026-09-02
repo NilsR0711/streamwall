@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { after, describe, test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
 import { SESSION_COOKIE_NAME } from './index.ts'
 import {
+  bootServerWithUplink,
   buildTestApp,
   captureLogs,
   listenTestApp,
@@ -254,15 +256,21 @@ describe('scrypt-bearing routes', () => {
     )
   })
 
-  test('tabs reconnecting together on one session cost one derivation', async () => {
+  test('tabs reconnecting together on a known session are not throttled', async () => {
     // When the uplink drops, the server closes every client socket at once and
-    // they all retry. Charging each of that herd against the strict budget
-    // would lock the whole room out of its own reconnect.
+    // they all retry. Their session was verified when they connected, so the
+    // herd costs no scrypt at all and must not touch the strict budget.
     setEnvForTest({
       STREAMWALL_RATE_LIMIT_MAX: '100',
       STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
     })
     const { app, auth, cookie } = await appWithSession()
+    const warmup = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie },
+    })
+    assert.equal(warmup.statusCode, 200)
     const derivations = countDerivations(auth)
 
     const codes = await Promise.all(
@@ -284,8 +292,56 @@ describe('scrypt-bearing routes', () => {
     )
     assert.equal(
       derivations.calls,
-      1,
-      'the concurrent requests must share a single derivation',
+      0,
+      'a known session must cost no derivation at all',
+    )
+  })
+
+  test('an open client socket keeps its session verification warm', async () => {
+    // A connected browser makes no further requests, so without a refresh its
+    // entry would expire and the reconnect after an uplink flap would derive.
+    const { app, auth, port } = await bootServerWithUplink({
+      clientPing: { intervalMs: 20, timeoutMs: 1000 },
+      verifiedTokenTtlMs: 60,
+    })
+
+    const invite = await auth.createToken({
+      kind: 'invite',
+      role: 'admin',
+      name: 'client',
+    })
+    const redeem = await app.inject({
+      method: 'POST',
+      url: `/invite/${invite.tokenId}`,
+      headers: { 'content-type': 'application/json' },
+      payload: { token: invite.secret },
+    })
+    const rawCookie = redeem.headers['set-cookie']
+    const cookie = (
+      Array.isArray(rawCookie) ? rawCookie[0] : String(rawCookie)
+    ).split(';')[0]
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
+      headers: { Cookie: cookie, Origin: TEST_BASE_URL },
+    })
+    after(() => ws.terminate())
+    await once(ws, 'open')
+    await messageCollector(ws)(500)
+
+    // Well past the TTL, but inside the refresh cadence.
+    await delay(300)
+    const derivations = countDerivations(auth)
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie },
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      derivations.calls,
+      0,
+      'the session must still be verified without deriving again',
     )
   })
 

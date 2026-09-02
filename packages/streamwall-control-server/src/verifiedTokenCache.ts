@@ -3,16 +3,15 @@ import type { AuthTokenInfo } from 'streamwall-shared'
 import type { Auth } from './auth.ts'
 import { systemClock, type Clock } from './rateLimiter.ts'
 
-/** How long a verified credential may be reused without deriving again. */
-export const DEFAULT_VERIFIED_TOKEN_TTL_MS = 10_000
-
 /**
- * How long a charged-but-unstarted derivation keeps other requests on the same
- * credential from being charged as well. Only a request that never reaches the
- * verification at all leans on this; the rest release their claim when the
- * verification settles.
+ * How long a verified credential may be reused without deriving again. Long
+ * enough to outlast the liveness ping that keeps a connected peer's entry
+ * warm, so a room full of clients reconnecting after an uplink flap is served
+ * from the cache rather than deriving — and being throttled — as a herd.
+ * A revocation the server performed itself clears the cache outright, so this
+ * only bounds how long one made elsewhere could linger.
  */
-export const DEFAULT_DERIVATION_CLAIM_TTL_MS = 5_000
+export const DEFAULT_VERIFIED_TOKEN_TTL_MS = 60_000
 
 /** Upper bound on remembered credentials, so the cache cannot grow unbounded. */
 export const DEFAULT_VERIFIED_TOKEN_MAX_ENTRIES = 1000
@@ -28,18 +27,13 @@ export interface VerifiedTokenCache {
     secret: string,
   ): AuthTokenInfo | null
   /**
-   * Whether the caller must be charged for a scrypt derivation: false when the
-   * credential is already verified, when a verification for it is running, and
-   * when another request has just claimed the derivation it will share. Claiming
-   * is a side effect, so this is called exactly once per request.
+   * Whether the caller must be charged for a scrypt derivation: false only when
+   * the credential is already verified, or when a verification it will simply
+   * join is already running. Both cases provably cost no scrypt work, so the
+   * strict budget stays an honest bound — the classification may over-charge a
+   * cold burst, never under-charge.
    */
   willDerive(kind: VerifiedTokenKind, tokenId: string, secret: string): boolean
-  /**
-   * Gives back a claim `willDerive` handed out for a request that never got as
-   * far as verifying — a throttled one, most of all, which would otherwise buy
-   * the next attempt on the same credential a free derivation.
-   */
-  releaseClaim(kind: VerifiedTokenKind, tokenId: string, secret: string): void
   /**
    * Returns the remembered identity, joins a verification already in flight for
    * the same credential, or runs `derive` and remembers a matching result.
@@ -76,29 +70,20 @@ export function createVerifiedTokenCache({
   auth,
   ttlMs = DEFAULT_VERIFIED_TOKEN_TTL_MS,
   maxEntries = DEFAULT_VERIFIED_TOKEN_MAX_ENTRIES,
-  claimTtlMs = DEFAULT_DERIVATION_CLAIM_TTL_MS,
   clock = systemClock,
 }: {
   auth: Pick<Auth, 'on'>
   ttlMs?: number
   maxEntries?: number
-  claimTtlMs?: number
   clock?: Clock
 }): VerifiedTokenCache {
   const entries = new Map<
     string,
     { identity: AuthTokenInfo; expiresAt: number }
   >()
-  // Verifications already running, so a herd of requests arriving on one
-  // credential before the first derivation finishes costs one derivation
-  // rather than one each — which is also what keeps them off the strict
-  // rate-limit budget that exists to bound real scrypt work.
+  // Verifications already running, so a burst arriving on one credential while
+  // the first derivation is in flight joins it instead of each running its own.
   const pending = new Map<string, Promise<AuthTokenInfo | null>>()
-  // Derivations a request has been charged for but not yet started: the rate
-  // limiter classifies a request before the handler runs, so without this the
-  // whole herd would be classified — and charged — before the first of them
-  // reaches the verification they all end up sharing.
-  const claims = new Map<string, number>()
 
   // The kind, the id and the secret are digested together with a separator
   // that can occur in none of them, so no two distinct credentials collide on
@@ -155,29 +140,7 @@ export function createVerifiedTokenCache({
       if (cache.get(kind, tokenId, secret)) {
         return false
       }
-      const key = keyFor(kind, tokenId, secret)
-      if (pending.has(key)) {
-        return false
-      }
-      const claimedAt = claims.get(key)
-      const now = clock.now()
-      // A claim is released as soon as its verification settles; the deadline
-      // only covers a request that is charged and then never verifies at all
-      // (rejected further down the chain, or a socket that dies first).
-      if (claimedAt !== undefined && now - claimedAt < claimTtlMs) {
-        return false
-      }
-      if (claims.size >= maxEntries) {
-        const oldest = claims.keys().next()
-        if (!oldest.done) {
-          claims.delete(oldest.value)
-        }
-      }
-      claims.set(key, now)
-      return true
-    },
-    releaseClaim(kind, tokenId, secret) {
-      claims.delete(keyFor(kind, tokenId, secret))
+      return !pending.has(keyFor(kind, tokenId, secret))
     },
     async verify(kind, tokenId, secret, derive) {
       const known = cache.get(kind, tokenId, secret)
@@ -198,7 +161,6 @@ export function createVerifiedTokenCache({
         })
         .finally(() => {
           pending.delete(key)
-          claims.delete(key)
         })
       pending.set(key, running)
       return running

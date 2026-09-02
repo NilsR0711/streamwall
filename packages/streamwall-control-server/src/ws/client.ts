@@ -99,22 +99,6 @@ export function registerClientRoutes(
   }
 
   /**
-   * A request that was charged for a derivation but never ran one — throttled,
-   * or refused further down — hands its claim back, so the next attempt on that
-   * credential is charged rather than riding on it.
-   */
-  const releaseUnusedClaim = async (request: FastifyRequest) => {
-    const memo = request as unknown as Record<symbol, boolean | undefined>
-    if (memo[DERIVES] !== true) {
-      return
-    }
-    const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
-    if (session) {
-      verifiedTokens.releaseClaim('session', session.tokenId, session.secret)
-    }
-  }
-
-  /**
    * Only a request that actually has to derive is charged against the strict
    * budget; everything else stays on the global one. The two live in separate
    * buckets, so a browser reconnecting on a known session can never be locked
@@ -157,7 +141,6 @@ export function registerClientRoutes(
       '/admin/status',
       {
         preHandler: authenticate,
-        onResponse: releaseUnusedClaim,
         config: { rateLimit: derivationRateLimit },
       },
       async (request, reply) => {
@@ -181,7 +164,6 @@ export function registerClientRoutes(
       {
         websocket: true,
         preHandler: authenticate,
-        onResponse: releaseUnusedClaim,
         config: { rateLimit: derivationRateLimit },
       },
       async (ws, request) => {
@@ -229,9 +211,23 @@ export function registerClientRoutes(
           log,
         )
 
+        // Keep this session's verification warm for as long as the socket is
+        // open. Without it the entry expires under a long-lived connection, and
+        // when the uplink drops — which closes every client socket at once —
+        // the whole room reconnects cold, derives in lockstep and trips the
+        // strict budget it should never have reached.
+        const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
+        const keepVerified = setInterval(() => {
+          if (session) {
+            verifiedTokens.get('session', session.tokenId, session.secret)
+          }
+        }, ctx.clientPingConfig.intervalMs)
+        keepVerified.unref()
+
         ws.on('close', () => {
           ctx.clients.delete(clientId)
           stopHeartbeat()
+          clearInterval(keepVerified)
 
           log.info('Client disconnected')
         })

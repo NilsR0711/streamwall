@@ -62,28 +62,10 @@ export function registerUplinkRoute(
     return memo[DERIVES]
   }
 
-  /**
-   * A handshake that was charged for a derivation but never ran one — throttled
-   * before the handler — hands its claim back, so the next attempt on that
-   * token is charged rather than riding on it.
-   */
-  const releaseUnusedClaim = async (request: FastifyRequest) => {
-    const memo = request as unknown as Record<symbol, boolean | undefined>
-    if (memo[DERIVES] !== true) {
-      return
-    }
-    const token = bearerToken(request.headers.authorization)
-    const { id } = (request.params ?? {}) as { id?: string }
-    if (token !== null && id !== undefined) {
-      verifiedTokens.releaseClaim('streamwall', id, token)
-    }
-  }
-
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
     {
       websocket: true,
-      onResponse: releaseUnusedClaim,
       // The handshake below verifies a bearer token against its scrypt hash,
       // so a bogus `Authorization` header is otherwise a cheap way to burn
       // ~16 MiB and tens of milliseconds of thread-pool work per request

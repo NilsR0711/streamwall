@@ -74,6 +74,7 @@ export async function initApp({
   trustProxy: injectedTrustProxy,
   updateChecker: injectedUpdateChecker,
   uplinkPing: injectedUplinkPing,
+  verifiedTokenTtlMs,
 }: AppOptions & {
   db?: StorageDB
   /**
@@ -118,6 +119,11 @@ export async function initApp({
   trustProxy?: boolean | string
   /** Injectable so specs exercise `/admin/status` without reaching GitHub. */
   updateChecker?: UpdateChecker
+  /**
+   * Test-only override for how long a verified credential may be reused, so a
+   * spec can exercise expiry without waiting a minute for it.
+   */
+  verifiedTokenTtlMs?: number
 }) {
   const expectedOrigin = new URL(baseURL).origin
   const isSecure = baseURL.startsWith('https')
@@ -241,7 +247,10 @@ export async function initApp({
   // One cache for both routes: a credential verified for the uplink or for a
   // browser session is the same derivation either way, and a single instance
   // means a single listener clearing it when the token set changes.
-  const verifiedTokens = createVerifiedTokenCache({ auth })
+  const verifiedTokens = createVerifiedTokenCache({
+    auth,
+    ...(verifiedTokenTtlMs !== undefined && { ttlMs: verifiedTokenTtlMs }),
+  })
 
   registerUplinkRoute(app, ctx, {
     rateLimit: rateLimitConfig,
