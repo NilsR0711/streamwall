@@ -242,13 +242,30 @@ describe('main() startup sequence', () => {
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never)
 
+    // Unlike every other mock in this file, `./index` itself is imported
+    // for real (see the file-level comment above): its on-demand
+    // transform pulls in ~20 real modules (yjs, StreamdelayClient, the
+    // real `cliArgs`/`data` branches left in place by their partial
+    // mocks, etc.), none of which are pre-bundled since the import only
+    // happens when this test runs. That transform cost is a few hundred
+    // ms in isolation but scales with CPU contention, not with anything
+    // this test controls, so it can blow past Vitest's 5s default test
+    // timeout when many worktrees/suites run in parallel (issue #769)
+    // even though nothing here is actually hung. Raise both the test and
+    // the `vi.waitFor` timeouts well above the observed baseline instead
+    // of racing the default.
     await import('./index')
 
-    await vi.waitFor(() => {
-      expect(mocks.bootstrap.createDataSourceHealthReporter).toHaveBeenCalled()
-    })
+    await vi.waitFor(
+      () => {
+        expect(
+          mocks.bootstrap.createDataSourceHealthReporter,
+        ).toHaveBeenCalled()
+      },
+      { timeout: 15_000 },
+    )
 
     expect(exitSpy).not.toHaveBeenCalled()
     expect(actualPhaseOrder()).toEqual(EXPECTED_PHASE_ORDER)
-  })
+  }, 20_000)
 })
