@@ -1131,6 +1131,16 @@ describe('RotationController', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.resetModules()
+    // These tests import the module for its exported class only, but that
+    // import still runs main(), which now subscribes to its four operator
+    // channels before awaiting the (never-resolving) view-init. Without this
+    // clearing, a later describe's registeredHandler() -- which takes the
+    // first matching ipcRenderer.on call -- would bind to a handler closed
+    // over this dead module instance.
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
   })
 
   async function makeController() {
