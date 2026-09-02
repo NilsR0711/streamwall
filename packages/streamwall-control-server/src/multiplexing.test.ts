@@ -9,6 +9,7 @@ import {
   type ClientStateDeltaMessage,
   type StreamwallState,
 } from 'streamwall-shared'
+import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
 import {
   bootServerWithUplink,
   isCommandType,
@@ -349,4 +350,49 @@ test('an admin revoking their own session via delete-token closes their own sock
 
   await closed
   assert.equal(adminWs.readyState, WebSocket.CLOSED)
+})
+
+test('releases the uplink slot when the desktop dies during token validation', async () => {
+  // Token validation is an `await` on a real scrypt derivation, so a socket
+  // that dies inside that window fires `close` before the route's own close
+  // handler exists. The single uplink slot must not stay claimed by that dead
+  // socket (issue #743). Run with the production work factor so the window is
+  // as wide here as it is in production.
+  const { auth, port, logs } = await startTestServer({
+    scryptParams: DEFAULT_SCRYPT_PARAMS,
+  })
+
+  const first = await mintUplinkToken(auth, port)
+  const firstWs = new WebSocket(first.base, {
+    headers: { authorization: `Bearer ${first.secret}` },
+  })
+  after(() => firstWs.terminate())
+  await once(firstWs, 'open')
+  firstWs.terminate()
+
+  // Wait for the server to have finished handling that connection rather than
+  // sleeping: it either claims the slot or unwinds because the socket is
+  // already gone, and both outcomes are logged.
+  await logs.waitFor(
+    (entry) =>
+      typeof entry.msg === 'string' &&
+      (entry.msg.includes('Streamwall connecting') ||
+        entry.msg.includes('closed during authorization')),
+    10000,
+  )
+
+  const second = await mintUplinkToken(auth, port)
+  const secondWs = new WebSocket(second.base, {
+    headers: { authorization: `Bearer ${second.secret}` },
+  })
+  after(() => secondWs.terminate())
+  const nextMessage = messageCollector(secondWs)
+  await once(secondWs, 'open')
+
+  assert.equal(
+    await nextMessage(1000),
+    null,
+    'the reconnecting uplink must not be refused: the slot must have been released',
+  )
+  assert.equal(secondWs.readyState, WebSocket.OPEN)
 })
