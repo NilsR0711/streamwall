@@ -242,11 +242,11 @@ describe('playHLS', () => {
 
     const realCreateElement = document.createElement.bind(document)
     let createdVideo: HTMLVideoElement | undefined
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
       const el = realCreateElement(tag)
       if (tag === 'video') createdVideo = el as HTMLVideoElement
       return el
-    })
+    }) as typeof document.createElement)
 
     setSrc('https://stream.example/live.m3u8')
     await import('./playHLS')

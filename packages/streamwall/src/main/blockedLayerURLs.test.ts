@@ -9,6 +9,7 @@ import { BlockedLayerURLTracker } from './blockedLayerURLs'
 function layers(...links: string[]): StreamData[] {
   return links.map((link, i) => ({
     _id: `id-${i}`,
+    _dataSource: 'test',
     link,
     kind: 'overlay' as const,
   }))
@@ -150,6 +151,7 @@ describe('BlockedLayerURLTracker', () => {
       const overlay = layers('https://example.com/o')
       const video: StreamData = {
         _id: 'v',
+        _dataSource: 'test',
         link: 'https://example.com/v1',
         kind: 'video',
       }

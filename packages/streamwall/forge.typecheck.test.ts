@@ -1,6 +1,6 @@
 import type { SpawnSyncReturns } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
-import { runTypecheck } from './forge.typecheck'
+import { runTypecheck, type SpawnSync } from './forge.typecheck'
 
 function spawnResult(
   overrides: Partial<SpawnSyncReturns<Buffer>> = {},
@@ -18,7 +18,7 @@ function spawnResult(
 
 describe('runTypecheck', () => {
   it('runs the package `typecheck` script', () => {
-    const spawn = vi.fn(() => spawnResult())
+    const spawn = vi.fn<SpawnSync>(() => spawnResult())
 
     runTypecheck(spawn, 'linux')
 
@@ -33,7 +33,7 @@ describe('runTypecheck', () => {
   // `shell` the hook dies with ENOENT (bare `npm`) or EINVAL (`npm.cmd`) and
   // takes the whole packaging run down (#586).
   it('spawns through a shell on Windows', () => {
-    const spawn = vi.fn(() => spawnResult())
+    const spawn = vi.fn<SpawnSync>(() => spawnResult())
 
     runTypecheck(spawn, 'win32')
 
@@ -44,7 +44,7 @@ describe('runTypecheck', () => {
   })
 
   it('does not need a shell elsewhere', () => {
-    const spawn = vi.fn(() => spawnResult())
+    const spawn = vi.fn<SpawnSync>(() => spawnResult())
 
     runTypecheck(spawn, 'linux')
 
@@ -53,7 +53,7 @@ describe('runTypecheck', () => {
   })
 
   it('runs in the package directory so it does not typecheck the caller workspace', () => {
-    const spawn = vi.fn(() => spawnResult())
+    const spawn = vi.fn<SpawnSync>(() => spawnResult())
 
     runTypecheck(spawn)
 
@@ -62,7 +62,7 @@ describe('runTypecheck', () => {
   })
 
   it('streams tsc output to the terminal instead of swallowing it', () => {
-    const spawn = vi.fn(() => spawnResult())
+    const spawn = vi.fn<SpawnSync>(() => spawnResult())
 
     runTypecheck(spawn)
 
@@ -71,19 +71,21 @@ describe('runTypecheck', () => {
   })
 
   it('throws when the typecheck reports errors, aborting the packaging run', () => {
-    const spawn = vi.fn(() => spawnResult({ status: 2 }))
+    const spawn = vi.fn<SpawnSync>(() => spawnResult({ status: 2 }))
 
     expect(() => runTypecheck(spawn)).toThrow(/typecheck failed/i)
   })
 
   it('throws when the typecheck is killed by a signal', () => {
-    const spawn = vi.fn(() => spawnResult({ status: null, signal: 'SIGKILL' }))
+    const spawn = vi.fn<SpawnSync>(() =>
+      spawnResult({ status: null, signal: 'SIGKILL' }),
+    )
 
     expect(() => runTypecheck(spawn)).toThrow(/SIGKILL/)
   })
 
   it('throws when npm cannot be spawned at all', () => {
-    const spawn = vi.fn(() =>
+    const spawn = vi.fn<SpawnSync>(() =>
       spawnResult({ status: null, error: new Error('spawn npm ENOENT') }),
     )
 

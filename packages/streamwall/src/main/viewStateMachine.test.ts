@@ -1,4 +1,4 @@
-import { MAX_VIEW_ERROR_LENGTH } from 'streamwall-shared'
+import { asCellIdx, asViewId, MAX_VIEW_ERROR_LENGTH } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import log from './logger'
 
@@ -69,7 +69,7 @@ function makeActor(retry: RetryConfig, loadPageImpl?: () => Promise<void>) {
   })
   return createActor(machine, {
     input: {
-      id: 1,
+      id: asViewId(1),
       view: {} as never,
       win: {} as never,
       offscreenWin: {} as never,
@@ -87,7 +87,7 @@ const OTHER_CONTENT = {
   url: 'https://example.com/other-stream',
   kind: 'video' as const,
 }
-const POS = { x: 0, y: 0, width: 100, height: 100, spaces: [0] }
+const POS = { x: 0, y: 0, width: 100, height: 100, spaces: [asCellIdx(0)] }
 
 function display(actor: ReturnType<typeof makeActor>) {
   actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
@@ -542,7 +542,7 @@ describe('viewStateMachine volume control', () => {
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: {} as never,
         win: {} as never,
         offscreenWin: {} as never,
@@ -610,12 +610,24 @@ describe('viewStateMachine content swap while running (seamless preload)', () =>
     url: 'https://example.com/other-stream',
     kind: 'video' as const,
   }
-  const OTHER_POS = { x: 10, y: 10, width: 50, height: 50, spaces: [1] }
+  const OTHER_POS = {
+    x: 10,
+    y: 10,
+    width: 50,
+    height: 50,
+    spaces: [asCellIdx(1)],
+  }
   const THIRD_CONTENT = {
     url: 'https://example.com/third-stream',
     kind: 'video' as const,
   }
-  const THIRD_POS = { x: 20, y: 20, width: 30, height: 30, spaces: [2] }
+  const THIRD_POS = {
+    x: 20,
+    y: 20,
+    width: 30,
+    height: 30,
+    spaces: [asCellIdx(2)],
+  }
 
   // Same setup as makeActor, but with spies on the placement/swap actions and
   // a fake createNextView/disposeView pair so tests can assert exactly when a
@@ -653,7 +665,7 @@ describe('viewStateMachine content swap while running (seamless preload)', () =>
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: {} as never,
         win: {} as never,
         offscreenWin: {} as never,
@@ -910,7 +922,7 @@ describe('viewStateMachine loadPage navigation', () => {
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: view as never,
         win: {} as never,
         offscreenWin: {} as never,
@@ -1538,7 +1550,7 @@ describe('viewStateMachine pause/resume IPC (issue #374)', () => {
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: {} as never,
         win: {} as never,
         offscreenWin: {} as never,
@@ -1695,7 +1707,7 @@ describe('viewStateMachine resyncSwappedView pause re-send (issue #621)', () => 
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: {} as never,
         win: {} as never,
         offscreenWin: {} as never,
@@ -1810,7 +1822,13 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
     }
   }
 
-  const NEW_POS = { x: 10, y: 20, width: 50, height: 60, spaces: [1] }
+  const NEW_POS = {
+    x: 10,
+    y: 20,
+    width: 50,
+    height: 60,
+    spaces: [asCellIdx(1)],
+  }
 
   /**
    * Runs the *real* `performSwap`, `positionView` and `offscreenView` (the
@@ -1850,7 +1868,7 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
     })
     const actor = createActor(machine, {
       input: {
-        id: 1,
+        id: asViewId(1),
         view: view as never,
         win: win as never,
         offscreenWin: offscreenWin as never,

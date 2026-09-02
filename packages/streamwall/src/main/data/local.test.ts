@@ -1,3 +1,4 @@
+import type { StreamDataContent } from 'streamwall-shared'
 import { describe, expect, test, vi } from 'vitest'
 import type { PresetPack } from '../presets'
 import { combineDataSources, markDataSource } from './combine'
@@ -84,7 +85,9 @@ describe('LocalStreamData', () => {
     const iterator = data.gen()
     try {
       const first = await iterator.next()
-      expect(first.value?.map((s) => s.link)).toEqual(['https://a.example/s'])
+      expect(first.value?.map((s: StreamDataContent) => s.link)).toEqual([
+        'https://a.example/s',
+      ])
 
       // Starting the next pull is what lets the generator's buffered push()
       // resolve and reach the `this.on('update', push)` line (the Repeater's
@@ -93,7 +96,7 @@ describe('LocalStreamData', () => {
       await waitForListener(data, 'update')
       data.update('https://b.example/s', { kind: 'video' })
       const second = await pending
-      expect(second.value?.map((s) => s.link)).toEqual([
+      expect(second.value?.map((s: StreamDataContent) => s.link)).toEqual([
         'https://a.example/s',
         'https://b.example/s',
       ])

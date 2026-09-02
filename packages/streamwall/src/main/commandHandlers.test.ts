@@ -1,5 +1,6 @@
 import {
   asCellIdx,
+  type CellIdx,
   type ControlCommand,
   type StreamwallState,
 } from 'streamwall-shared'
@@ -18,8 +19,8 @@ function cmd(msg: Record<string, unknown>): ControlCommand {
 }
 
 function fakeBrowseWindow(): BrowseWindow & {
-  destroy: ReturnType<typeof vi.fn>
-  loadURL: ReturnType<typeof vi.fn>
+  destroy: ReturnType<typeof vi.fn<() => void>>
+  loadURL: ReturnType<typeof vi.fn<(url: string) => unknown>>
 } {
   return {
     isDestroyed: vi.fn(() => false),
@@ -47,7 +48,9 @@ function makeDeps(overrides: Partial<CommandHandlerDeps> = {}) {
     setGridSize: vi.fn(),
     openDevTools: vi.fn(),
     // Resolves a stable view id to the grid cell it currently occupies.
-    getViewAnchorIdx: vi.fn((viewId: number) => viewId + 3),
+    getViewAnchorIdx: vi.fn<(viewId: number) => CellIdx | null>((viewId) =>
+      asCellIdx(viewId + 3),
+    ),
   }
 
   const deps: CommandHandlerDeps = {
@@ -187,7 +190,7 @@ describe('createOnCommand — view controls', () => {
 
   it('does not expand a view that has no placement', async () => {
     const ctx = makeDeps()
-    ctx.streamWindow.getViewAnchorIdx.mockReturnValue(null as unknown as number)
+    ctx.streamWindow.getViewAnchorIdx.mockReturnValue(null)
     const onCommand = createOnCommand(ctx.deps)
 
     await onCommand(

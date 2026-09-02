@@ -1,6 +1,8 @@
 import {
   asCellIdx,
+  asViewId,
   fullscreenViewContentMap,
+  type StreamList,
   type StreamWindowConfig,
   type ViewContent,
   type ViewContentMap,
@@ -19,12 +21,16 @@ const electronStub = vi.hoisted(() => {
   // crash (issue #629) and verify `dispose()` releases the channels again.
   const registeredHandlers = new Set<string>()
   const registeredListeners = new Map<string, Set<(...args: never[]) => void>>()
-  const handle = vi.fn((channel: string) => {
-    if (registeredHandlers.has(channel)) {
-      throw new Error(`Attempted to register a second handler for '${channel}'`)
-    }
-    registeredHandlers.add(channel)
-  })
+  const handle = vi.fn(
+    (channel: string, _listener: (...args: never[]) => unknown) => {
+      if (registeredHandlers.has(channel)) {
+        throw new Error(
+          `Attempted to register a second handler for '${channel}'`,
+        )
+      }
+      registeredHandlers.add(channel)
+    },
+  )
   const removeHandler = vi.fn((channel: string) => {
     registeredHandlers.delete(channel)
   })
@@ -217,6 +223,17 @@ describe('StreamWindow.setGridSize', () => {
 })
 
 /**
+ * A minimal stand-in for a `StreamList`: `setViews`/`onState` only ever read
+ * the `byURL` lookup (never the array itself), so building a real
+ * `StreamData[]` with a `byURL` property attached would just add unused
+ * fixture noise. The values behind each URL only need whichever
+ * `StreamDataContent` fields the test under exercise actually reads.
+ */
+function makeStreams(entries: [string, unknown][] = []): StreamList {
+  return { byURL: new Map(entries) } as unknown as StreamList
+}
+
+/**
  * A minimal stand-in for a ViewActor: enough of the `getSnapshot()`/`send()`
  * surface for setViewVolume/sendViewEvent/findViewById to operate on,
  * without a real XState actor or Electron WebContentsView.
@@ -232,9 +249,11 @@ describe('StreamWindow.setViewVolume', () => {
   it('sends SET_VOLUME to the view with the given stable id', () => {
     const sw = makeStreamWindow(makeConfig())
     const send = vi.fn()
-    sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
+    sw.views = new Map([
+      [asViewId(1), makeFakeViewActor({ spaces: [0] }, send)],
+    ])
 
-    sw.setViewVolume(1, 0.5)
+    sw.setViewVolume(asViewId(1), 0.5)
 
     expect(send).toHaveBeenCalledWith({ type: 'SET_VOLUME', volume: 0.5 })
   })
@@ -242,9 +261,11 @@ describe('StreamWindow.setViewVolume', () => {
   it('does nothing when no view has the given id', () => {
     const sw = makeStreamWindow(makeConfig())
     const send = vi.fn()
-    sw.views = new Map([[1, makeFakeViewActor({ spaces: [0] }, send)]])
+    sw.views = new Map([
+      [asViewId(1), makeFakeViewActor({ spaces: [0] }, send)],
+    ])
 
-    sw.setViewVolume(5, 0.5)
+    sw.setViewVolume(asViewId(5), 0.5)
 
     expect(send).not.toHaveBeenCalled()
   })
@@ -257,11 +278,11 @@ describe('StreamWindow.setViewVolume', () => {
     const movedSend = vi.fn()
     const otherSend = vi.fn()
     sw.views = new Map([
-      [42, makeFakeViewActor({ spaces: [7] }, movedSend)],
-      [9, makeFakeViewActor({ spaces: [0] }, otherSend)],
+      [asViewId(42), makeFakeViewActor({ spaces: [7] }, movedSend)],
+      [asViewId(9), makeFakeViewActor({ spaces: [0] }, otherSend)],
     ])
 
-    sw.setViewVolume(42, 0.25)
+    sw.setViewVolume(asViewId(42), 0.25)
 
     expect(movedSend).toHaveBeenCalledWith({ type: 'SET_VOLUME', volume: 0.25 })
     expect(otherSend).not.toHaveBeenCalled()
@@ -283,11 +304,11 @@ describe('StreamWindow.setListeningView', () => {
     const selected = vi.fn()
     const other = vi.fn()
     sw.views = new Map([
-      [42, displayingActor(selected)],
-      [9, displayingActor(other)],
+      [asViewId(42), displayingActor(selected)],
+      [asViewId(9), displayingActor(other)],
     ])
 
-    sw.setListeningView(42)
+    sw.setListeningView(asViewId(42))
 
     expect(selected).toHaveBeenCalledWith({ type: 'UNMUTE' })
     expect(other).toHaveBeenCalledWith({ type: 'MUTE' })
@@ -298,8 +319,8 @@ describe('StreamWindow.setListeningView', () => {
     const a = vi.fn()
     const b = vi.fn()
     sw.views = new Map([
-      [1, displayingActor(a)],
-      [2, displayingActor(b)],
+      [asViewId(1), displayingActor(a)],
+      [asViewId(2), displayingActor(b)],
     ])
 
     sw.setListeningView(null)
@@ -312,17 +333,17 @@ describe('StreamWindow.setListeningView', () => {
 describe('StreamWindow.getViewAnchorIdx', () => {
   it('returns the top-left cell of the view with the given id', () => {
     const sw = makeStreamWindow(makeConfig())
-    sw.views = new Map([[42, makeFakeViewActor({ spaces: [7, 8] })]])
+    sw.views = new Map([[asViewId(42), makeFakeViewActor({ spaces: [7, 8] })]])
 
-    expect(sw.getViewAnchorIdx(42)).toBe(7)
+    expect(sw.getViewAnchorIdx(asViewId(42))).toBe(7)
   })
 
   it('returns null for an unknown id or a view without a placement', () => {
     const sw = makeStreamWindow(makeConfig())
-    sw.views = new Map([[42, makeFakeViewActor(null)]])
+    sw.views = new Map([[asViewId(42), makeFakeViewActor(null)]])
 
-    expect(sw.getViewAnchorIdx(42)).toBeNull()
-    expect(sw.getViewAnchorIdx(999)).toBeNull()
+    expect(sw.getViewAnchorIdx(asViewId(42))).toBeNull()
+    expect(sw.getViewAnchorIdx(asViewId(999))).toBeNull()
   })
 })
 
@@ -331,7 +352,7 @@ describe('StreamWindow.emitState', () => {
     const sw = makeStreamWindow(makeConfig())
     sw.views = new Map([
       [
-        1,
+        asViewId(1),
         makeFakeViewActorWithSnapshot({
           value: 'empty',
           context: {
@@ -490,7 +511,7 @@ describe('StreamWindow.setViews', () => {
     const viewContentMap: ViewContentMap = new Map([
       ['0', { url: 'https://example.com/missing', kind: 'video' }],
     ])
-    const streams = { byURL: new Map() }
+    const streams = makeStreams()
 
     sw.setViews(viewContentMap, streams)
 
@@ -513,7 +534,7 @@ describe('StreamWindow.setViews', () => {
     const viewContentMap: ViewContentMap = new Map([
       ['0', { url: 'https://example.com/missing', kind: 'video' }],
     ])
-    const streams = { byURL: new Map() }
+    const streams = makeStreams()
 
     sw.setViews(viewContentMap, streams)
 
@@ -537,7 +558,7 @@ describe('StreamWindow.setViews', () => {
       spaces: [0],
       running: true,
     })
-    sw.views = new Map([[1, orphan.actor]])
+    sw.views = new Map([[asViewId(1), orphan.actor]])
     sw.createView = vi.fn()
 
     const emitted: number[][] = []
@@ -553,7 +574,7 @@ describe('StreamWindow.setViews', () => {
 
     // The single box is dropped, leaving the actor unused: it is stopped, and
     // that stop emits state while `setViews` is still mid-flight.
-    sw.setViews(new Map(), { byURL: new Map() })
+    sw.setViews(new Map(), makeStreams())
 
     expect(orphan.stop).toHaveBeenCalled()
     // The intermediate emit must still describe the pre-teardown layout.
@@ -606,7 +627,7 @@ describe('StreamWindow.displayPlannedViews', () => {
 
     const newViews = planExecutorOf(sw).displayPlannedViews(
       [{ box, view: tracked.actor }],
-      { byURL: new Map() },
+      makeStreams(),
       new Set(),
       unusedViews,
     )
@@ -726,14 +747,14 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
       spaces: [0],
       running: true,
     })
-    sw.views = new Map([[1, actor]])
+    sw.views = new Map([[asViewId(1), actor]])
     sw.createView = vi.fn()
 
     // Space 0 now requests streamB instead of the streamA the actor there is
     // currently displaying -- a genuine content change, e.g. a playlist
     // advance or a drag-to-place reassignment.
     const viewContentMap: ViewContentMap = new Map([['0', streamB]])
-    const streams = { byURL: new Map([[streamB.url, {}]]) }
+    const streams = makeStreams([[streamB.url, {}]])
 
     sw.setViews(viewContentMap, streams)
 
@@ -742,7 +763,7 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'DISPLAY', content: streamB }),
     )
-    expect(sw.views.get(1)).toBe(actor)
+    expect(sw.views.get(asViewId(1))).toBe(actor)
   })
 
   it('does not reuse a still-loading actor across a content change, since the state machine has no handler that would apply it', () => {
@@ -765,7 +786,7 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
       spaces: [0],
       running: false,
     })
-    sw.views = new Map([[1, actor]])
+    sw.views = new Map([[asViewId(1), actor]])
     const { actor: newActor, send: newSend } = makeReuseTestActor({
       id: 2,
       content: null,
@@ -775,7 +796,7 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
     sw.createView = vi.fn(() => newActor)
 
     const viewContentMap: ViewContentMap = new Map([['0', streamB]])
-    const streams = { byURL: new Map([[streamB.url, {}]]) }
+    const streams = makeStreams([[streamB.url, {}]])
 
     sw.setViews(viewContentMap, streams)
 
@@ -830,8 +851,8 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
       running: true,
     })
     sw.views = new Map([
-      [1, spaceOnly.actor],
-      [2, moved.actor],
+      [asViewId(1), spaceOnly.actor],
+      [asViewId(2), moved.actor],
     ])
     const { actor: newActor, send: newSend } = makeReuseTestActor({
       id: 3,
@@ -846,13 +867,11 @@ describe('StreamWindow.setViews reusing an actor across a genuine content change
       ['1', streamE], // unrelated new content -> no existing actor fits
       ['2', streamB], // same content as `moved`, elsewhere -> should reuse moved
     ])
-    const streams = {
-      byURL: new Map([
-        [streamB.url, {}],
-        [streamC.url, {}],
-        [streamE.url, {}],
-      ]),
-    }
+    const streams = makeStreams([
+      [streamB.url, {}],
+      [streamC.url, {}],
+      [streamE.url, {}],
+    ])
 
     sw.setViews(viewContentMap, streams)
 
@@ -902,23 +921,21 @@ describe('StreamWindow.setViews matcher precedence', () => {
     // `elsewhere` is registered first, so only the space-overlap tie-break in
     // the first matcher can make `inPlace` win.
     sw.views = new Map([
-      [2, elsewhere.actor],
-      [1, inPlace.actor],
+      [asViewId(2), elsewhere.actor],
+      [asViewId(1), inPlace.actor],
     ])
     sw.createView = vi.fn()
 
-    sw.setViews(new Map([['0', streamA]]), {
-      byURL: new Map([[streamA.url, {}]]),
-    })
+    sw.setViews(new Map([['0', streamA]]), makeStreams([[streamA.url, {}]]))
 
     expect(sw.createView).not.toHaveBeenCalled()
     expect(inPlace.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'DISPLAY', content: streamA }),
     )
-    expect(sw.views.get(1)).toBe(inPlace.actor)
+    expect(sw.views.get(asViewId(1))).toBe(inPlace.actor)
     // The redundant copy is torn down rather than left dangling.
     expect(elsewhere.stop).toHaveBeenCalled()
-    expect(sw.views.has(2)).toBe(false)
+    expect(sw.views.has(asViewId(2))).toBe(false)
   })
 
   it('reuses a still-loading view that already has the requested content instead of creating a new one', () => {
@@ -933,19 +950,17 @@ describe('StreamWindow.setViews matcher precedence', () => {
       spaces: [0],
       running: false,
     })
-    sw.views = new Map([[1, loading.actor]])
+    sw.views = new Map([[asViewId(1), loading.actor]])
     sw.createView = vi.fn()
 
-    sw.setViews(new Map([['0', streamA]]), {
-      byURL: new Map([[streamA.url, {}]]),
-    })
+    sw.setViews(new Map([['0', streamA]]), makeStreams([[streamA.url, {}]]))
 
     expect(sw.createView).not.toHaveBeenCalled()
     expect(loading.stop).not.toHaveBeenCalled()
     expect(loading.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'DISPLAY', content: streamA }),
     )
-    expect(sw.views.get(1)).toBe(loading.actor)
+    expect(sw.views.get(asViewId(1))).toBe(loading.actor)
   })
 
   it('prefers a live view over an equally-matching parked one', () => {
@@ -966,15 +981,13 @@ describe('StreamWindow.setViews matcher precedence', () => {
       spaces: [0],
       running: true,
     })
-    sw.views = new Map([[1, live.actor]])
-    sw.parkedViews = new Map([[2, parked.actor]])
+    sw.views = new Map([[asViewId(1), live.actor]])
+    sw.parkedViews = new Map([[asViewId(2), parked.actor]])
     sw.createView = vi.fn()
 
-    sw.setViews(new Map([['0', streamA]]), {
-      byURL: new Map([[streamA.url, {}]]),
-    })
+    sw.setViews(new Map([['0', streamA]]), makeStreams([[streamA.url, {}]]))
 
-    expect(sw.views.get(1)).toBe(live.actor)
+    expect(sw.views.get(asViewId(1))).toBe(live.actor)
     expect(live.stop).not.toHaveBeenCalled()
     expect(parked.stop).toHaveBeenCalled()
     // The parking bookkeeping is reset by every setViews call.
@@ -993,10 +1006,10 @@ describe('StreamWindow.setViews matcher precedence', () => {
       spaces: [0],
       running: true,
     })
-    sw.views = new Map([[1, orphan.actor]])
+    sw.views = new Map([[asViewId(1), orphan.actor]])
     sw.createView = vi.fn()
 
-    sw.setViews(new Map(), { byURL: new Map() })
+    sw.setViews(new Map(), makeStreams())
 
     expect(orphan.stop).toHaveBeenCalled()
     expect(orphan.disposeView).toHaveBeenCalledTimes(1)
@@ -1034,15 +1047,16 @@ describe('StreamWindow.setViews expanding a view to fill the wall (issue #362)',
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     // The fullscreen override fills every cell with streamB.
-    sw.setViews(fullscreenViewContentMap(2, 2, streamB), {
-      byURL: new Map([[streamB.url, {}]]),
-    })
+    sw.setViews(
+      fullscreenViewContentMap(2, 2, streamB),
+      makeStreams([[streamB.url, {}]]),
+    )
 
     // No new view is created: the already-running streamB actor is reused and
     // repositioned to span the whole wall.
@@ -1058,7 +1072,7 @@ describe('StreamWindow.setViews expanding a view to fill the wall (issue #362)',
     // expanded view).
     expect(other.stop).toHaveBeenCalled()
     expect(sw.views.size).toBe(1)
-    expect(sw.views.get(1)).toBe(expanding.actor)
+    expect(sw.views.get(asViewId(1))).toBe(expanding.actor)
   })
 })
 
@@ -1090,14 +1104,14 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
 
@@ -1111,7 +1125,7 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
     // It no longer appears in the emitted view states (only the expanded
     // view is visible, matching the pre-#369 behavior)...
     expect(sw.views.size).toBe(1)
-    expect(sw.views.get(1)).toBe(expanding.actor)
+    expect(sw.views.get(asViewId(1))).toBe(expanding.actor)
     // ...but StreamWindow retains it internally so a later collapse can
     // reuse it instead of recreating it from scratch.
     expect(
@@ -1148,15 +1162,15 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     // Expand: `other` is parked instead of disposed.
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
 
@@ -1165,12 +1179,13 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
       ['0', streamA],
       ['1', streamB],
     ])
-    sw.setViews(viewContentMap, {
-      byURL: new Map([
+    sw.setViews(
+      viewContentMap,
+      makeStreams([
         [streamA.url, {}],
         [streamB.url, {}],
       ]),
-    })
+    )
 
     // The parked actor is reused for its original space instead of a new
     // view being created for it (which would show a reload/black flash).
@@ -1179,7 +1194,7 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
       expect.objectContaining({ type: 'DISPLAY', content: streamA }),
     )
     expect(sw.views.size).toBe(2)
-    expect(sw.views.get(2)).toBe(other.actor)
+    expect(sw.views.get(asViewId(2))).toBe(other.actor)
   })
 
   it('still tears down a view left unused after collapse (its cell was cleared while expanded)', () => {
@@ -1209,21 +1224,21 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
 
     // Collapse, but the cell `other` used to occupy was cleared while
     // expanded: the normal layout no longer has any box for streamA.
     const viewContentMap: ViewContentMap = new Map([['1', streamB]])
-    sw.setViews(viewContentMap, { byURL: new Map([[streamB.url, {}]]) })
+    sw.setViews(viewContentMap, makeStreams([[streamB.url, {}]]))
 
     // The parked actor is genuinely no longer needed, so it is torn down
     // instead of being parked forever.
@@ -1260,14 +1275,14 @@ describe('StreamWindow parking pauses playback when pauseParkedViews is enabled 
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
 
@@ -1295,14 +1310,14 @@ describe('StreamWindow parking pauses playback when pauseParkedViews is enabled 
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
 
@@ -1331,15 +1346,15 @@ describe('StreamWindow parking pauses playback when pauseParkedViews is enabled 
       running: true,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     // Expand: `other` is parked and paused.
     sw.setViews(
       fullscreenViewContentMap(2, 2, streamB),
-      { byURL: new Map([[streamB.url, {}]]) },
+      makeStreams([[streamB.url, {}]]),
       { parkUnused: true },
     )
     expect(other.send).toHaveBeenCalledWith({ type: 'PAUSE' })
@@ -1349,12 +1364,13 @@ describe('StreamWindow parking pauses playback when pauseParkedViews is enabled 
       ['0', streamA],
       ['1', streamB],
     ])
-    sw.setViews(viewContentMap, {
-      byURL: new Map([
+    sw.setViews(
+      viewContentMap,
+      makeStreams([
         [streamA.url, {}],
         [streamB.url, {}],
       ]),
-    })
+    )
 
     expect(other.send).toHaveBeenCalledWith({ type: 'RESUME' })
   })
@@ -1373,13 +1389,11 @@ describe('StreamWindow parking pauses playback when pauseParkedViews is enabled 
       spaces: [0],
       running: true,
     })
-    sw.views = new Map([[1, actor.actor]])
+    sw.views = new Map([[asViewId(1), actor.actor]])
     sw.createView = vi.fn()
 
     // Ordinary re-display of an already-running, never-parked view.
-    sw.setViews(new Map([['0', streamA]]), {
-      byURL: new Map([[streamA.url, {}]]),
-    })
+    sw.setViews(new Map([['0', streamA]]), makeStreams([[streamA.url, {}]]))
 
     expect(actor.send).not.toHaveBeenCalledWith({ type: 'RESUME' })
   })
@@ -1426,7 +1440,7 @@ describe('StreamWindow view registration and disposal', () => {
     sw.win = {
       contentView: { removeChildView: removeChildViewOnWin },
     } as unknown as InstanceType<typeof StreamWindow>['win']
-    sw.viewsByWebContentsId = new Map([[7, {} as never]])
+    sw.viewsByWebContentsId = new Map([[asViewId(7), {} as never]])
     const close = vi.fn()
     const view = { webContents: { id: 7, close } }
     const removeChildViewOnOffscreen = vi.fn()
@@ -1733,7 +1747,7 @@ describe('StreamWindow constructor', () => {
       // Both land on the overlay: it is the only child the stream views are
       // never stacked over, so a notice on the background layer would be hidden
       // behind the wall's tiles.
-      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+      expect(vi.mocked(sw.overlayView.webContents.send).mock.calls).toEqual([
         ['layer:blocked-url', 'http://192.168.1.50/bg'],
         ['layer:blocked-url', 'http://169.254.169.254/meta'],
       ])
@@ -1751,7 +1765,7 @@ describe('StreamWindow constructor', () => {
 
       layerLoadHandler()({ sender: sw.overlayView.webContents })
 
-      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+      expect(vi.mocked(sw.overlayView.webContents.send).mock.calls).toEqual([
         ['layer:blocked-url', 'http://192.168.1.50/bg'],
       ])
     })
@@ -1768,7 +1782,7 @@ describe('StreamWindow constructor', () => {
       }
       layerLoadHandler()({ sender: sw.overlayView.webContents })
 
-      const replayed = sw.overlayView.webContents.send.mock.calls
+      const replayed = vi.mocked(sw.overlayView.webContents.send).mock.calls
       expect(replayed[0]).toEqual([
         'layer:blocked-url',
         'http://192.168.1.50/the-operators-link',
@@ -1853,7 +1867,7 @@ describe('StreamWindow constructor', () => {
 
       background('http://192.168.1.50/bg', 'private network')
 
-      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+      expect(vi.mocked(sw.overlayView.webContents.send).mock.calls).toEqual([
         ['layer:blocked-url', 'http://192.168.1.50/bg'],
       ])
     })
@@ -2185,15 +2199,15 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
       desiredAudio,
     })
     sw.views = new Map([
-      [1, expanding.actor],
-      [2, other.actor],
+      [asViewId(1), expanding.actor],
+      [asViewId(2), other.actor],
     ])
     sw.createView = vi.fn()
 
     const expand = () =>
       sw.setViews(
         fullscreenViewContentMap(2, 2, streamB),
-        { byURL: new Map([[streamB.url, {}]]) },
+        makeStreams([[streamB.url, {}]]),
         { parkUnused: true },
       )
     const collapse = () =>
@@ -2202,12 +2216,10 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
           ['0', streamA],
           ['1', streamB],
         ]),
-        {
-          byURL: new Map([
-            [streamA.url, {}],
-            [streamB.url, {}],
-          ]),
-        },
+        makeStreams([
+          [streamA.url, {}],
+          [streamB.url, {}],
+        ]),
       )
 
     return { sw, expanding, other, expand, collapse }
@@ -2218,7 +2230,7 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
 
     expand()
 
-    expect(sw.parkedViews.has(2)).toBe(true)
+    expect(sw.parkedViews.has(asViewId(2))).toBe(true)
     expect(other.send).toHaveBeenCalledWith({ type: 'MUTE' })
   })
 
@@ -2267,14 +2279,14 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     expanding.send.mockClear()
     other.send.mockClear()
 
-    sw.setListeningView(2)
+    sw.setListeningView(asViewId(2))
 
     // The live view is muted as usual, proving the selection was applied at
     // all -- but the parked one is only recorded, never made audible while it
     // is invisible.
     expect(expanding.send).toHaveBeenCalledWith({ type: 'MUTE' })
     expect(other.send).not.toHaveBeenCalled()
-    expect(sw.parkedAudio.get(2)).toBe('listening')
+    expect(sw.parkedAudio.get(asViewId(2))).toBe('listening')
   })
 
   it('drops the recorded audio state of a parked view when another view is selected', () => {
@@ -2284,9 +2296,9 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
 
     // The operator picks the expanded view instead: the parked one must not
     // come back audible and make two streams play at once.
-    sw.setListeningView(1)
+    sw.setListeningView(asViewId(1))
     expect(expanding.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
-    expect(sw.parkedAudio.get(2)).toBe('muted')
+    expect(sw.parkedAudio.get(asViewId(2))).toBe('muted')
     other.send.mockClear()
     collapse()
 
@@ -2324,7 +2336,7 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     const { sw, other, expand, collapse } = setupExpansion('muted')
 
     expand()
-    sw.setListeningView(2)
+    sw.setListeningView(asViewId(2))
     expand()
     other.send.mockClear()
     collapse()
@@ -2336,7 +2348,7 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
     const { sw, other, expand, collapse } = setupExpansion('muted')
     expand()
 
-    sw.setListeningView(2)
+    sw.setListeningView(asViewId(2))
     other.send.mockClear()
     collapse()
 
