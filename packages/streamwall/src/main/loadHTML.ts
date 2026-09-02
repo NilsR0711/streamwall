@@ -43,6 +43,11 @@ function rendererPagePath(name: RendererPage): string {
  * media), and a window keeps its preload across a same-directory navigation, so
  * "somewhere under the renderer directory" would be a weaker guarantee than it
  * looks.
+ *
+ * Describes a query-less load only. `loadHTML(…, { query })` appends a query
+ * string this does not know about (the HLS page is loaded that way), so
+ * `secureAppWindow` must not be pointed at a page loaded with one -- it would
+ * pin the window to a URL it never commits.
  */
 export function rendererPageURL(name: RendererPage): string {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

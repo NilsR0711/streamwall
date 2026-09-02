@@ -155,18 +155,19 @@ const OTHER_APP_PAGE =
   'file:///app/renderer/main_window/src/renderer/overlay.html'
 
 // Builds a control-window-style guard set over a fake webContents, returning
-// the double and the injected `openExternal` spy.
+// the double, the injected `openExternal` spy, and the guard's log output.
 function secureFakeAppWindow(currentURL = APP_PAGE) {
-  // Silence the guard's breadcrumbs so test output stays clean.
-  vi.spyOn(log, 'info').mockImplementation(() => undefined)
-  vi.spyOn(log, 'warn').mockImplementation(() => undefined)
+  // Captured rather than printed, so the breadcrumbs can be asserted on without
+  // spamming test output.
+  const info = vi.spyOn(log, 'info').mockImplementation(() => undefined)
   const wc = new FakeWebContents(currentURL)
   const openExternal = vi.fn()
   secureAppWindow(asWebContents(wc), {
     appPageURL: () => APP_PAGE,
     openExternal,
   })
-  return { wc, openExternal }
+  const logged = () => info.mock.calls.map((args) => args.join(' ')).join('\n')
+  return { wc, openExternal, logged }
 }
 
 test('secureAppWindow hands an http(s) popup to the OS browser and denies the in-app window', () => {
@@ -180,6 +181,37 @@ test('secureAppWindow hands an http(s) popup to the OS browser and denies the in
     },
   )
   assert.deepEqual(openExternal.mock.calls, [['https://example.com/stream']])
+})
+
+test('secureAppWindow records the external open, without the credentials a link may carry', () => {
+  // The file log transport persists everything from `info` down, and the
+  // control UI renders links whose secret lives in the fragment (invite links).
+  const { wc, logged } = secureFakeAppWindow()
+
+  wc.windowOpenHandler!({
+    url: 'https://example.com/invite?key=secret-query#token=secret-fragment',
+  })
+
+  assert.match(logged(), /Opening link in the OS browser/)
+  assert.match(logged(), /https:\/\/example\.com\/invite/)
+  assert.doesNotMatch(logged(), /secret-query|secret-fragment/)
+})
+
+test('secureAppWindow keeps credentials out of the log when it denies a link too', () => {
+  const { wc, logged } = secureFakeAppWindow()
+
+  wc.windowOpenHandler!({ url: `${APP_PAGE}#token=secret-fragment` })
+
+  assert.doesNotMatch(logged(), /secret-fragment/)
+})
+
+test('secureAppWindow keeps credentials out of the log when it blocks a navigation', () => {
+  const { wc, logged } = secureFakeAppWindow()
+
+  wc.dispatchNavigation('will-navigate', 'https://evil.example/#token=secret')
+
+  assert.match(logged(), /Blocking navigation away from the app page/)
+  assert.doesNotMatch(logged(), /secret/)
 })
 
 test('secureAppWindow denies a non-http popup without handing it to the OS', () => {

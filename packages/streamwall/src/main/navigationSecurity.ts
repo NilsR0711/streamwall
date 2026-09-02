@@ -56,6 +56,19 @@ function isExternallyOpenable(url: string): boolean {
   }
 }
 
+// Where a link points, without what it carries. The URLs reaching these guards
+// are renderer-supplied and can hold credentials -- an invite link keeps its
+// token in the fragment -- while `initLogger` persists everything from `info`
+// down to the user data log file, so the query and fragment must never reach it.
+function redactURL(url: string): string {
+  try {
+    const { protocol, host, pathname } = new URL(url)
+    return `${protocol}//${host}${pathname}`
+  } catch {
+    return '<unparseable URL>'
+  }
+}
+
 // Lock a stream view's web contents down: deny popups and block both navigation
 // and redirect escapes away from the intended URL, while permitting self-reloads.
 export function secureStreamView(webContents: WebContents): void {
@@ -110,10 +123,13 @@ export function secureAppWindow(
       // Logged because this is the one thing here that reaches outside the app:
       // an operator wondering why their browser just opened something can
       // correlate it.
-      log.info('Opening link in the OS browser:', url)
+      log.info('Opening link in the OS browser:', redactURL(url))
       openExternal(url)
     } else {
-      log.info('Denied window open without handing it to the OS browser:', url)
+      log.info(
+        'Denied window open without handing it to the OS browser:',
+        redactURL(url),
+      )
     }
     return { action: 'deny' as const }
   })
@@ -126,7 +142,10 @@ export function secureAppWindow(
     if (event.url === appPageURL() || event.url === webContents.getURL()) {
       return
     }
-    log.info('Blocking navigation away from the app page:', event.url)
+    log.info(
+      'Blocking navigation away from the app page:',
+      redactURL(event.url),
+    )
     event.preventDefault()
   }
   webContents.on('will-navigate', guard)
