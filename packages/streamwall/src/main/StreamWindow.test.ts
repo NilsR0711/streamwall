@@ -151,6 +151,7 @@ function makeStreamWindow(config: StreamWindowConfig) {
   >
   sw.config = config
   sw.parkedViews = new Map()
+  sw.parkedAudio = new Map()
   sw.pauseParkedViews = false
   return sw
 }
@@ -613,6 +614,7 @@ function makeReuseTestActor(opts: {
   content: ViewContent | null
   spaces: number[]
   running: boolean
+  desiredAudio?: 'muted' | 'listening' | 'background'
 }) {
   const send = vi.fn()
   const stop = vi.fn()
@@ -632,6 +634,7 @@ function makeReuseTestActor(opts: {
         id: opts.id,
         content: opts.content,
         pos: { spaces: opts.spaces },
+        desiredAudio: opts.desiredAudio ?? 'muted',
         view,
         win,
         offscreenWin,
@@ -1781,5 +1784,148 @@ describe('StreamWindow.dispose (issue #629)', () => {
     vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(false)
     devtools({})
     expect(sw.overlayView.webContents.openDevTools).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * A parked view is completely invisible behind a fullscreen expansion, so it
+ * must also be inaudible -- before #369 the unused views were destroyed, which
+ * silenced them as a side effect (issue #740).
+ */
+describe('StreamWindow mutes parked views (issue #740)', () => {
+  const streamA: ViewContent = { url: 'https://example.com/a', kind: 'video' }
+  const streamB: ViewContent = { url: 'https://example.com/b', kind: 'video' }
+
+  /** Two running views; expanding `streamB` parks the `streamA` one. */
+  function setupExpansion(
+    desiredAudio: 'muted' | 'listening' | 'background' = 'listening',
+  ) {
+    const sw = makeStreamWindow(makeConfig({ cols: 2, rows: 2 }))
+    sw.win = {
+      contentView: { removeChildView: vi.fn() },
+    } as unknown as InstanceType<typeof StreamWindow>['win']
+
+    const expanding = makeReuseTestActor({
+      id: 1,
+      content: streamB,
+      spaces: [1],
+      running: true,
+    })
+    const other = makeReuseTestActor({
+      id: 2,
+      content: streamA,
+      spaces: [0],
+      running: true,
+      desiredAudio,
+    })
+    sw.views = new Map([
+      [1, expanding.actor],
+      [2, other.actor],
+    ])
+    sw.createView = vi.fn()
+
+    const expand = () =>
+      sw.setViews(
+        fullscreenViewContentMap(2, 2, streamB),
+        { byURL: new Map([[streamB.url, {}]]) },
+        { parkUnused: true },
+      )
+    const collapse = () =>
+      sw.setViews(
+        new Map([
+          ['0', streamA],
+          ['1', streamB],
+        ]),
+        {
+          byURL: new Map([
+            [streamA.url, {}],
+            [streamB.url, {}],
+          ]),
+        },
+      )
+
+    return { sw, expanding, other, expand, collapse }
+  }
+
+  it('mutes a view when it is parked, even with pauseParkedViews disabled', () => {
+    const { sw, other, expand } = setupExpansion()
+
+    expand()
+
+    expect(sw.parkedViews.has(2)).toBe(true)
+    expect(other.send).toHaveBeenCalledWith({ type: 'MUTE' })
+  })
+
+  it('silences a background-listening view, which deliberately ignores MUTE', () => {
+    const { other, expand } = setupExpansion('background')
+
+    expand()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNBACKGROUND' })
+  })
+
+  it('restores the pre-park audio state once the view is displayed again', () => {
+    const { other, expand, collapse } = setupExpansion('listening')
+
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
+  })
+
+  it('restores background listening once the view is displayed again', () => {
+    const { other, expand, collapse } = setupExpansion('background')
+
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'BACKGROUND' })
+  })
+
+  it('leaves an already-muted view muted on collapse', () => {
+    const { other, expand, collapse } = setupExpansion('muted')
+
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).not.toHaveBeenCalledWith({ type: 'UNMUTE' })
+    expect(other.send).not.toHaveBeenCalledWith({ type: 'BACKGROUND' })
+  })
+
+  it('never unmutes a parked view when it is selected as the listening view', () => {
+    const { sw, other, expand } = setupExpansion('muted')
+    expand()
+    other.send.mockClear()
+
+    sw.setListeningView(2)
+
+    expect(other.send).not.toHaveBeenCalled()
+  })
+
+  it('drops the recorded audio state of a parked view when another view is selected', () => {
+    const { sw, other, expand, collapse } = setupExpansion('listening')
+    expand()
+
+    // The operator picks the expanded view instead: the parked one must not
+    // come back audible and make two streams play at once.
+    sw.setListeningView(1)
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).not.toHaveBeenCalledWith({ type: 'UNMUTE' })
+  })
+
+  it('applies a listen selection made while the view was parked on collapse', () => {
+    const { sw, other, expand, collapse } = setupExpansion('muted')
+    expand()
+
+    sw.setListeningView(2)
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
   })
 })

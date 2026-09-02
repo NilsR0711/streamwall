@@ -74,6 +74,14 @@ function retryBackoffMs(retry: RetryConfig, retryCount: number): number {
 export const STALLED_ERROR_MESSAGE = 'Stream stalled'
 
 /**
+ * The audio mode most recently requested for a view: silent, the one tile the
+ * operator is listening to, or audible alongside the selected tile. Mirrored
+ * in `context.desiredAudio` so a request made while the view is not running is
+ * applied once it is.
+ */
+export type DesiredAudio = 'muted' | 'listening' | 'background'
+
+/**
  * Turns an arbitrary thrown value into a short, serializable reason that can be
  * shown on the wall overlay and in the control UI.
  */
@@ -141,7 +149,7 @@ const viewStateMachine = setup({
       // view. Tracked independent of `displaying.running.audio` so a request
       // made while the view is still loading (or recovering from an error) is
       // applied as soon as `running` is (re-)entered instead of being dropped.
-      desiredAudio: 'muted' | 'listening' | 'background'
+      desiredAudio: DesiredAudio
       // Same idea as `desiredAudio`, for BLUR/UNBLUR.
       desiredBlurred: boolean
       // Same idea as `desiredAudio`, for PAUSE/RESUME: whether this view's
