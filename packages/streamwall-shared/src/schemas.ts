@@ -99,6 +99,39 @@ export const MAX_URL_LENGTH = 2048
 const urlSchema = z.string().max(MAX_URL_LENGTH)
 const nonEmptyUrlSchema = z.string().min(1).max(MAX_URL_LENGTH)
 
+/**
+ * True for a value that is a syntactically valid, bounded `http:`/`https:`
+ * URL - the only schemes a `target="_blank"` anchor should ever be allowed
+ * to carry (issue #773). Exported so the control UI can apply the same
+ * check at render time, independent of the schema layer.
+ */
+export function isHttpUrl(value: string): boolean {
+  if (value.length > MAX_URL_LENGTH) {
+    return false
+  }
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Narrows a nullable, server-controlled URL field to `null` whenever it
+ * isn't a valid `http(s)` URL, instead of failing the whole containing
+ * object. `releaseUrl` (issue #773) is rendered straight into an `<a href>`
+ * by the control UI; a compromised or misconfigured server could otherwise
+ * put an arbitrary scheme there (`javascript:`, `data:`, a custom protocol
+ * registered by another installed app). Narrowing rather than rejecting
+ * keeps the rest of a status/state payload usable in a mixed-version
+ * deployment where an older or buggy server sends a malformed value here.
+ */
+const nullableHttpUrlSchema = z
+  .string()
+  .nullable()
+  .transform((value) => (value != null && isHttpUrl(value) ? value : null))
+
 /** Optional descriptive fields shared by every stream-data shape. */
 const streamMetaFields = {
   label: z.string().optional(),
@@ -499,7 +532,12 @@ export const serverStatusSchema = z.object({
   /** Latest release seen by the most recent successful check, if any. */
   latestVersion: z.string().nullable(),
   updateAvailable: z.boolean(),
-  releaseUrl: z.string().nullable(),
+  /**
+   * Narrowed to `null` on anything other than a valid `http(s)` URL rather
+   * than rejecting the whole status (issue #773) - see
+   * {@link nullableHttpUrlSchema}.
+   */
+  releaseUrl: nullableHttpUrlSchema,
   /** ISO timestamp of the last *successful* check. */
   lastCheckedAt: z.string().nullable(),
   checkEnabled: z.boolean(),

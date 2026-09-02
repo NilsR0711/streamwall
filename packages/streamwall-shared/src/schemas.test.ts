@@ -1054,4 +1054,51 @@ describe('serverStatusSchema', () => {
       expect(result.data).toEqual(VALID_STATUS)
     }
   })
+
+  test('accepts an http (non-secure) releaseUrl', () => {
+    const result = serverStatusSchema.safeParse({
+      ...VALID_STATUS,
+      releaseUrl: 'http://example.com/releases/v0.11.0',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.releaseUrl).toBe('http://example.com/releases/v0.11.0')
+    }
+  })
+
+  test.each([
+    ['a javascript: URL', 'javascript:alert(1)'],
+    ['a data: URL', 'data:text/html,<script>alert(1)</script>'],
+    ['a relative path', '/releases/v0.11.0'],
+    ['a bare protocol-relative garbage string', 'not a url'],
+    ['an ftp: URL', 'ftp://example.com/release.zip'],
+    ['an overlong URL', `https://example.com/${'a'.repeat(MAX_URL_LENGTH)}`],
+  ])(
+    'narrows releaseUrl to null instead of rejecting the whole status for %s',
+    (_description, badReleaseUrl) => {
+      const result = serverStatusSchema.safeParse({
+        ...VALID_STATUS,
+        releaseUrl: badReleaseUrl,
+      })
+      // A mixed-version deployment might send a server-controlled value that
+      // isn't a valid http(s) URL; dropping just this field (rather than
+      // failing the entire status) keeps the rest of the update-status UI
+      // (version, updateAvailable) working (issue #773).
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.releaseUrl).toBeNull()
+      }
+    },
+  )
+
+  test('keeps releaseUrl null when the server has not sent one', () => {
+    const result = serverStatusSchema.safeParse({
+      ...VALID_STATUS,
+      releaseUrl: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.releaseUrl).toBeNull()
+    }
+  })
 })

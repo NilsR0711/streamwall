@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { type ServerStatus } from 'streamwall-shared'
+import { isHttpUrl, type ServerStatus } from 'streamwall-shared'
 import { styled } from 'styled-components'
 
 const StyledServerUpdateBanner = styled.div`
@@ -86,7 +86,7 @@ export function ServerUpdateBanner({
             A Streamwall update is available: {status.latestVersion} (you're on{' '}
             {status.version}).
           </span>
-          {status.releaseUrl && (
+          {status.releaseUrl && isHttpUrl(status.releaseUrl) && (
             <a
               href={status.releaseUrl}
               target="_blank"
