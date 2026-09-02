@@ -146,7 +146,7 @@ export async function initApp({
     },
   })
 
-  const db = injectedDb ?? (await loadStorage())
+  const db = injectedDb ?? (await loadStorage({ log: app.log }))
   const auth = new Auth(db.data.auth, app.log, { scryptParams })
   const updateChecker =
     injectedUpdateChecker ?? createUpdateChecker({ log: app.log })

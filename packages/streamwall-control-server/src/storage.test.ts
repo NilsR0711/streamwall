@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import type { chmod } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { loadStorage, resolveDbPath } from './storage.ts'
-import { setEnvForTest } from './testHelpers.ts'
+import { recordingLogger, setEnvForTest } from './testHelpers.ts'
 
 describe('resolveDbPath', () => {
   const originalCwd = process.cwd()
@@ -54,18 +55,27 @@ describe('resolveDbPath', () => {
   })
 })
 
+/** Every throwaway directory a spec made, so none is left behind. */
+const scratchDirs: string[] = []
+function makeScratchDir(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'sw-storage-'))
+  scratchDirs.push(dir)
+  return dir
+}
+after(() => {
+  for (const dir of scratchDirs) {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 describe('loadStorage', () => {
-  let scratchDir: string
-
-  after(() => {
-    if (scratchDir) {
-      rmSync(scratchDir, { recursive: true, force: true })
-    }
-  })
-
   test('creates missing parent directories so a first write succeeds', async () => {
-    scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-storage-'))
-    const dbPath = path.join(scratchDir, 'nested', 'deeper', 'storage.json')
+    const dbPath = path.join(
+      makeScratchDir(),
+      'nested',
+      'deeper',
+      'storage.json',
+    )
     setEnvForTest({ DB_PATH: dbPath })
 
     const db = await loadStorage()
@@ -79,8 +89,7 @@ describe('loadStorage', () => {
   })
 
   test('persists writes to the resolved path', async () => {
-    scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-storage-'))
-    const dbPath = path.join(scratchDir, 'storage.json')
+    const dbPath = path.join(makeScratchDir(), 'storage.json')
     setEnvForTest({ DB_PATH: dbPath })
 
     const db = await loadStorage()
@@ -90,4 +99,156 @@ describe('loadStorage', () => {
     const onDisk = JSON.parse(await readFile(dbPath, 'utf-8'))
     assert.equal(onDisk.auth.salt, 'test-salt')
   })
+})
+
+describe('storage file permissions', () => {
+  // Modes are a POSIX concept; Windows governs access through ACLs, and
+  // `loadStorage` deliberately leaves them alone there.
+  const posixOnly =
+    process.platform === 'win32' ? 'POSIX file modes only' : undefined
+
+  /** The permission bits of `target`. */
+  async function modeOf(target: string): Promise<number> {
+    return (await stat(target)).mode & 0o777
+  }
+
+  test(
+    'creates the storage directory owner-only',
+    { skip: posixOnly },
+    async () => {
+      const scratchDir = makeScratchDir()
+      const dbPath = path.join(scratchDir, 'nested', 'deeper', 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+
+      await loadStorage()
+
+      assert.equal(await modeOf(path.dirname(dbPath)), 0o700)
+      // `mkdir` applies its mode to every directory it creates, and that mode
+      // — not the chmod afterwards — is what keeps the storage directory from
+      // being briefly world-readable while it is being set up.
+      assert.equal(
+        await modeOf(path.join(scratchDir, 'nested')),
+        0o700,
+        'every directory created for the storage file must be owner-only',
+      )
+    },
+  )
+
+  test('creates the storage file owner-only', { skip: posixOnly }, async () => {
+    const dbPath = path.join(makeScratchDir(), 'storage.json')
+    setEnvForTest({ DB_PATH: dbPath })
+
+    const db = await loadStorage()
+    db.data.auth.salt = 'test-salt'
+    await db.write()
+
+    assert.equal(await modeOf(dbPath), 0o600)
+  })
+
+  test(
+    'keeps the file owner-only across repeated writes',
+    { skip: posixOnly },
+    async () => {
+      // lowdb writes through steno, which renames a fresh temp file over the
+      // storage file, so every write hands it a new inode with the umask's mode.
+      const dbPath = path.join(makeScratchDir(), 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+
+      const db = await loadStorage()
+      for (let i = 0; i < 3; i++) {
+        db.data.auth.salt = `salt-${i}`
+        await db.write()
+        assert.equal(await modeOf(dbPath), 0o600, `write ${i}`)
+      }
+    },
+  )
+
+  test(
+    'tightens the default storage directory left loose by an older server',
+    { skip: posixOnly },
+    async () => {
+      // The upgrade case the issue is about: a bare-metal server that has been
+      // running since before this change has a 0755 directory of its own.
+      const home = makeScratchDir()
+      const dbDir = path.join(home, '.streamwall-control-server')
+      mkdirSync(dbDir, { mode: 0o755 })
+      chmodSync(dbDir, 0o755)
+      setEnvForTest({ DB_PATH: undefined, HOME: home })
+
+      await loadStorage()
+
+      assert.equal(await modeOf(dbDir), 0o700)
+    },
+  )
+
+  test(
+    'reports a filesystem that refuses to restrict, and keeps working',
+    { skip: posixOnly },
+    async () => {
+      // A root-owned bind mount or a filesystem without POSIX modes must not
+      // take the server down, nor turn a write that landed into a failure.
+      const dbPath = path.join(makeScratchDir(), 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+      const { entries, log } = recordingLogger()
+      const refuse = () => {
+        const err = new Error(
+          'operation not permitted',
+        ) as NodeJS.ErrnoException
+        err.code = 'EPERM'
+        return Promise.reject(err)
+      }
+
+      const db = await loadStorage({
+        log: log as unknown as { warn(fields: object, msg: string): void },
+        chmodImpl: refuse as unknown as typeof chmod,
+      })
+      for (let i = 0; i < 3; i++) {
+        db.data.auth.salt = `salt-${i}`
+        await db.write()
+      }
+
+      const onDisk = JSON.parse(await readFile(dbPath, 'utf-8'))
+      assert.equal(onDisk.auth.salt, 'salt-2', 'writes must still land')
+      const warnings = entries.filter((entry) =>
+        entry.msg?.includes('Could not restrict storage permissions'),
+      )
+      assert.equal(
+        warnings.length,
+        2,
+        'once for the startup pass, once for the writes — not once per write',
+      )
+    },
+  )
+
+  test(
+    'tightens a file left loose by an older server',
+    { skip: posixOnly },
+    async () => {
+      const dbDir = path.join(makeScratchDir(), 'existing')
+      const dbPath = path.join(dbDir, 'storage.json')
+      mkdirSync(dbDir, { mode: 0o755 })
+      await writeFile(
+        dbPath,
+        JSON.stringify({
+          auth: { salt: 'old', tokens: [] },
+          streamwallToken: null,
+        }),
+      )
+      chmodSync(dbDir, 0o755)
+      chmodSync(dbPath, 0o644)
+      setEnvForTest({ DB_PATH: dbPath })
+
+      const db = await loadStorage()
+
+      assert.equal(db.data.auth.salt, 'old', 'the existing store is still read')
+      assert.equal(await modeOf(dbPath), 0o600)
+      // A directory the operator pointed DB_PATH at is left alone: it may be a
+      // home or working directory whose permissions are not ours to decide.
+      assert.equal(
+        await modeOf(dbDir),
+        0o755,
+        'an existing directory the server did not create keeps its mode',
+      )
+    },
+  )
 })
