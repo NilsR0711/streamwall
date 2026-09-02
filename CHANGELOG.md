@@ -17,6 +17,15 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.6](https://github.com/NilsR0711/streamwall/compare/v0.10.5...v0.10.6) (2026-09-02)
+
+
+### Fixed
+
+* **ci:** let the release check see draft releases ([#718](https://github.com/NilsR0711/streamwall/issues/718)) ([628b05f](https://github.com/NilsR0711/streamwall/commit/628b05fec40df6981babe1d916f4af0e7e049ce7)), closes [#698](https://github.com/NilsR0711/streamwall/issues/698)
+* **control-server:** force lingering connections shut on close ([#752](https://github.com/NilsR0711/streamwall/issues/752)) ([0b63630](https://github.com/NilsR0711/streamwall/commit/0b636307748aec63991e7fede6361ebc3bc0aacd))
+* **deps:** bump production dependencies and keep shared installs hoisted ([#728](https://github.com/NilsR0711/streamwall/issues/728)) ([c471873](https://github.com/NilsR0711/streamwall/commit/c471873f302812f1440b6583a7f07194b24aa3f3))
+
 ## [0.10.5](https://github.com/NilsR0711/streamwall/compare/v0.10.4...v0.10.5) (2026-07-27)
 
 
