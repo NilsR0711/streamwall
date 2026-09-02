@@ -343,12 +343,20 @@ test(
     // The credential banner is the last thing the boot prints, so seeing it
     // means the server is up and the signal lands on a running process. Matched
     // against everything received so far, since a pipe splits where it likes.
+    //
+    // The wait is bounded well under the file's 120000ms `--test-timeout`
+    // (#804/#537): a real child process spawn plus a scrypt-hashed token boot
+    // measurably needs more than 30s of wall clock on a machine running many
+    // `node --test` files (each its own process) concurrently, and letting the
+    // *outer* per-test timeout win that race instead of this one turns a
+    // readable "never finished booting" failure into an unattributed
+    // `testTimeoutFailure` that reports no failing subtest at all.
     await new Promise<void>((resolve, reject) => {
       const fail = (reason: string) =>
         reject(new Error(`${reason}\nstdout: ${stdout}\nstderr: ${stderr}`))
       const timer = setTimeout(
         () => fail('the server never finished booting'),
-        30000,
+        45000,
       )
       child.on('error', (err) =>
         fail(`the server could not be spawned: ${err}`),

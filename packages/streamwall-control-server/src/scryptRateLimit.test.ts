@@ -321,7 +321,7 @@ describe('scrypt-bearing routes', () => {
     // entry would expire and the reconnect after an uplink flap would derive.
     const { app, auth, port } = await bootServerWithUplink({
       clientPing: { intervalMs: 20, timeoutMs: 2000 },
-      verifiedTokenTtlMs: 400,
+      verifiedTokenTtlMs: 2000,
     })
 
     const invite = await auth.createToken({
@@ -347,9 +347,15 @@ describe('scrypt-bearing routes', () => {
     await once(ws, 'open')
     await messageCollector(ws)(500)
 
-    // Several TTLs later: without the refresh the entry is long gone, and the
-    // margin over the 20ms cadence leaves room for a loaded runner.
-    await delay(1200)
+    // Several TTLs later: without the refresh the entry is long gone. The TTL
+    // is 100x the 20ms ping cadence (raised from 20x in #804): a 400ms TTL
+    // measurably flaked under `node --test`'s default concurrency, where an
+    // OS-scheduler stall of a few hundred ms on this file's own process is
+    // enough to skip every ping in the window and let a "warm" entry expire
+    // for real — a legitimate race in the test, not in the cache (see
+    // verifiedTokenCache.test.ts for the deterministic, fake-clock coverage of
+    // the sliding-expiry logic itself).
+    await delay(5000)
     const derivations = countDerivations(auth)
     const res = await app.inject({
       method: 'GET',
