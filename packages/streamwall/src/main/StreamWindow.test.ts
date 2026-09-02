@@ -92,6 +92,9 @@ vi.mock('electron', () => {
       close: vi.fn(),
       openDevTools: vi.fn(),
       isDestroyed: vi.fn(() => false),
+      // `secureStreamView` installs these on every raw view.
+      setWindowOpenHandler: vi.fn(),
+      getURL: vi.fn(() => ''),
       session: {},
     }
     setBackgroundColor = vi.fn()
@@ -1806,6 +1809,28 @@ describe('StreamWindow constructor', () => {
 
       expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
     })
+  })
+
+  // The stream views' sessions need the same dev-server allowance the layers
+  // do -- the HLS renderer page is served from it too -- and losing it only
+  // shows up when someone runs the dev server (#791).
+  it("hardens a stream view's session with the dev server allowance", () => {
+    vi.mocked(devServerAllowedOrigins).mockReturnValue([
+      'http://localhost:5173',
+    ])
+    const sw = new StreamWindow(makeConfig())
+    vi.mocked(hardenSession).mockClear()
+
+    const { view } = (
+      sw as unknown as {
+        createRawView(): { view: { webContents: { session: unknown } } }
+      }
+    ).createRawView()
+
+    const [[session, options], ...rest] = vi.mocked(hardenSession).mock.calls
+    expect(rest).toEqual([])
+    expect(session).toBe(view.webContents.session)
+    expect(options?.allowedOrigins).toEqual(['http://localhost:5173'])
   })
 
   it('starts with empty view bookkeeping', () => {
