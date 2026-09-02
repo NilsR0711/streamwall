@@ -36,6 +36,7 @@ import {
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import { loadStorage, type StorageDB } from './storage.ts'
 import { createUpdateChecker, type UpdateChecker } from './updateCheck.ts'
+import { createVerifiedTokenCache } from './verifiedTokenCache.ts'
 import { registerClientRoutes } from './ws/client.ts'
 import { registerUplinkRoute } from './ws/uplink.ts'
 
@@ -73,6 +74,7 @@ export async function initApp({
   trustProxy: injectedTrustProxy,
   updateChecker: injectedUpdateChecker,
   uplinkPing: injectedUplinkPing,
+  verifiedTokenTtlMs,
 }: AppOptions & {
   db?: StorageDB
   /**
@@ -117,6 +119,11 @@ export async function initApp({
   trustProxy?: boolean | string
   /** Injectable so specs exercise `/admin/status` without reaching GitHub. */
   updateChecker?: UpdateChecker
+  /**
+   * Test-only override for how long a verified credential may be reused, so a
+   * spec can exercise expiry without waiting a minute for it.
+   */
+  verifiedTokenTtlMs?: number
 }) {
   const expectedOrigin = new URL(baseURL).origin
   const isSecure = baseURL.startsWith('https')
@@ -237,8 +244,23 @@ export async function initApp({
       timeWindow: rateLimitConfig.timeWindow,
     },
   })
-  registerUplinkRoute(app, ctx)
-  registerClientRoutes(app, ctx, { clientStaticPath })
+  // One cache for both routes: a credential verified for the uplink or for a
+  // browser session is the same derivation either way, and a single instance
+  // means a single listener clearing it when the token set changes.
+  const verifiedTokens = createVerifiedTokenCache({
+    auth,
+    ...(verifiedTokenTtlMs !== undefined && { ttlMs: verifiedTokenTtlMs }),
+  })
+
+  registerUplinkRoute(app, ctx, {
+    rateLimit: rateLimitConfig,
+    verifiedTokens,
+  })
+  registerClientRoutes(app, ctx, {
+    clientStaticPath,
+    rateLimit: rateLimitConfig,
+    verifiedTokens,
+  })
 
   auth.on('state', (state) => {
     // The write is fire-and-forget by design (the listener is synchronous),

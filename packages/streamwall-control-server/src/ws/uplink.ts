@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import * as Y from 'yjs'
 
 import {
@@ -6,14 +6,26 @@ import {
   streamwallStateSchema,
 } from 'streamwall-shared'
 import { StateWrapper } from '../auth.ts'
+import type { RateLimitConfig } from '../config.ts'
 import type { AppContext } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
+import type { VerifiedTokenCache } from '../verifiedTokenCache.ts'
 import {
   bearerToken,
   createWsMessageGuard,
   queueWebSocketMessages,
   startHeartbeat,
 } from '../wsSupport.ts'
+
+/** Where a request remembers whether it was charged for a derivation. */
+const DERIVES = Symbol('streamwall.derivesToken')
+
+export interface UplinkRouteOptions {
+  /** Per-IP budgets: the strict one guards routes that derive a token hash. */
+  rateLimit: RateLimitConfig
+  /** Shared cache of recently verified credentials. */
+  verifiedTokens: VerifiedTokenCache
+}
 
 /**
  * Registers the desktop uplink endpoint `GET /streamwall/:id/ws`. The uplink is
@@ -24,10 +36,54 @@ import {
 export function registerUplinkRoute(
   app: FastifyInstance,
   ctx: AppContext,
+  { rateLimit, verifiedTokens }: UplinkRouteOptions,
 ): void {
+  /** Whether this handshake will have to derive the bearer token's hash. */
+  // Typed against the bare request the rate-limit hooks are handed, which does
+  // not carry this route's params generic.
+  const derives = (request: FastifyRequest): boolean => {
+    const token = bearerToken(request.headers.authorization)
+    const { id } = (request.params ?? {}) as { id?: string }
+    return (
+      token !== null &&
+      id !== undefined &&
+      verifiedTokens.willDerive('streamwall', id, token)
+    )
+  }
+
+  /**
+   * `keyGenerator` and `max` both run per request and must agree, so the
+   * classification is computed once and remembered on the request rather than
+   * re-derived from a cache that may have changed in between.
+   */
+  const derivesOnce = (request: FastifyRequest): boolean => {
+    const memo = request as unknown as Record<symbol, boolean | undefined>
+    memo[DERIVES] ??= derives(request)
+    return memo[DERIVES]
+  }
+
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
-    { websocket: true },
+    {
+      websocket: true,
+      // The handshake below verifies a bearer token against its scrypt hash,
+      // so a bogus `Authorization` header is otherwise a cheap way to burn
+      // ~16 MiB and tens of milliseconds of thread-pool work per request
+      // (issue #735). Only a handshake that actually derives is charged
+      // against the strict budget: a desktop reconnecting through a flapping
+      // link presents a token the server verified moments ago, and must not be
+      // locked out of its own uplink by its own retries — nor by anyone else
+      // spraying bogus tokens from the same address.
+      config: {
+        rateLimit: {
+          keyGenerator: (request: FastifyRequest) =>
+            `${request.ip}:${derivesOnce(request) ? 'derive' : 'verified'}`,
+          max: (request: FastifyRequest) =>
+            derivesOnce(request) ? rateLimit.authMax : rateLimit.globalMax,
+          timeWindow: rateLimit.timeWindow,
+        },
+      },
+    },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'
       const handleMessage = queueWebSocketMessages(ws, request.log)
@@ -54,7 +110,12 @@ export function registerUplinkRoute(
         return
       }
 
-      const tokenInfo = await ctx.auth.validateToken(id, token)
+      const tokenInfo = await verifiedTokens.verify(
+        'streamwall',
+        id,
+        token,
+        () => ctx.auth.validateToken(id, token),
+      )
       if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()

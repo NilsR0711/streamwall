@@ -192,6 +192,10 @@ export async function startHarness(
   // Give the browser plenty of request headroom: loading the app pulls many
   // font/asset requests that would otherwise brush against the per-IP limit.
   process.env.STREAMWALL_RATE_LIMIT_MAX ??= '100000'
+  // The same headroom for the strict budget, which now also governs the socket
+  // upgrades: specs that force reconnects, and every invite change (which drops
+  // the verified-token cache), make the next connect derive again.
+  process.env.STREAMWALL_AUTH_RATE_LIMIT_MAX ??= '100000'
 
   const port = await getFreePort()
   // With TLS, the browser-facing origin is the proxy: the control server keeps

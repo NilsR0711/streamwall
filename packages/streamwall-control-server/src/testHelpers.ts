@@ -294,6 +294,7 @@ export type TestAppOverrides = Partial<AppOptions> & {
   sentryEnabled?: boolean
   sentryClient?: SentryCaptureClient
   updateChecker?: UpdateChecker
+  verifiedTokenTtlMs?: number
 }
 
 /**
