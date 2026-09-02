@@ -583,8 +583,6 @@ async function main() {
   const viewInit = ipcRenderer.invoke('view-init')
   const pageReady = new Promise((resolve) => process.once('loaded', resolve))
 
-  const snapshotController = new SnapshotController()
-
   // Operator-set state, all of it tracked across re-acquisitions (which build
   // a fresh RotationController/VolumeController and unconditionally start
   // playback) so the operator's latest intent survives an internal stall
@@ -681,6 +679,8 @@ async function main() {
       paused: initialPaused,
     },
   ] = await Promise.all([viewInit, pageReady])
+
+  const snapshotController = new SnapshotController()
 
   // Fill in whatever no early message already decided. Applied before the
   // acquisition starts below so the first VolumeController/RotationController

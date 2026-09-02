@@ -1718,6 +1718,18 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
     expect(video.volume).toBe(0.25)
   })
 
+  it('keeps an early volume of 0, which a truthiness check would discard', async () => {
+    // The defaulting has to be nullish (`??=`), not `||=`: a muted view is a
+    // legitimate operator choice and must not fall back to the payload.
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('volume')(null, 0)
+    await settleViewInit({ volume: 1 })
+
+    expect(video.volume).toBe(0)
+  })
+
   it('does not let the view-init payload clobber options delivered before it resolved', async () => {
     const video = playableVideo()
     const settleViewInit = await loadWithPendingViewInit()

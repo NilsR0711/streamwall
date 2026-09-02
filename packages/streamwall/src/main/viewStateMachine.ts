@@ -627,8 +627,10 @@ const viewStateMachine = setup({
             // fetching. A resume that lands before the renderer registered
             // its handlers is simply dropped, but then the `view-init` reply
             // (which carries `paused: desiredPaused`) has not been sent yet
-            // either, so the fresh view starts unpaused anyway -- except for
-            // the sub-tick window tracked in #756.
+            // either, so the fresh view starts unpaused anyway. The preload
+            // subscribes to 'resume' before it awaits that round trip, so
+            // there is no window left in which the reply has been answered
+            // but the handler is still missing (issue #756).
             RESUME: {
               actions: [assign({ desiredPaused: false }), 'sendViewResume'],
             },
