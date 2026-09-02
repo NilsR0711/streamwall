@@ -9,7 +9,6 @@ import {
   type ClientStateDeltaMessage,
   type StreamwallState,
 } from 'streamwall-shared'
-import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
 import {
   bootServerWithUplink,
   isCommandType,
@@ -356,10 +355,33 @@ test('releases the uplink slot when the desktop dies during token validation', a
   // Token validation is an `await` on a real scrypt derivation, so a socket
   // that dies inside that window fires `close` before the route's own close
   // handler exists. The single uplink slot must not stay claimed by that dead
-  // socket (issue #743). Run with the production work factor so the window is
-  // as wide here as it is in production.
-  const { auth, port, logs } = await startTestServer({
-    scryptParams: DEFAULT_SCRYPT_PARAMS,
+  // socket (issue #743).
+  const { app, auth, port, logs } = await startTestServer()
+
+  // Hold the first uplink inside that window deterministically instead of
+  // betting on the production work factor outrunning a TCP reset: the gate
+  // stands in for the derivation's duration, so the spec exercises the race on
+  // any host at the cheap test work factor.
+  const realValidateToken = auth.validateToken.bind(auth)
+  let openValidationGate = () => {}
+  const validationGate = new Promise<void>((resolve) => {
+    openValidationGate = resolve
+  })
+  let gateNextValidation = true
+  auth.validateToken = async (id: string, secret: string) => {
+    const info = await realValidateToken(id, secret)
+    if (gateNextValidation) {
+      gateNextValidation = false
+      await validationGate
+    }
+    return info
+  }
+
+  // Observed on the server's own socket, so the gate opens only once the
+  // uplink's death has actually been delivered to the route's `close`
+  // listener — not merely once the client-side socket reports itself closed.
+  const serverSawClose = new Promise<void>((resolve) => {
+    app.server.once('connection', (socket) => socket.once('close', resolve))
   })
 
   const first = await mintUplinkToken(auth, port)
@@ -369,16 +391,17 @@ test('releases the uplink slot when the desktop dies during token validation', a
   after(() => firstWs.terminate())
   await once(firstWs, 'open')
   firstWs.terminate()
+  await serverSawClose
+  openValidationGate()
 
-  // Wait for the server to have finished handling that connection rather than
-  // sleeping: it either claims the slot or unwinds because the socket is
-  // already gone, and both outcomes are logged.
+  // The server now finishes handling a connection whose socket is already
+  // gone: it either claims the slot (the bug) or unwinds (the fix), and both
+  // outcomes are logged, so there is nothing to sleep for.
   await logs.waitFor(
     (entry) =>
       typeof entry.msg === 'string' &&
       (entry.msg.includes('Streamwall connecting') ||
         entry.msg.includes('closed during authorization')),
-    10000,
   )
 
   const second = await mintUplinkToken(auth, port)
@@ -388,17 +411,23 @@ test('releases the uplink slot when the desktop dies during token validation', a
   after(() => secondWs.terminate())
   const nextMessage = messageCollector(secondWs)
   await once(secondWs, 'open')
+  secondWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
 
+  // Whichever comes first decides: a refusal frame, or the server logging the
+  // reconnected uplink as fully connected.
+  const refusal = await Promise.race([
+    nextMessage(5000),
+    logs.waitForMessage('Streamwall connected', 5000).then(() => null),
+  ])
   assert.equal(
-    await nextMessage(1000),
+    refusal,
     null,
     'the reconnecting uplink must not be refused: the slot must have been released',
   )
   assert.equal(secondWs.readyState, WebSocket.OPEN)
-  // Pin the premise: the first socket really did die inside the validation
-  // window. Without this the spec would silently degrade into a no-op should
-  // the race window ever close (a faster host, cheaper scrypt params, or the
-  // `await` moving), because that timeline passes even unfixed.
+  // Guard the premise last, so a genuine regression fails on the assertion
+  // above rather than here: the first uplink really has to have died inside
+  // the validation window for this spec to mean anything.
   assert.ok(
     logs.hasMessage('Streamwall uplink closed during authorization'),
     'the first uplink must have closed while its token was still being validated',
