@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test, vi } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import type { WebContents } from 'electron'
 
@@ -63,6 +63,13 @@ class FakeWebContents {
 }
 
 const asWebContents = (fake: FakeWebContents) => fake as unknown as WebContents
+
+// `vi.spyOn` hands back the existing spy when a property is already spied, so
+// without this every test that silences the logger would share one accumulating
+// mock and read the previous tests' output back as its own.
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 test('denyWindowOpen installs a handler that denies every popup', () => {
   const wc = new FakeWebContents('https://example.com/stream')
