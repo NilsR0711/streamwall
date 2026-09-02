@@ -390,6 +390,69 @@ When a deprecation cannot be migrated away from right now, add the package to
 issue, so the job stays actionable instead of permanently red. Allowlist
 entries that no longer apply are reported as warnings and should be dropped.
 
+### Fixing a dependency bump that npm un-hoists
+
+Regenerating `package-lock.json` for a routine dependency bump can relocate a
+package that several workspaces share, splitting one hoisted copy into
+several — one per workspace, or one that moved into whichever workspace
+depends on it, cutting every other consumer off. That is what a production
+dependency bump did to `preact` and `styled-components` (each split into a
+copy per workspace) and to `fastify` (moved into
+`packages/streamwall-control-server`, cutting the root-level `@fastify/*`
+plugins off from the module their `declare module 'fastify'` augmentations
+extend) — see #728.
+
+**Symptoms** are rarely about the dependency itself:
+
+- A module-level singleton splits in two across an import boundary. Preact
+  keeps hook state on one such pointer, so two copies fail with
+  `Cannot read properties of undefined (reading '__H')` — not a hint that
+  anything is wrong with hooks. `styled-components`' theme context and
+  `yjs`'s `instanceof` checks are the same kind of failure waiting to happen.
+- A plugin's type augmentations vanish. TypeScript only merges a
+  `declare module 'x'` into the copy of `x` the _augmenting package_ itself
+  resolves, so a `@fastify/*` plugin sitting at the root while `fastify` sits
+  inside a workspace produces dozens of otherwise-unrelated-looking errors
+  like `Property 'setCookie' does not exist on type 'FastifyReply'`.
+
+**Fixing it:**
+
+1. `npm install && npm dedupe` — `npm dedupe` hoists most split copies back to
+   a single root install; a plain `npm install` after a lockfile change does
+   not do this on its own.
+2. If a package still resolves separately per workspace after `npm dedupe`
+   (npm decided a single-consumer install belongs inside that workspace
+   rather than at the root), declare it directly in the **root**
+   `package.json` (`dependencies` or `devDependencies`). A root declaration
+   is the anchor that keeps a single copy hoisted there for every workspace to
+   share, regardless of which workspace(s) actually import it — which is why
+   the root now depends on `preact`, `styled-components` and `fastify`
+   (#728), and `happy-dom` (#675), without any code at the root using any of
+   them directly. Do not remove these entries as apparently-dead
+   dependencies: without the anchor, the next version bump is free to split
+   the package again.
+3. `test/shared-dependency-hoisting.test.mjs` and
+   `test/fastify-plugin-resolution.test.mjs` are the guards for exactly these
+   two failure shapes — a shared package installed more than once, and a
+   `@fastify/*` plugin resolving a different `fastify` than the control
+   server does. Run them (`npm test`, or `node --test` on the two files
+   directly) to confirm a fix actually worked.
+4. Do not trust a green run alone: a worktree nested inside the main
+   checkout can resolve a hoisted package from the _parent_ checkout's
+   `node_modules`, so a real split can still pass tests locally. Check what
+   `package-lock.json` actually installed for the package (or rely on the
+   guard tests above, which read the lockfile directly) rather than the test
+   result by itself.
+
+Only `preact`, `styled-components`, `fastify` and `happy-dom` are anchored at
+the root today, because those are the ones that have actually broken. The
+other packages several workspaces share (`yjs`, `xstate`, `zod`,
+`jsondiffpatch`, `lodash-es`, `react-icons`) are deliberately left to npm's own
+hoisting choice — anchoring every shared dependency pre-emptively would just
+be guessing at which one breaks next, and the
+`shared-dependency-hoisting.test.mjs` guard above catches it in CI if one of
+them does (#728).
+
 ### Changelog
 
 [`CHANGELOG.md`](CHANGELOG.md) is generated, not hand-edited. Because PRs are
