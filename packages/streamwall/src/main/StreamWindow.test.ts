@@ -118,11 +118,19 @@ vi.mock('./loadHTML', () => ({
   // Returns a resolved promise like the real loadHTML, so the caller's `.catch`
   // breadcrumb (issue #626) has something to attach to.
   loadHTML: vi.fn(() => Promise.resolve()),
-  devServerOrigin: () => undefined,
+  devServerOrigin: vi.fn((): string | undefined => undefined),
+}))
+
+// `hardenSession` reaches into a real Electron session; the partition allocator
+// beside it is a pure string generator worth keeping.
+vi.mock('./partitions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./partitions')>()),
+  hardenSession: vi.fn(),
 }))
 
 const { default: StreamWindow } = await import('./StreamWindow')
-const { loadHTML } = await import('./loadHTML')
+const { devServerOrigin, loadHTML } = await import('./loadHTML')
+const { hardenSession } = await import('./partitions')
 
 function makeConfig(
   overrides: Partial<StreamWindowConfig> = {},
@@ -1524,6 +1532,8 @@ describe('StreamWindow constructor', () => {
     electronStub.webContentsViews.length = 0
     electronStub.resetIpc()
     vi.mocked(loadHTML).mockClear()
+    vi.mocked(hardenSession).mockClear()
+    vi.mocked(devServerOrigin).mockReturnValue(undefined)
   })
 
   function contentViewOf(win: InstanceType<typeof StreamWindow>['win']) {
@@ -1582,6 +1592,63 @@ describe('StreamWindow constructor', () => {
         height: 720,
       })
     }
+  })
+
+  // The chrome layers embed operator- (and control-server-) supplied overlay
+  // and background URLs in iframes. Without a partition of their own they ran
+  // in Electron's default, on-disk session -- the one the control window uses,
+  // and the one `hardenSession` is never called on, so those iframes reached
+  // the network with neither the SSRF request guard nor permission denial
+  // (#733).
+  it('isolates each layer in its own ephemeral, hardened session', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    const partitionOf = (view: unknown) =>
+      (view as { options: { webPreferences: Electron.WebPreferences } }).options
+        .webPreferences.partition
+    const partitions = [
+      partitionOf(sw.backgroundView),
+      partitionOf(sw.overlayView),
+    ]
+    for (const partition of partitions) {
+      expect(partition).toBeDefined()
+      expect(partition!.startsWith('layer-')).toBe(true)
+      expect(partition!.startsWith('persist:')).toBe(false)
+    }
+    expect(partitions[0]).not.toBe(partitions[1])
+
+    // Compared by identity: the Electron stub gives every view a bare `{}` as
+    // its session, which any structural comparison would match against any
+    // other view's.
+    const hardened = vi.mocked(hardenSession).mock.calls
+    expect(hardened).toHaveLength(2)
+    expect(hardened[0][0]).toBe(sw.backgroundView.webContents.session)
+    expect(hardened[1][0]).toBe(sw.overlayView.webContents.session)
+  })
+
+  it('allows the dev server origin so the layer pages themselves still load', () => {
+    // In development the layer HTML and its assets come from the Vite dev
+    // server on loopback, which the SSRF guard would otherwise cancel.
+    vi.mocked(devServerOrigin).mockReturnValue('http://localhost:5173')
+
+    new StreamWindow(makeConfig())
+
+    // Asserted on the call list rather than by iterating it: an empty list
+    // would let a `for` loop pass without hardening anything at all.
+    expect(
+      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
+    ).toEqual([
+      { allowedOrigins: ['http://localhost:5173'] },
+      { allowedOrigins: ['http://localhost:5173'] },
+    ])
+  })
+
+  it('passes no allowed origins in a packaged build, where there is no dev server', () => {
+    new StreamWindow(makeConfig())
+
+    expect(
+      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
+    ).toEqual([{ allowedOrigins: [] }, { allowedOrigins: [] }])
   })
 
   it('starts with empty view bookkeeping', () => {

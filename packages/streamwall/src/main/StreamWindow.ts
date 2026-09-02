@@ -27,7 +27,11 @@ import { createActor, EventFrom, SnapshotFrom } from 'xstate'
 import { devServerOrigin, loadHTML } from './loadHTML'
 import log from './logger'
 import { secureStreamView } from './navigationSecurity'
-import { allocateViewPartition, hardenSession } from './partitions'
+import {
+  allocateLayerPartition,
+  allocateViewPartition,
+  hardenSession,
+} from './partitions'
 import { planViewLayout, type ViewCandidate } from './viewLayoutPlan'
 import viewStateMachine, {
   DEFAULT_RETRY_CONFIG,
@@ -184,13 +188,31 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * Creates one of the two transparent full-window chrome layers (the
    * background and the overlay), sizes it to the configured wall dimensions
    * and loads its HTML entry point.
+   *
+   * The layer renders the app's own page, but that page embeds
+   * operator-supplied overlay/background URLs in iframes -- so it gets the same
+   * treatment as a stream view: its own unique ephemeral partition, hardened
+   * with the SSRF request guard and permission denial. Left in Electron's
+   * default session it would reach the network with neither, and would share
+   * cookies and cache on disk with the control window (#733).
    */
   private createLayerView(
     page: 'background' | 'overlay',
     webPreferences: Electron.WebPreferences,
   ): WebContentsView {
     const { width, height } = this.config
-    const layerView = new WebContentsView({ webPreferences })
+    const layerView = new WebContentsView({
+      webPreferences: {
+        ...webPreferences,
+        partition: allocateLayerPartition(),
+      },
+    })
+    hardenSession(layerView.webContents.session, {
+      // In development the layer page and its assets are served from the Vite
+      // dev server on loopback; allow that origin so the SSRF request guard
+      // does not cancel the layer's own load.
+      allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+    })
     layerView.setBackgroundColor('#0000')
     this.win.contentView.addChildView(layerView)
     layerView.setBounds({

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import {
+  allocateLayerPartition,
   allocateViewPartition,
   BROWSE_PARTITION,
   createPartitionAllocator,
@@ -108,6 +109,32 @@ test('BROWSE_PARTITION is ephemeral and isolated from stream views', () => {
     !BROWSE_PARTITION.startsWith('view-'),
     'browse partition must not collide with the stream-view namespace',
   )
+})
+
+test('allocateLayerPartition returns a unique ephemeral partition on every call', () => {
+  // The chrome layers embed operator-supplied overlay/background URLs in
+  // iframes, so they need the same isolation a stream view gets rather than the
+  // app's shared, on-disk default session (#733).
+  const seen = new Set<string>()
+  for (let i = 0; i < 100; i++) {
+    const partition = allocateLayerPartition()
+    assert.ok(partition.startsWith('layer-'), 'layer partitions are prefixed')
+    assert.ok(
+      !partition.startsWith('persist:'),
+      'layer partitions are ephemeral',
+    )
+    assert.ok(!seen.has(partition), `partition ${partition} must be unique`)
+    seen.add(partition)
+  }
+})
+
+test('layer partitions do not collide with the stream-view or browse namespaces', () => {
+  const partition = allocateLayerPartition()
+  assert.ok(
+    !partition.startsWith('view-'),
+    'a layer must not land in a stream view session',
+  )
+  assert.notEqual(partition, BROWSE_PARTITION)
 })
 
 test('hardenSession registers a permission request handler', () => {
