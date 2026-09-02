@@ -405,10 +405,10 @@ extend) — see #728.
 **Symptoms** are rarely about the dependency itself:
 
 - A module-level singleton splits in two across an import boundary. Preact
-  keeps hook state on one such pointer, so two copies fail with `Cannot read
-properties of undefined (reading '__H')` — not a hint that anything is
-  wrong with hooks. `styled-components`' theme context and `yjs`'s
-  `instanceof` checks are the same kind of failure waiting to happen.
+  keeps hook state on one such pointer, so two copies fail with
+  `Cannot read properties of undefined (reading '__H')` — not a hint that
+  anything is wrong with hooks. `styled-components`' theme context and
+  `yjs`'s `instanceof` checks are the same kind of failure waiting to happen.
 - A plugin's type augmentations vanish. TypeScript only merges a
   `declare module 'x'` into the copy of `x` the _augmenting package_ itself
   resolves, so a `@fastify/*` plugin sitting at the root while `fastify` sits
