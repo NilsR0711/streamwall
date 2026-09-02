@@ -34,14 +34,12 @@ export type StorageDB = Low<StoredData>
 // directory, so the server always finds the same storage file regardless of
 // where (or by what process manager) it was started -- mirroring how the
 // desktop app resolves its storage path via `app.getPath('userData')`.
-const DEFAULT_DB_PATH = path.join(
-  homedir(),
-  '.streamwall-control-server',
-  'storage.json',
-)
+function defaultDbPath(): string {
+  return path.join(homedir(), '.streamwall-control-server', 'storage.json')
+}
 
 export function resolveDbPath(): string {
-  return process.env.DB_PATH || DEFAULT_DB_PATH
+  return process.env.DB_PATH || defaultDbPath()
 }
 
 /** Owner-only, because this file holds the auth salt and every token hash. */
@@ -73,10 +71,11 @@ interface StorageLog {
 async function restrict(
   target: string,
   mode: number,
-  log?: StorageLog,
+  log: StorageLog | undefined,
+  chmodImpl: typeof chmod,
 ): Promise<boolean> {
   try {
-    await chmod(target, mode)
+    await chmodImpl(target, mode)
     return true
   } catch (err) {
     const { code } = err as NodeJS.ErrnoException
@@ -98,7 +97,8 @@ async function restrict(
 function ownerOnly<T>(
   inner: Adapter<T>,
   dbPath: string,
-  log?: StorageLog,
+  log: StorageLog | undefined,
+  chmodImpl: typeof chmod,
 ): Adapter<T> {
   // Reported once: a filesystem that refuses chmod refuses every time, and a
   // warning per token minted would drown the log it belongs in.
@@ -111,13 +111,21 @@ function ownerOnly<T>(
         dbPath,
         STORAGE_FILE_MODE,
         reported ? undefined : log,
+        chmodImpl,
       )
       reported ||= !restricted
     },
   }
 }
 
-export async function loadStorage({ log }: { log?: StorageLog } = {}) {
+export async function loadStorage({
+  log,
+  chmodImpl = chmod,
+}: {
+  log?: StorageLog
+  /** Test-only seam, so a spec can exercise a filesystem that refuses chmod. */
+  chmodImpl?: typeof chmod
+} = {}) {
   const dbPath = resolveDbPath()
   const dbDir = path.dirname(dbPath)
   // `recursive` returns the first directory it had to create, so this also
@@ -135,11 +143,11 @@ export async function loadStorage({ log }: { log?: StorageLog } = {}) {
     // directory, a working directory or a shared mount whose permissions are
     // somebody else's decision, and the file's own 0600 protects the
     // credentials either way.
-    if (created !== undefined || dbDir === path.dirname(DEFAULT_DB_PATH)) {
-      await restrict(dbDir, STORAGE_DIR_MODE, log)
+    if (created !== undefined || dbDir === path.dirname(defaultDbPath())) {
+      await restrict(dbDir, STORAGE_DIR_MODE, log, chmodImpl)
     }
-    await restrict(dbPath, STORAGE_FILE_MODE, log)
-    db.adapter = ownerOnly(db.adapter, dbPath, log)
+    await restrict(dbPath, STORAGE_FILE_MODE, log, chmodImpl)
+    db.adapter = ownerOnly(db.adapter, dbPath, log, chmodImpl)
   }
 
   return db
