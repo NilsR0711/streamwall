@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { after, describe, test } from 'node:test'
-import { setTimeout as delay } from 'node:timers/promises'
 import WebSocket from 'ws'
 
 import { SESSION_COOKIE_NAME } from './index.ts'
@@ -316,12 +315,25 @@ describe('scrypt-bearing routes', () => {
     )
   })
 
-  test('an open client socket keeps its session verification warm', async () => {
+  test('an open client socket keeps its session verification warm', async (t) => {
     // A connected browser makes no further requests, so without a refresh its
     // entry would expire and the reconnect after an uplink flap would derive.
+    // The refresh itself (`ws/client.ts`'s `keepVerified` interval) is a plain
+    // `setInterval` reading an injectable clock, not something tied to real
+    // network pings — so the sliding-expiry race this spec is about (#811,
+    // previously "fixed" by widening margins in #804/#808) can be driven
+    // deterministically: a fake clock the cache reads its TTL from, and
+    // `node:test`'s mock timers to fire the refresh interval on demand. No
+    // real time elapses, so no OS-scheduler stall can skip a beat.
+    const pingIntervalMs = 20
+    const ttlMs = 400
+    let now = 0
+    const clock = { now: () => now }
+
     const { app, auth, port } = await bootServerWithUplink({
-      clientPing: { intervalMs: 20, timeoutMs: 2000 },
-      verifiedTokenTtlMs: 2000,
+      clientPing: { intervalMs: pingIntervalMs, timeoutMs: 2000 },
+      verifiedTokenTtlMs: ttlMs,
+      verifiedTokenClock: clock,
     })
 
     const invite = await auth.createToken({
@@ -340,6 +352,11 @@ describe('scrypt-bearing routes', () => {
       Array.isArray(rawCookie) ? rawCookie[0] : String(rawCookie)
     ).split(';')[0]
 
+    // Mocking `setInterval` before the socket connects means the `keepVerified`
+    // interval it creates on connect is already the mocked one; `t.mock`
+    // restores the real timers automatically once this test finishes.
+    t.mock.timers.enable({ apis: ['setInterval'] })
+
     const ws = new WebSocket(`ws://127.0.0.1:${port}/client/ws`, {
       headers: { Cookie: cookie, Origin: TEST_BASE_URL },
     })
@@ -347,15 +364,16 @@ describe('scrypt-bearing routes', () => {
     await once(ws, 'open')
     await messageCollector(ws)(500)
 
-    // Several TTLs later: without the refresh the entry is long gone. The TTL
-    // is 100x the 20ms ping cadence (raised from 20x in #804): a 400ms TTL
-    // measurably flaked under `node --test`'s default concurrency, where an
-    // OS-scheduler stall of a few hundred ms on this file's own process is
-    // enough to skip every ping in the window and let a "warm" entry expire
-    // for real — a legitimate race in the test, not in the cache (see
-    // verifiedTokenCache.test.ts for the deterministic, fake-clock coverage of
-    // the sliding-expiry logic itself).
-    await delay(5000)
+    // Step across ten TTLs, one refresh cycle at a time: each step advances
+    // the fake clock by half a TTL and then fires the pending refresh
+    // interval once, exactly mirroring what keeps a real long-lived socket's
+    // entry alive — deterministically, without a single real millisecond
+    // passing.
+    for (let i = 0; i < 10; i++) {
+      now += ttlMs / 2
+      t.mock.timers.tick(pingIntervalMs)
+    }
+
     const derivations = countDerivations(auth)
     const res = await app.inject({
       method: 'GET',

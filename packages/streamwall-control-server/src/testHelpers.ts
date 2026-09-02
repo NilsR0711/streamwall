@@ -22,6 +22,7 @@ import type { ProcessLike } from './bootstrap.ts'
 import type { HeartbeatConfig, RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
+import type { Clock } from './rateLimiter.ts'
 import type { SentryCaptureClient } from './sentry.ts'
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import type { StorageDB, StoredData } from './storage.ts'
@@ -295,6 +296,7 @@ export type TestAppOverrides = Partial<AppOptions> & {
   sentryClient?: SentryCaptureClient
   updateChecker?: UpdateChecker
   verifiedTokenTtlMs?: number
+  verifiedTokenClock?: Clock
 }
 
 /**
