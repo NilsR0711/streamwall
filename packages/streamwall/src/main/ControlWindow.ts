@@ -66,97 +66,82 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
       log.warn('error loading control window', err)
     })
 
-    ipcMain.handle('control:load', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:load', () => {
       this.emit('load')
     })
 
-    ipcMain.handle('control:devtools', () => {
+    this.handleFromControlWindow('control:devtools', () => {
       this.win.webContents.openDevTools()
     })
 
-    ipcMain.handle('control:command', async (ev, command) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:command', async (_ev, command) => {
       if (!this.commandHandler) {
         return
       }
       return this.commandHandler(command)
     })
 
-    ipcMain.handle('control:ydoc', (ev, update) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:ydoc', (_ev, update) => {
       this.emit('ydoc', update)
     })
 
-    ipcMain.handle('control:first-run-info', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
-      return configInfo
-    })
+    this.handleFromControlWindow('control:first-run-info', () => configInfo)
 
-    ipcMain.handle('control:open-config-folder', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:open-config-folder', () => {
       shell.openPath(dirname(configInfo.configPath))
     })
 
-    ipcMain.handle('control:create-example-config', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:create-example-config', () => {
       // Lets a write failure (e.g. a file that raced into existence since
       // hasUserConfig was checked) reject the renderer's invoke() call
       // rather than being swallowed (#246).
       createExampleConfig(configInfo.configPath)
     })
 
-    ipcMain.handle('control:update-status', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:update-status', () => {
       // The renderer may mount after the updater already moved past `idle`,
       // so it pulls the current status once instead of only listening for
       // future transitions.
       return this.updateHandlers?.getStatus() ?? { state: 'idle' }
     })
 
-    ipcMain.handle('control:app-version', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
-      return this.updateHandlers?.getAppVersion() ?? ''
-    })
+    this.handleFromControlWindow(
+      'control:app-version',
+      () => this.updateHandlers?.getAppVersion() ?? '',
+    )
 
-    ipcMain.handle('control:download-update', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:download-update', () => {
       this.updateHandlers?.download()
     })
 
-    ipcMain.handle('control:install-update', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:install-update', () => {
       this.updateHandlers?.install()
     })
 
-    ipcMain.handle('control:open-release-notes', (ev) => {
-      if (ev.sender !== this.win.webContents) {
-        return
-      }
+    this.handleFromControlWindow('control:open-release-notes', () => {
       // Deliberately takes no URL from the renderer: main owns the updater
       // status, so a compromised renderer cannot turn this into an
       // open-anything shell.openExternal gadget.
       this.updateHandlers?.openReleaseNotes()
+    })
+  }
+
+  /**
+   * Registers an `ipcMain.handle` listener that only runs for invocations from
+   * this window's own webContents. `ipcMain` is process-global, so without the
+   * sender check any renderer in the process could reach these channels; making
+   * the guard part of the registration means a newly added channel cannot
+   * forget it (#736).
+   */
+  private handleFromControlWindow(
+    channel: string,
+    listener: Parameters<typeof ipcMain.handle>[1],
+  ) {
+    ipcMain.handle(channel, (ev, ...args) => {
+      if (ev.sender !== this.win.webContents) {
+        return
+      }
+      return listener(ev, ...args)
     })
   }
 
