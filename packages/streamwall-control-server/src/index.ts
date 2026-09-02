@@ -280,5 +280,11 @@ if (isMainModule) {
     clientStaticPath:
       process.env.STREAMWALL_CONTROL_STATIC ??
       path.join(import.meta.dirname, '../../streamwall-control-client/dist'),
+  }).catch((err: unknown) => {
+    // A boot that never got as far as a logger has nothing but `console` left,
+    // and reporting it here keeps a failed start on the same exit-code
+    // convention as a failed shutdown instead of an unhandled rejection.
+    console.error('streamwall-control-server failed to start:', err)
+    process.exit(1)
   })
 }

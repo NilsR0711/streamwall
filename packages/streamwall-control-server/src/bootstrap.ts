@@ -280,10 +280,21 @@ export default async function runServer({
   // directory and may write the default storage.json — would be ignored
   // outright until the grace period expires. Catch it here and replay it into
   // the real handler as soon as there is an app to shut down.
+  //
+  // Installing a listener also suppresses the default disposition everywhere
+  // else, so this one arms a deadline of its own: a `mkdir` or first write
+  // wedged on an unresponsive volume must not leave the process unkillable,
+  // and a second signal in that window gives up immediately — nothing has been
+  // built yet that could be flushed.
   let signalDuringInit: 'SIGTERM' | 'SIGINT' | null = null
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     proc.on(signal, () => {
-      signalDuringInit ??= signal
+      if (signalDuringInit !== null) {
+        proc.exit(1)
+        return
+      }
+      signalDuringInit = signal
+      setTimeout(() => proc.exit(1), DEFAULT_FORCE_EXIT_MS)
     })
   }
 

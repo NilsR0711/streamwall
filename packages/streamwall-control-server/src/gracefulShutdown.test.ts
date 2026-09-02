@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -178,6 +178,32 @@ describe('runServer shutdown wiring', () => {
     assert.deepEqual(exitCodes, [0])
   })
 
+  test('a signal arriving during init is replayed once the app exists', async () => {
+    // `runServer` runs synchronously up to `await initApp`, so a signal emitted
+    // right after the call lands in the window where there is no app to close
+    // yet. It must not be dropped: as PID 1 the kernel discards a signal only
+    // while no handler is installed, and this one is.
+    const logs = captureLogs()
+    const { proc, exitCodes } = fakeProcess()
+    const starting = runServer({
+      baseURL: 'http://127.0.0.1:0',
+      clientStaticPath: import.meta.dirname,
+      db: inMemoryDb(),
+      logLevel: 'trace',
+      logStream: logs.stream,
+      updateChecker: fakeUpdateChecker(),
+      process: proc,
+    })
+    proc.emit('SIGTERM')
+
+    const { server } = await starting
+    after(() => server.close())
+    await logs.waitForMessage('Shutdown complete', 15000)
+
+    assert.equal(server.listening, false)
+    assert.deepEqual(exitCodes, [0])
+  })
+
   test('a signal during the boot waits for the boot to finish writing', async () => {
     // Minting the uplink token is a scrypt derivation plus persisted writes,
     // so a container stop can easily land inside the boot. Exiting on top of
@@ -264,9 +290,11 @@ test('a real SIGTERM to the entry point exits 0 and leaves storage intact', asyn
   // the entry point as a child and signals it the way a container stop does.
   const dataDir = mkdtempSync(path.join(tmpdir(), 'sw-shutdown-'))
   const dbPath = path.join(dataDir, 'storage.json')
+  // Launched exactly the way the image's CMD does — `node <entry>`, on Node's
+  // own type stripping — so this covers the same invocation a container stops.
   const child = spawn(
     process.execPath,
-    ['--import', 'tsx', path.join(import.meta.dirname, 'index.ts')],
+    [path.join(import.meta.dirname, 'index.ts')],
     {
       env: {
         ...process.env,
@@ -279,27 +307,43 @@ test('a real SIGTERM to the entry point exits 0 and leaves storage intact', asyn
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   )
-  after(() => child.kill('SIGKILL'))
+  after(() => {
+    child.kill('SIGKILL')
+    rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  // Both streams are drained: an unread pipe blocks the child once it fills,
+  // and stderr is what says why a boot died.
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
 
   // The credential banner is the last thing the boot prints, so seeing it
-  // means the server is up and the signal lands on a running process.
+  // means the server is up and the signal lands on a running process. Matched
+  // against everything received so far, since a pipe splits where it likes.
   await new Promise<void>((resolve, reject) => {
+    const fail = (reason: string) =>
+      reject(new Error(`${reason}\nstdout: ${stdout}\nstderr: ${stderr}`))
     const timer = setTimeout(
-      () => reject(new Error('the server never finished booting')),
+      () => fail('the server never finished booting'),
       30000,
     )
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (chunk.toString().includes('Admin invite')) {
+    child.on('error', (err) => fail(`the server could not be spawned: ${err}`))
+    child.on('exit', (code) => fail(`the server exited early with ${code}`))
+    child.stdout.on('data', () => {
+      if (stdout.includes('Admin invite')) {
         clearTimeout(timer)
         resolve()
       }
     })
   })
 
+  child.removeAllListeners('exit')
   child.kill('SIGTERM')
   const [code] = (await once(child, 'exit')) as [number | null, string | null]
 
-  assert.equal(code, 0, 'a stop signal must produce a clean exit')
+  assert.equal(code, 0, `a stop signal must produce a clean exit\n${stderr}`)
   assert.doesNotThrow(
     () => JSON.parse(readFileSync(dbPath, 'utf8')),
     'the storage file must survive the shutdown intact',
