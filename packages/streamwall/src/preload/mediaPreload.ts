@@ -580,8 +580,104 @@ export type StreamwallMediaGlobal = typeof mediaApi
 contextBridge.exposeInMainWorld('streamwallMedia', mediaApi)
 
 async function main() {
-  const viewInit = ipcRenderer.invoke('view-init')
+  // Subscribed here rather than next to the 'view-init' request below, since
+  // 'loaded' can only be emitted once this synchronous prologue returns.
   const pageReady = new Promise((resolve) => process.once('loaded', resolve))
+
+  // Operator-set state, all of it tracked across re-acquisitions (which build
+  // a fresh RotationController/VolumeController and unconditionally start
+  // playback) so the operator's latest intent survives an internal stall
+  // recovery (issues #620/#621).
+  //
+  // Each starts out `undefined` and is only defaulted from the view-init
+  // payload below if no IPC message has set it in the meantime: the handlers
+  // are registered before the round trip is awaited (see below), so a message
+  // that arrives while it is still in flight must not be clobbered by the
+  // payload it raced (issue #756).
+  let rotationController: RotationController | undefined
+  let volumeController: VolumeController | undefined
+  let latestVolume: number | undefined
+  let latestRotation: number | undefined
+  let hasReceivedOptions = false
+  // Whether the operator asked this view's playback to stay paused (a parked
+  // view, issue #374). Defaulted from the view-init payload so a fresh view
+  // for an already-paused cell -- in particular a background preload for a
+  // parked cell -- never starts playing before the post-swap 'pause' IPC
+  // arrives (issue #658).
+  let desiredPaused: boolean | undefined
+  // The most recently acquired media element (reassigned across a re-
+  // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
+  // message received at any point can act on whichever one is current.
+  let currentMedia: HTMLMediaElement | undefined
+
+  // The view actor's `context.options` is null until it has seen an OPTIONS
+  // event, and the view-init reply forwards it verbatim, so a null payload is
+  // a normal state rather than an error -- and one that must not throw now
+  // that this runs before the acquisition rather than after it.
+  function updateOptions(options: ContentDisplayOptions | null) {
+    if (!options) {
+      return
+    }
+    hasReceivedOptions = true
+    latestRotation = options.rotation
+    if (rotationController) {
+      rotationController.setCustom(options.rotation)
+    }
+  }
+
+  function updateVolume(volume: number) {
+    latestVolume = volume
+    volumeController?.setVolume(volume)
+  }
+
+  // Every operator channel is subscribed before the 'view-init' round trip is
+  // awaited: Electron drops messages for channels that have no listener yet,
+  // and the main process answers 'view-init' and dispatches VIEW_INIT to the
+  // view actor at the same moment -- so a PAUSE/RESUME processed right after
+  // that would be sent into a renderer still parked on its own `await` and be
+  // lost for good (issue #756, the renderer-side half of #738).
+  ipcRenderer.on('options', (ev, options) => updateOptions(options))
+  ipcRenderer.on('volume', (ev, volume) => updateVolume(volume))
+
+  // Stops/resumes the acquired media element's own playback -- used to pause
+  // a parked (hidden) view instead of keeping it fully live while it's
+  // hidden behind a fullscreen expansion (issue #374). No-ops when no media
+  // has been acquired yet (e.g. a 'web' kind view, or one still loading).
+  ipcRenderer.on('pause', () => {
+    // Announced unconditionally, before the media guard below: the bundled
+    // HLS player page keeps its hls.js instance in a closure this preload
+    // cannot reach, and it should stop fetching segments whether or not a
+    // <video> has been acquired here yet (issue #384).
+    document.dispatchEvent(new CustomEvent(MEDIA_PAUSE_EVENT))
+    desiredPaused = true
+    if (!currentMedia) {
+      return
+    }
+    // lockdownMediaTags() permanently shadows the element's own `pause`
+    // method with a no-op (to stop sites like Facebook from auto-pausing),
+    // so call the native implementation directly instead of
+    // `currentMedia.pause()`, which would silently do nothing.
+    HTMLMediaElement.prototype.pause.call(currentMedia)
+  })
+  ipcRenderer.on('resume', () => {
+    document.dispatchEvent(new CustomEvent(MEDIA_RESUME_EVENT))
+    desiredPaused = false
+    // Live streams are typically not seekable on-demand video, so resuming
+    // after a pause may briefly re-buffer or land slightly behind the live
+    // edge -- both cheaper than a full reload and expected to self-correct
+    // as playback continues. A play() rejection (e.g. autoplay policy) is
+    // otherwise invisible, so log it as a breadcrumb (issue #392).
+    currentMedia?.play().catch((err) => {
+      console.warn('error resuming media playback', err)
+    })
+  })
+
+  // Requested only now that every channel is listening. Keeping the request
+  // below the registrations makes the ordering structural instead of relying
+  // on there being no suspension point in between: the main process answers
+  // 'view-init' and dispatches VIEW_INIT to the view actor in one go, so a
+  // PAUSE/RESUME can follow immediately.
+  const viewInit = ipcRenderer.invoke('view-init')
 
   const [
     {
@@ -594,26 +690,15 @@ async function main() {
 
   const snapshotController = new SnapshotController()
 
-  let rotationController: RotationController | undefined
-  let volumeController: VolumeController | undefined
-  let latestVolume = initialVolume ?? 1
-  // The most recent operator-set rotation, mirroring `latestVolume`: a
-  // re-acquisition constructs a fresh RotationController (which starts at
-  // 0°), and no 'options' message is re-sent for the internal stall
-  // recovery, so the tracked value is re-applied below (issue #620).
-  let latestRotation: number | undefined = initialOptions?.rotation
-  // Whether the operator asked this view's playback to stay paused (a parked
-  // view, issue #374). Initialized from the view-init payload so a fresh view
-  // for an already-paused cell -- in particular a background preload for a
-  // parked cell -- never starts playing before the post-swap 'pause' IPC
-  // arrives (issue #658). Tracked so a re-acquisition -- whose findMedia()
-  // unconditionally starts playback -- can re-assert the pause instead of
-  // silently resuming a hidden view (issue #621).
-  let desiredPaused = initialPaused ?? false
-  // The most recently acquired media element (reassigned across a re-
-  // acquisition, e.g. the 'emptied' handler below), so a PAUSE/RESUME
-  // message received at any point can act on whichever one is current.
-  let currentMedia: HTMLMediaElement | undefined
+  // Fill in whatever no early message already decided. Applied before the
+  // acquisition starts below so the first VolumeController/RotationController
+  // is built from the effective values rather than racing them.
+  desiredPaused ??= initialPaused ?? false
+  latestVolume ??= initialVolume ?? 1
+  if (!hasReceivedOptions) {
+    updateOptions(initialOptions ?? null)
+  }
+
   async function acquireMedia(elementTimeout: number) {
     let snapshotInterval: number | undefined
 
@@ -709,54 +794,6 @@ async function main() {
     webFrame.insertCSS(NO_SCROLL_STYLE, { cssOrigin: 'user' })
     ipcRenderer.send('view-loaded')
   }
-
-  function updateOptions(options: ContentDisplayOptions) {
-    latestRotation = options.rotation
-    if (rotationController) {
-      rotationController.setCustom(options.rotation)
-    }
-  }
-  ipcRenderer.on('options', (ev, options) => updateOptions(options))
-  updateOptions(initialOptions)
-
-  function updateVolume(volume: number) {
-    latestVolume = volume
-    volumeController?.setVolume(volume)
-  }
-  ipcRenderer.on('volume', (ev, volume) => updateVolume(volume))
-
-  // Stops/resumes the acquired media element's own playback -- used to pause
-  // a parked (hidden) view instead of keeping it fully live while it's
-  // hidden behind a fullscreen expansion (issue #374). No-ops when no media
-  // has been acquired yet (e.g. a 'web' kind view, or one still loading).
-  ipcRenderer.on('pause', () => {
-    // Announced unconditionally, before the media guard below: the bundled
-    // HLS player page keeps its hls.js instance in a closure this preload
-    // cannot reach, and it should stop fetching segments whether or not a
-    // <video> has been acquired here yet (issue #384).
-    document.dispatchEvent(new CustomEvent(MEDIA_PAUSE_EVENT))
-    desiredPaused = true
-    if (!currentMedia) {
-      return
-    }
-    // lockdownMediaTags() permanently shadows the element's own `pause`
-    // method with a no-op (to stop sites like Facebook from auto-pausing),
-    // so call the native implementation directly instead of
-    // `currentMedia.pause()`, which would silently do nothing.
-    HTMLMediaElement.prototype.pause.call(currentMedia)
-  })
-  ipcRenderer.on('resume', () => {
-    document.dispatchEvent(new CustomEvent(MEDIA_RESUME_EVENT))
-    desiredPaused = false
-    // Live streams are typically not seekable on-demand video, so resuming
-    // after a pause may briefly re-buffer or land slightly behind the live
-    // edge -- both cheaper than a full reload and expected to self-correct
-    // as playback continues. A play() rejection (e.g. autoplay policy) is
-    // otherwise invisible, so log it as a breadcrumb (issue #392).
-    currentMedia?.play().catch((err) => {
-      console.warn('error resuming media playback', err)
-    })
-  })
 }
 
 main().catch((error) => {

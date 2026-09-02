@@ -1131,6 +1131,16 @@ describe('RotationController', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.resetModules()
+    // These tests import the module for its exported class only, but that
+    // import still runs main(), which now subscribes to its four operator
+    // channels before awaiting the (never-resolving) view-init. Without this
+    // clearing, a later describe's registeredHandler() -- which takes the
+    // first matching ipcRenderer.on call -- would bind to a handler closed
+    // over this dead module instance.
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
   })
 
   async function makeController() {
@@ -1582,5 +1592,202 @@ describe('mediaPreload paused acquisition announces the park to the page world (
 
     expect(events).toEqual(['streamwall:media-resume'])
     expect(video.paused).toBe(false)
+  })
+})
+
+describe('mediaPreload IPC handlers registered before view-init (issue #756)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    invoke.mockClear()
+    send.mockClear()
+    on.mockClear()
+    exposeInMainWorld.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  function registeredChannels(): string[] {
+    return on.mock.calls.map(([channel]) => channel as string)
+  }
+
+  function registeredHandler(
+    channel: string,
+  ): (ev: unknown, ...args: unknown[]) => void {
+    const call = on.mock.calls.find(([ch]) => ch === channel)
+    if (!call) {
+      throw new Error(`no ipcRenderer.on('${channel}', ...) handler registered`)
+    }
+    return call[1] as (ev: unknown, ...args: unknown[]) => void
+  }
+
+  function viewLoadedCalls() {
+    return send.mock.calls.filter(([channel]) => channel === 'view-loaded')
+  }
+
+  // happy-dom's HTMLVideoElement never implements videoWidth, so give it a
+  // truthy value to skip findMedia's "wait for playing" branch.
+  function playableVideo(): HTMLVideoElement {
+    const video = document.createElement('video')
+    ;(video as unknown as { videoWidth: number }).videoWidth = 100
+    document.body.appendChild(video)
+    return video
+  }
+
+  // Imports the preload with the 'view-init' round trip still in flight, so a
+  // test can deliver IPC in exactly the window this issue is about: after the
+  // main process answered 'view-init' and dispatched to the view actor, but
+  // before the renderer resumed past its own `await`.
+  async function loadWithPendingViewInit(): Promise<
+    (init?: Record<string, unknown>) => Promise<void>
+  > {
+    let resolveInit!: (payload: Record<string, unknown>) => void
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          resolveInit = resolve
+        }),
+    )
+
+    await import('./mediaPreload')
+
+    return async (init: Record<string, unknown> = {}) => {
+      resolveInit({
+        content: { kind: 'video', link: 'https://example.com/stream' },
+        options: {},
+        volume: 1,
+        ...init,
+      })
+      document.dispatchEvent(new Event('DOMContentLoaded'))
+      process.emit('loaded' as never)
+      await vi.advanceTimersByTimeAsync(0)
+    }
+  }
+
+  it('registers the operator IPC handlers before awaiting the view-init round trip', async () => {
+    await loadWithPendingViewInit()
+
+    // Electron drops messages for channels that have no listener yet, so
+    // every channel the main process may send right after answering
+    // 'view-init' has to be listening already.
+    expect(registeredChannels()).toEqual(
+      expect.arrayContaining(['pause', 'resume', 'options', 'volume']),
+    )
+    // Pinned by call order rather than by "they exist once the import
+    // settled": the request must go out only after every channel is
+    // listening, so no suspension point can ever be introduced between the
+    // two and silently reopen the window.
+    const requestedAt = invoke.mock.invocationCallOrder[0]
+    for (const channel of ['pause', 'resume', 'options', 'volume']) {
+      const index = on.mock.calls.findIndex(([ch]) => ch === channel)
+      expect(on.mock.invocationCallOrder[index]).toBeLessThan(requestedAt)
+    }
+  })
+
+  it('honors a pause delivered before view-init resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('pause')(null)
+    await settleViewInit({ paused: false })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.paused).toBe(true)
+  })
+
+  it('does not let the view-init payload clobber a resume delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('resume')(null)
+    await settleViewInit({ paused: true })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.paused).toBe(false)
+  })
+
+  it('announces an early pause to the page world at acquisition time too', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+    const events: string[] = []
+    document.addEventListener('streamwall:media-pause', (ev) =>
+      events.push(ev.type),
+    )
+
+    registeredHandler('pause')(null)
+    await settleViewInit({ paused: false })
+
+    // Once from the handler itself (no media existed yet) and once from the
+    // acquisition re-asserting the park on the element it just found, so a
+    // freshly created hls.js instance also learns to stop loading (#667).
+    expect(events).toEqual(['streamwall:media-pause', 'streamwall:media-pause'])
+    expect(video.paused).toBe(true)
+  })
+
+  it('does not let the view-init payload clobber a volume delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('volume')(null, 0.25)
+    await settleViewInit({ volume: 1 })
+
+    expect(video.volume).toBe(0.25)
+  })
+
+  it('keeps an early volume of 0, which a truthiness check would discard', async () => {
+    // The defaulting has to be nullish (`??=`), not `||=`: a muted view is a
+    // legitimate operator choice and must not fall back to the payload.
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('volume')(null, 0)
+    await settleViewInit({ volume: 1 })
+
+    expect(video.volume).toBe(0)
+  })
+
+  it('does not let the view-init payload clobber options delivered before it resolved', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    registeredHandler('options')(null, { rotation: 90 })
+    await settleViewInit({ options: { rotation: 180 } })
+
+    expect(video.className).toBe('__rot90__')
+  })
+
+  it('still applies the view-init payload when no message arrived early', async () => {
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    await settleViewInit({
+      paused: true,
+      volume: 0.5,
+      options: { rotation: 270 },
+    })
+
+    expect(video.paused).toBe(true)
+    expect(video.volume).toBe(0.5)
+    expect(video.className).toBe('__rot270__')
+  })
+
+  it('acquires media when view-init reports no display options yet', async () => {
+    // The view actor's `context.options` starts out null and only becomes an
+    // object once it has seen an OPTIONS event, so the payload legitimately
+    // carries null. Dereferencing it must not abort main() before the
+    // acquisition it now precedes.
+    const video = playableVideo()
+    const settleViewInit = await loadWithPendingViewInit()
+
+    await settleViewInit({ options: null })
+
+    expect(viewLoadedCalls()).toHaveLength(1)
+    expect(video.className).toBe('__rot0__')
+    // Not just "the view still loads": before the guard, dereferencing the
+    // null threw out of main() and put the tile into an error state.
+    expect(send).not.toHaveBeenCalledWith('view-error', expect.anything())
   })
 })
