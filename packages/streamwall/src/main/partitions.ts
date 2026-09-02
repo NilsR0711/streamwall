@@ -176,20 +176,33 @@ export function installRequestSSRFGuard(
 
 /**
  * Applies baseline hardening to a session: denies every permission request
- * (camera, microphone, geolocation, notifications, etc.) from web content and
- * installs the network-layer SSRF guard so redirects and sub-resources are
- * revalidated against the same non-public-address policy.
+ * (camera, microphone, geolocation, notifications, etc.) from web content, and
+ * answers no to every synchronous permission *check* as well, and installs the
+ * network-layer SSRF guard so redirects and sub-resources are revalidated
+ * against the same non-public-address policy.
  *
- * Both handlers are per-session in Electron, so this must be called for each
- * isolated partition rather than once for a shared one.
+ * The two permission handlers cover different paths. The request handler is the
+ * prompt path; Chromium consults the check handler on its own for
+ * `navigator.permissions.query`, device enumeration and other capability probes
+ * that never raise a prompt, and grants them by default when no handler is set.
+ * They govern the same permission names, so answering no to both says one thing
+ * consistently rather than leaving content able to learn what it would be
+ * refused (#789).
+ *
+ * All three handlers are per-session in Electron, so this must be called for
+ * each isolated partition rather than once for a shared one.
  */
 export function hardenSession(
-  session: Pick<Session, 'setPermissionRequestHandler'> &
+  session: Pick<
+    Session,
+    'setPermissionRequestHandler' | 'setPermissionCheckHandler'
+  > &
     RequestFilteringSession,
   options: RequestGuardOptions = {},
 ): void {
   session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
+  session.setPermissionCheckHandler(() => false)
   installRequestSSRFGuard(session, options)
 }
