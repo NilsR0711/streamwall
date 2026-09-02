@@ -5,6 +5,7 @@ import { StreamwallState } from 'streamwall-shared'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
 import { Overlay } from './OverlayRoot'
+import { layerLinksKey, useBlockedLayerURLs } from './useBlockedLayerURLs'
 
 import '@fontsource/noto-sans'
 import 'streamwall-control-ui/src/index.css'
@@ -17,8 +18,17 @@ declare global {
 
 initRendererSentry()
 
+const subscribeBlockedURLs = (handleBlocked: (url: string) => void) =>
+  window.streamwallLayer.onBlockedURL(handleBlocked)
+
 function App() {
   const [state, setState] = useState<StreamwallState | undefined>()
+  // Both layers report here (the overlay is the only child the wall's tiles are
+  // never stacked over), so the notice clears when either layer's links change.
+  const blockedURLs = useBlockedLayerURLs(
+    subscribeBlockedURLs,
+    state && layerLinksKey(state.streams),
+  )
 
   useEffect(() => {
     const unsubscribe = window.streamwallLayer.onState(setState)
@@ -35,7 +45,14 @@ function App() {
   }
 
   const { config, views, streams } = state
-  return <Overlay config={config} views={views} streams={streams} />
+  return (
+    <Overlay
+      config={config}
+      views={views}
+      streams={streams}
+      blockedURLs={blockedURLs}
+    />
+  )
 }
 
 render(<App />, document.body)

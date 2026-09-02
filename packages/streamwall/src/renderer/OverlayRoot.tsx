@@ -3,8 +3,10 @@ import { StreamwallState, type ViewPos } from 'streamwall-shared'
 import { styled } from 'styled-components'
 import { matchesState } from 'xstate'
 import packageInfo from '../../package.json'
+import { BlockedLayerNotices } from './BlockedLayerNotice'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
 import { OverlayViewTile } from './OverlayViewTile'
+import { layerFrameKey, layerLinksKey } from './useBlockedLayerURLs'
 
 // Extracted from overlay.tsx so it can be rendered and tested in isolation,
 // without pulling in the module-level `render(<App />, document.body)` call.
@@ -12,7 +14,11 @@ export function Overlay({
   config,
   views,
   streams,
-}: Pick<StreamwallState, 'config' | 'views' | 'streams'>) {
+  blockedURLs = [],
+}: Pick<StreamwallState, 'config' | 'views' | 'streams'> & {
+  /** URLs this layer's session refused to fetch (#790). */
+  blockedURLs?: readonly string[]
+}) {
   const { width, height, activeColor } = config
   // Keep error views on the wall (instead of leaving a silent black cell) so the
   // failure and its reason are visible; they are rendered as an error tile below.
@@ -20,6 +26,7 @@ export function Overlay({
     matchesState('displaying', state),
   )
   const overlays = streams.filter((s) => s.kind === 'overlay')
+  const linksKey = layerLinksKey(streams)
   return (
     <OverlayContainer>
       <VersionFooter />
@@ -74,13 +81,14 @@ export function Overlay({
       })}
       {overlays.map((s) => (
         <OverlayIFrame
-          key={s._id}
+          key={layerFrameKey(linksKey, s._id)}
           src={s.link}
           sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"
           scrolling="no"
         />
       ))}
+      <BlockedLayerNotices urls={blockedURLs} />
     </OverlayContainer>
   )
 }

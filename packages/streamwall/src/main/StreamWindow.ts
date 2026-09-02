@@ -41,6 +41,13 @@ import viewStateMachine, {
 } from './viewStateMachine'
 import { resolveWindowPlacement } from './windowPlacement'
 
+/**
+ * How many blocked-URL reports are held for an overlay renderer that has not
+ * announced itself yet. The reports come from whatever the layers are framing,
+ * so the queue cannot be unbounded.
+ */
+export const MAX_PENDING_BLOCKED_URLS = 20
+
 function getDisplayOptions(stream: StreamData): ContentDisplayOptions {
   if (!stream) {
     return {}
@@ -103,6 +110,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
   // (otherwise constructing a second StreamWindow -- e.g. a future
   // recreate-on-config-reload path -- would crash). Filled in the constructor.
   private ipcTeardowns: Array<() => void> = []
+
+  // Whether the overlay renderer has announced itself, and what the SSRF guard
+  // refused before it did (#790).
+  private overlayLoaded = false
+  private pendingBlockedURLs: string[] = []
+  // Set by `dispose()`: the per-partition `webRequest` listener the guard
+  // installs outlives this window, so the reporter must stop reaching back into
+  // a torn-down one.
+  private disposed = false
 
   constructor(
     config: StreamWindowConfig,
@@ -223,6 +239,18 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       // dev server on loopback; allow that origin so the SSRF request guard
       // does not cancel the layer's own load.
       allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+      // Unlike a stream view, a layer has no `did-fail-load` surface -- and a
+      // cancelled load inside one of its iframes would not reach one anyway --
+      // so a blocked URL would just go blank (#790).
+      //
+      // Both layers report into the overlay, which is the only child the stream
+      // views are never stacked on top of: a notice drawn on the background
+      // layer would sit underneath the wall's tiles and be invisible on any
+      // populated grid. Only the URL crosses IPC -- the guard's per-request
+      // reason already embeds it, and it refuses for one reason (the address is
+      // not a public one), which the overlay states once. The full wording
+      // stays in the main log.
+      onBlocked: (url) => this.reportBlockedURL(url),
     })
     layerView.setBackgroundColor('#0000')
     this.win.contentView.addChildView(layerView)
@@ -238,6 +266,42 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       log.warn('error loading chrome layer', page, err)
     })
     return layerView
+  }
+
+  /**
+   * Tells the overlay layer that a session refused a URL, so the wall can say
+   * so instead of just going blank (#790).
+   *
+   * Held until the overlay has announced itself with `layer:load`: the two
+   * layers load concurrently, and the background layer -- created first, with
+   * the lighter bundle -- can have its iframe refused while the overlay's
+   * renderer has no listener yet, which would drop the report and leave exactly
+   * the blank layer this exists to explain. Bounded, because the reports come
+   * from whatever the layers are framing.
+   */
+  private reportBlockedURL(url: string) {
+    if (this.disposed) {
+      return
+    }
+    if (!this.overlayLoaded) {
+      // Drops the newcomer rather than the oldest, so a layer page issuing a
+      // stream of refused requests cannot push the operator's own refused link
+      // out of the queue before the overlay is listening.
+      if (this.pendingBlockedURLs.length < MAX_PENDING_BLOCKED_URLS) {
+        this.pendingBlockedURLs.push(url)
+      }
+      return
+    }
+    this.sendBlockedURL(url)
+  }
+
+  private sendBlockedURL(url: string) {
+    const { webContents } = this.overlayView
+    // May already be gone during window teardown.
+    if (webContents.isDestroyed()) {
+      return
+    }
+    webContents.send('layer:blocked-url', url)
   }
 
   /**
@@ -278,6 +342,16 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         ev.sender !== this.overlayView.webContents
       ) {
         return
+      }
+      if (ev.sender === this.overlayView.webContents) {
+        // The overlay is listening now, so anything refused while it was still
+        // loading can be delivered (#790).
+        this.overlayLoaded = true
+        const pending = this.pendingBlockedURLs
+        this.pendingBlockedURLs = []
+        for (const url of pending) {
+          this.sendBlockedURL(url)
+        }
       }
       this.emit('load')
     })
@@ -369,6 +443,8 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * Idempotent: calling it twice is a no-op.
    */
   dispose() {
+    this.disposed = true
+    this.pendingBlockedURLs = []
     for (const teardown of this.ipcTeardowns) {
       teardown()
     }

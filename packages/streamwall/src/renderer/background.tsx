@@ -8,6 +8,7 @@ import { StreamData, StreamList } from '../../../streamwall-shared/src/types'
 import { StreamwallLayerGlobal } from '../preload/layerPreload'
 import { initRendererSentry } from './initSentry'
 import { LAYER_FRAME_SANDBOX } from './layerFrameSandbox'
+import { layerFrameKey, layerLinksKey } from './useBlockedLayerURLs'
 
 declare global {
   interface Window {
@@ -19,11 +20,12 @@ initRendererSentry()
 
 function Background({ streams }: { streams: StreamList }) {
   const backgrounds = streams.filter((s) => s.kind === 'background')
+  const linksKey = layerLinksKey(streams)
   return (
     <div>
       {backgrounds.map((s) => (
         <BackgroundIFrame
-          key={s._id}
+          key={layerFrameKey(linksKey, s._id)}
           src={s.link}
           sandbox={LAYER_FRAME_SANDBOX}
           allow="autoplay"

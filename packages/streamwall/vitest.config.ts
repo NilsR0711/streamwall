@@ -46,6 +46,14 @@ export default defineConfig({
     },
   },
   test: {
+    // happy-dom otherwise really fetches an `<iframe src>`, so the layer
+    // renderer tests would do live DNS and HTTP. Nothing leaves the machine
+    // now, but happy-dom still throws a NotSupportedError per skipped frame and
+    // prints its stack -- it does this for `about:blank` too, so no choice of
+    // test URL avoids it.
+    environmentOptions: {
+      happyDOM: { settings: { disableIframePageLoading: true } },
+    },
     server: {
       deps: {
         inline: [/react-icons/, /styled-components/],

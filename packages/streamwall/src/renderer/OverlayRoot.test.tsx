@@ -128,3 +128,103 @@ describe('overlay view identity across a shrinking view list', () => {
     expect(tileAfter).toBe(tileBefore)
   })
 })
+
+function makeOverlayStream(link: string): StreamData {
+  return {
+    _id: link,
+    _dataSource: 'custom',
+    kind: 'overlay',
+    link,
+  }
+}
+
+function renderOverlayStreams(
+  streams: StreamData[],
+  blockedURLs?: readonly string[],
+): HTMLDivElement {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  act(() => {
+    render(
+      <Overlay
+        config={makeConfig(1)}
+        views={[]}
+        streams={streams}
+        blockedURLs={blockedURLs}
+      />,
+      container!,
+    )
+  })
+  return container
+}
+
+// The SSRF request guard cancels a rejected overlay URL at the network layer,
+// which the layer would otherwise experience only as an iframe that never
+// paints -- and a layer has no `did-fail-load` surface to report it (#790).
+describe('overlay blocked-URL rendering', () => {
+  test('frames each overlay and says nothing while none was refused', () => {
+    const root = renderOverlayStreams([
+      makeOverlayStream('https://ok.example/overlay'),
+    ])
+
+    expect(root.querySelector('iframe')?.getAttribute('src')).toBe(
+      'https://ok.example/overlay',
+    )
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  test('names a refused URL on the wall', () => {
+    const root = renderOverlayStreams(
+      [makeOverlayStream('http://192.168.1.50/overlay')],
+      ['http://192.168.1.50/overlay'],
+    )
+
+    expect(root.textContent).toContain('http://192.168.1.50/overlay')
+    expect(root.textContent).toContain('not a public address')
+  })
+
+  test('remounts every layer frame when any layer link is edited', () => {
+    // A refused frame is requested exactly once, so a layer that is still
+    // blocked has to be re-requested to report itself again once the operator's
+    // edit has cleared the notice -- including a layer they did not touch.
+    const untouched = makeOverlayStream('https://untouched.example/overlay')
+    const root = renderOverlayStreams([
+      untouched,
+      makeOverlayStream('http://192.168.1.50/overlay'),
+    ])
+    const frameBefore = root.querySelectorAll('iframe')[0]
+
+    act(() => {
+      render(
+        <Overlay
+          config={makeConfig(1)}
+          views={[]}
+          streams={[untouched, makeOverlayStream('https://fixed.example/x')]}
+        />,
+        root,
+      )
+    })
+
+    const frameAfter = root.querySelectorAll('iframe')[0]
+    expect(frameAfter.getAttribute('src')).toBe(
+      'https://untouched.example/overlay',
+    )
+    expect(frameAfter).not.toBe(frameBefore)
+  })
+
+  test('leaves every frame mounted, so a URL refused once can still succeed', () => {
+    const root = renderOverlayStreams(
+      [
+        makeOverlayStream('http://192.168.1.50/overlay'),
+        makeOverlayStream('https://ok.example/overlay'),
+      ],
+      ['http://192.168.1.50/overlay'],
+    )
+
+    expect(
+      [...root.querySelectorAll('iframe')].map((frame) =>
+        frame.getAttribute('src'),
+      ),
+    ).toEqual(['http://192.168.1.50/overlay', 'https://ok.example/overlay'])
+  })
+})

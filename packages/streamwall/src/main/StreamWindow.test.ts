@@ -137,7 +137,8 @@ vi.mock('./partitions', async (importOriginal) => ({
   hardenSession: vi.fn(),
 }))
 
-const { default: StreamWindow } = await import('./StreamWindow')
+const { default: StreamWindow, MAX_PENDING_BLOCKED_URLS } =
+  await import('./StreamWindow')
 const { devServerOrigin, loadHTML, rendererPageURL } =
   await import('./loadHTML')
 const { secureAppWindow } = await import('./navigationSecurity')
@@ -1648,19 +1649,20 @@ describe('StreamWindow constructor', () => {
     // Asserted on the call list rather than by iterating it: an empty list
     // would let a `for` loop pass without hardening anything at all.
     expect(
-      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
-    ).toEqual([
-      { allowedOrigins: ['http://localhost:5173'] },
-      { allowedOrigins: ['http://localhost:5173'] },
-    ])
+      vi
+        .mocked(hardenSession)
+        .mock.calls.map(([, options]) => options?.allowedOrigins),
+    ).toEqual([['http://localhost:5173'], ['http://localhost:5173']])
   })
 
   it('passes no allowed origins in a packaged build, where there is no dev server', () => {
     new StreamWindow(makeConfig())
 
     expect(
-      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
-    ).toEqual([{ allowedOrigins: [] }, { allowedOrigins: [] }])
+      vi
+        .mocked(hardenSession)
+        .mock.calls.map(([, options]) => options?.allowedOrigins),
+    ).toEqual([[], []])
   })
 
   // The layers render the app's own page and hold the `streamwallLayer` bridge,
@@ -1692,6 +1694,116 @@ describe('StreamWindow constructor', () => {
       { openExternal: null, allowSubframeNavigation: true },
       { openExternal: null, allowSubframeNavigation: true },
     ])
+  })
+
+  // A blocked request is otherwise invisible in the layer: unlike a stream view
+  // it has no `did-fail-load` surface, and a cancelled load inside an iframe
+  // would not reach one anyway (#790).
+  describe('blocked-URL reporting', () => {
+    function layerLoadHandler() {
+      const call = electronStub.ipcMain.handle.mock.calls.find(
+        ([channel]) => channel === 'layer:load',
+      )
+      if (!call) throw new Error('layer:load was not registered')
+      return call[1] as (ev: { sender: unknown }) => unknown
+    }
+
+    function reportersOf(sw: InstanceType<typeof StreamWindow>) {
+      void sw
+      const [[, background], [, overlay]] = vi.mocked(hardenSession).mock.calls
+      return {
+        background: background!.onBlocked!,
+        overlay: overlay!.onBlocked!,
+      }
+    }
+
+    it("sends both layers' blocked URLs to the overlay once it is listening", () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background, overlay } = reportersOf(sw)
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+
+      background('http://192.168.1.50/bg', 'private network')
+      overlay('http://169.254.169.254/meta', 'private network')
+
+      // Both land on the overlay: it is the only child the stream views are
+      // never stacked over, so a notice on the background layer would be hidden
+      // behind the wall's tiles.
+      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+        ['layer:blocked-url', 'http://192.168.1.50/bg'],
+        ['layer:blocked-url', 'http://169.254.169.254/meta'],
+      ])
+      expect(sw.backgroundView.webContents.send).not.toHaveBeenCalled()
+    })
+
+    it('holds a report made before the overlay renderer subscribed, and replays it', () => {
+      // The layers load concurrently and the background one is created first,
+      // so its iframe can be refused while the overlay has no listener yet.
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+
+      background('http://192.168.1.50/bg', 'private network')
+      expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
+
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+
+      expect(sw.overlayView.webContents.send.mock.calls).toEqual([
+        ['layer:blocked-url', 'http://192.168.1.50/bg'],
+      ])
+    })
+
+    it("drops further held reports rather than the operator's own once the queue is full", () => {
+      // A layer page can issue a stream of refused requests; the first report,
+      // which is the one for the operator's own link, must survive it.
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+
+      background('http://192.168.1.50/the-operators-link', 'private network')
+      for (let i = 0; i < 100; i++) {
+        background(`http://192.168.1.50/?churn=${i}`, 'private network')
+      }
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+
+      const replayed = sw.overlayView.webContents.send.mock.calls
+      expect(replayed[0]).toEqual([
+        'layer:blocked-url',
+        'http://192.168.1.50/the-operators-link',
+      ])
+      expect(replayed.length).toBeLessThanOrEqual(MAX_PENDING_BLOCKED_URLS)
+    })
+
+    it('does not replay held reports when it is the background layer that loads', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+
+      background('http://192.168.1.50/bg', 'private network')
+      layerLoadHandler()({ sender: sw.backgroundView.webContents })
+
+      expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
+    })
+
+    it('does not report once the overlay is gone', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+      vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(true)
+
+      background('http://192.168.1.50/x', 'private network')
+
+      expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
+    })
+
+    it('stops reporting into a disposed window', () => {
+      // The guard's `webRequest` listener outlives this window: the session is
+      // cached by Electron for the life of the app.
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      layerLoadHandler()({ sender: sw.overlayView.webContents })
+      sw.dispose()
+
+      background('http://192.168.1.50/x', 'private network')
+
+      expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
+    })
   })
 
   it('starts with empty view bookkeeping', () => {

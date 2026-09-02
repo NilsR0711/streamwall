@@ -20,6 +20,7 @@ type LayerApi = {
   openDevTools: () => unknown
   load: () => unknown
   onState: (handleState: (state: unknown) => void) => () => void
+  onBlockedURL: (handleBlocked: (url: string) => void) => () => void
 }
 
 function importedLayerApi(): LayerApi {
@@ -44,7 +45,7 @@ describe('layerPreload bridge shape', () => {
     await import('./layerPreload')
 
     expect(Object.keys(importedLayerApi()).sort()).toEqual(
-      ['load', 'onState', 'openDevTools'].sort(),
+      ['load', 'onBlockedURL', 'onState', 'openDevTools'].sort(),
     )
   })
 
@@ -102,5 +103,34 @@ describe('layerPreload onState listener lifecycle', () => {
     unsubscribe()
 
     expect(off).toHaveBeenCalledWith('state', internalHandler)
+  })
+})
+
+describe('layerPreload onBlockedURL listener lifecycle', () => {
+  it('subscribes to the blocked-url IPC channel and forwards the payload', async () => {
+    await import('./layerPreload')
+    const handleBlocked = vi.fn()
+
+    importedLayerApi().onBlockedURL(handleBlocked)
+
+    const [, internalHandler] = on.mock.calls.find(
+      ([ch]) => ch === 'layer:blocked-url',
+    )!
+    internalHandler({}, 'http://192.168.1.50/x')
+
+    expect(handleBlocked).toHaveBeenCalledWith('http://192.168.1.50/x')
+  })
+
+  it('removes the same listener it registered when unsubscribed', async () => {
+    await import('./layerPreload')
+
+    const unsubscribe = importedLayerApi().onBlockedURL(vi.fn())
+    const [, internalHandler] = on.mock.calls.find(
+      ([ch]) => ch === 'layer:blocked-url',
+    )!
+
+    unsubscribe()
+
+    expect(off).toHaveBeenCalledWith('layer:blocked-url', internalHandler)
   })
 })
