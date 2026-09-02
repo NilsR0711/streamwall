@@ -1,4 +1,9 @@
-import { MAX_LAYOUT_PRESETS, type LayoutPreset } from 'streamwall-shared'
+import {
+  asCellIdx,
+  MAX_LAYOUT_PRESETS,
+  type CellIdx,
+  type LayoutPreset,
+} from 'streamwall-shared'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import {
@@ -105,6 +110,7 @@ describe('applyLayoutPreset', () => {
         cols = c
         rows = r
       },
+      setFullscreenViewIdx: () => {},
     }
 
     const preset: LayoutPreset = {
@@ -144,6 +150,7 @@ describe('applyLayoutPreset', () => {
         cols = c
         rows = r
       },
+      setFullscreenViewIdx: () => {},
     }
 
     applyLayoutPreset(ctx, {
@@ -157,6 +164,36 @@ describe('applyLayoutPreset', () => {
     expect(observedDims.length).toBeGreaterThan(0)
     for (const dims of observedDims) {
       expect(dims).toEqual([2, 2])
+    }
+  })
+})
+
+// A preset replaces the grid assignments wholesale, so a cell index recorded
+// before the load means nothing afterwards: the expansion has to be dropped
+// rather than pointed at whatever the preset put in that cell (issue #739).
+describe('applyLayoutPreset fullscreen expansion (issue #739)', () => {
+  it('clears the expansion before the transact observer runs', () => {
+    const { doc, viewsState } = makeViewsState({ 0: 'a', 1: 'b' })
+    let fullscreenViewIdx: CellIdx | null = asCellIdx(1)
+    const observed: (number | null)[] = []
+    viewsState.observeDeep(() => observed.push(fullscreenViewIdx))
+
+    applyLayoutPreset(
+      {
+        viewsState,
+        transact: (fn: () => void) => doc.transact(fn),
+        setGridSize: () => {},
+        setFullscreenViewIdx: (idx) => {
+          fullscreenViewIdx = idx
+        },
+      },
+      { id: 'p', name: 'Saved', cols: 2, rows: 2, views: {} },
+    )
+
+    expect(fullscreenViewIdx).toBeNull()
+    expect(observed.length).toBeGreaterThan(0)
+    for (const idx of observed) {
+      expect(idx).toBeNull()
     }
   })
 })

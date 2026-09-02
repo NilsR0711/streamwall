@@ -241,6 +241,35 @@ export function hasGridAssignments(
 }
 
 /**
+ * Translates a single grid cell index from one grid geometry to another by its
+ * (x, y) position, mirroring `remapGridAssignments` so an index and the
+ * assignments it points at stay in agreement across a resize.
+ *
+ * Returns null when the cell has no counterpart in the new grid, and likewise
+ * for an index that already lies outside the old grid (a stale value left over
+ * from a previously larger grid, see issue #17).
+ *
+ * Used for `fullscreenViewIdx`, which addresses the expanded tile by cell
+ * rather than by stable view id (issue #739).
+ */
+export function remapCellIdx(
+  oldCols: number,
+  oldRows: number,
+  newCols: number,
+  newRows: number,
+  idx: CellIdx | null,
+): CellIdx | null {
+  if (idx === null || idx < 0 || idx >= oldCols * oldRows) {
+    return null
+  }
+  const { x, y } = idxToCoords(oldCols, idx)
+  if (x >= newCols || y >= newRows) {
+    return null
+  }
+  return asCellIdx(newCols * y + x)
+}
+
+/**
  * Remaps grid cell assignments when the grid dimensions change. Each non-empty
  * assignment is preserved at the same (x, y) position if that position still
  * exists in the new grid; assignments that fall outside the new grid are
