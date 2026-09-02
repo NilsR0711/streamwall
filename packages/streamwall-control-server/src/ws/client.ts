@@ -29,6 +29,9 @@ export interface ClientRouteOptions {
   verifiedTokens: VerifiedTokenCache
 }
 
+/** Where a request remembers whether it was charged for a derivation. */
+const DERIVES = Symbol('streamwall.derivesToken')
+
 /** Splits an `s` cookie into its token id and secret, or null if malformed. */
 function parseSessionCookie(
   cookie: string | undefined,
@@ -74,10 +77,41 @@ export function registerClientRoutes(
     // charged against the budget that exists to bound scrypt work: a logged-out
     // tab retrying its socket would otherwise spend the whole budget and lock
     // out the operator trying to log in from the same address.
-    return (
-      session !== null &&
-      verifiedTokens.get('session', session.tokenId, session.secret) === null
-    )
+    if (session === null) {
+      return false
+    }
+    // Requests on one credential share a single verification, so only the one
+    // that will actually run it is charged: when the uplink drops and every
+    // tab reconnects at once, that herd costs one derivation between them
+    // rather than one each — and no lockout.
+    return verifiedTokens.willDerive('session', session.tokenId, session.secret)
+  }
+
+  /**
+   * `keyGenerator` and `max` both run per request, and claiming a derivation is
+   * a side effect, so the classification is computed once and remembered on the
+   * request.
+   */
+  const derivesOnce = (request: FastifyRequest): boolean => {
+    const memo = request as unknown as Record<symbol, boolean | undefined>
+    memo[DERIVES] ??= derives(request)
+    return memo[DERIVES]
+  }
+
+  /**
+   * A request that was charged for a derivation but never ran one — throttled,
+   * or refused further down — hands its claim back, so the next attempt on that
+   * credential is charged rather than riding on it.
+   */
+  const releaseUnusedClaim = async (request: FastifyRequest) => {
+    const memo = request as unknown as Record<symbol, boolean | undefined>
+    if (memo[DERIVES] !== true) {
+      return
+    }
+    const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
+    if (session) {
+      verifiedTokens.releaseClaim('session', session.tokenId, session.secret)
+    }
   }
 
   /**
@@ -88,9 +122,9 @@ export function registerClientRoutes(
    */
   const derivationRateLimit = {
     keyGenerator: (request: FastifyRequest) =>
-      `${request.ip}:${derives(request) ? 'derive' : 'verified'}`,
+      `${request.ip}:${derivesOnce(request) ? 'derive' : 'verified'}`,
     max: (request: FastifyRequest) =>
-      derives(request) ? rateLimit.authMax : rateLimit.globalMax,
+      derivesOnce(request) ? rateLimit.authMax : rateLimit.globalMax,
     timeWindow: rateLimit.timeWindow,
   }
 
@@ -99,25 +133,18 @@ export function registerClientRoutes(
     if (!session) {
       return
     }
-    const cached = verifiedTokens.get(
+    const tokenInfo = await verifiedTokens.verify(
       'session',
       session.tokenId,
       session.secret,
+      () => ctx.auth.validateToken(session.tokenId, session.secret),
     )
-    // The kind is part of the cache key, so this can only ever be a session;
-    // re-asserting it keeps the boundary between a desktop uplink credential
-    // and a browser session in the code that depends on it.
-    if (cached && cached.kind === 'session') {
-      request.identity = cached
-      return
-    }
-    const tokenInfo = await ctx.auth.validateToken(
-      session.tokenId,
-      session.secret,
-    )
+    // The kind is part of the cache key and of what `verify` will remember, so
+    // this can only ever be a session; re-asserting it keeps the boundary
+    // between a desktop uplink credential and a browser session in the code
+    // that depends on it.
     if (tokenInfo && tokenInfo.kind === 'session') {
       request.identity = tokenInfo
-      verifiedTokens.set('session', session.tokenId, session.secret, tokenInfo)
     }
   }
 
@@ -128,7 +155,11 @@ export function registerClientRoutes(
     // someone shop for a known vulnerability, so it stays behind auth.
     fastify.get(
       '/admin/status',
-      { preHandler: authenticate, config: { rateLimit: derivationRateLimit } },
+      {
+        preHandler: authenticate,
+        onResponse: releaseUnusedClaim,
+        config: { rateLimit: derivationRateLimit },
+      },
       async (request, reply) => {
         if (!roleCan(request.identity?.role ?? null, 'view-server-status')) {
           return reply.code(403).send()
@@ -150,6 +181,7 @@ export function registerClientRoutes(
       {
         websocket: true,
         preHandler: authenticate,
+        onResponse: releaseUnusedClaim,
         config: { rateLimit: derivationRateLimit },
       },
       async (ws, request) => {

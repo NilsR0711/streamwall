@@ -17,6 +17,9 @@ import {
   startHeartbeat,
 } from '../wsSupport.ts'
 
+/** Where a request remembers whether it was charged for a derivation. */
+const DERIVES = Symbol('streamwall.derivesToken')
+
 export interface UplinkRouteOptions {
   /** Per-IP budgets: the strict one guards routes that derive a token hash. */
   rateLimit: RateLimitConfig
@@ -44,14 +47,43 @@ export function registerUplinkRoute(
     return (
       token !== null &&
       id !== undefined &&
-      verifiedTokens.get('streamwall', id, token) === null
+      verifiedTokens.willDerive('streamwall', id, token)
     )
+  }
+
+  /**
+   * `keyGenerator` and `max` both run per request, and claiming a derivation is
+   * a side effect, so the classification is computed once and remembered on the
+   * request.
+   */
+  const derivesOnce = (request: FastifyRequest): boolean => {
+    const memo = request as unknown as Record<symbol, boolean | undefined>
+    memo[DERIVES] ??= derives(request)
+    return memo[DERIVES]
+  }
+
+  /**
+   * A handshake that was charged for a derivation but never ran one — throttled
+   * before the handler — hands its claim back, so the next attempt on that
+   * token is charged rather than riding on it.
+   */
+  const releaseUnusedClaim = async (request: FastifyRequest) => {
+    const memo = request as unknown as Record<symbol, boolean | undefined>
+    if (memo[DERIVES] !== true) {
+      return
+    }
+    const token = bearerToken(request.headers.authorization)
+    const { id } = (request.params ?? {}) as { id?: string }
+    if (token !== null && id !== undefined) {
+      verifiedTokens.releaseClaim('streamwall', id, token)
+    }
   }
 
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
     {
       websocket: true,
+      onResponse: releaseUnusedClaim,
       // The handshake below verifies a bearer token against its scrypt hash,
       // so a bogus `Authorization` header is otherwise a cheap way to burn
       // ~16 MiB and tens of milliseconds of thread-pool work per request
@@ -63,9 +95,9 @@ export function registerUplinkRoute(
       config: {
         rateLimit: {
           keyGenerator: (request: FastifyRequest) =>
-            `${request.ip}:${derives(request) ? 'derive' : 'verified'}`,
+            `${request.ip}:${derivesOnce(request) ? 'derive' : 'verified'}`,
           max: (request: FastifyRequest) =>
-            derives(request) ? rateLimit.authMax : rateLimit.globalMax,
+            derivesOnce(request) ? rateLimit.authMax : rateLimit.globalMax,
           timeWindow: rateLimit.timeWindow,
         },
       },
@@ -96,15 +128,16 @@ export function registerUplinkRoute(
         return
       }
 
-      const cached = verifiedTokens.get('streamwall', id, token)
-      const tokenInfo = cached ?? (await ctx.auth.validateToken(id, token))
+      const tokenInfo = await verifiedTokens.verify(
+        'streamwall',
+        id,
+        token,
+        () => ctx.auth.validateToken(id, token),
+      )
       if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
         ws.close()
         return
-      }
-      if (!cached) {
-        verifiedTokens.set('streamwall', id, token, tokenInfo)
       }
 
       const log = request.log.child(identityFields(tokenInfo))

@@ -236,6 +236,7 @@ describe('scrypt-bearing routes', () => {
     // the shared cache this spec is about.
     await logs.waitForMessage('Streamwall connecting')
 
+    const derivations = countDerivations(auth)
     const asSession = await app.inject({
       method: 'GET',
       url: '/admin/status',
@@ -245,6 +246,46 @@ describe('scrypt-bearing routes', () => {
       asSession.statusCode,
       403,
       'an uplink token must carry no authority on the client surface',
+    )
+    assert.equal(
+      derivations.calls,
+      1,
+      'the uplink entry must not even be consulted for a session lookup',
+    )
+  })
+
+  test('tabs reconnecting together on one session cost one derivation', async () => {
+    // When the uplink drops, the server closes every client socket at once and
+    // they all retry. Charging each of that herd against the strict budget
+    // would lock the whole room out of its own reconnect.
+    setEnvForTest({
+      STREAMWALL_RATE_LIMIT_MAX: '100',
+      STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+    })
+    const { app, auth, cookie } = await appWithSession()
+    const derivations = countDerivations(auth)
+
+    const codes = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app
+          .inject({
+            method: 'GET',
+            url: '/admin/status',
+            headers: { cookie },
+          })
+          .then((res) => res.statusCode),
+      ),
+    )
+
+    assert.deepEqual(
+      codes,
+      [200, 200, 200, 200, 200, 200],
+      'a burst on one valid session must not be throttled',
+    )
+    assert.equal(
+      derivations.calls,
+      1,
+      'the concurrent requests must share a single derivation',
     )
   })
 

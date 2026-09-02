@@ -5,7 +5,10 @@ import type { AuthTokenInfo } from 'streamwall-shared'
 
 import type { Auth } from './auth.ts'
 import type { Clock } from './rateLimiter.ts'
-import { createVerifiedTokenCache } from './verifiedTokenCache.ts'
+import {
+  createVerifiedTokenCache,
+  DEFAULT_DERIVATION_CLAIM_TTL_MS,
+} from './verifiedTokenCache.ts'
 
 const IDENTITY: AuthTokenInfo = {
   tokenId: 'abc',
@@ -20,20 +23,27 @@ function harness(options: { ttlMs?: number; maxEntries?: number } = {}) {
   const clock: Clock = { now: () => now }
   const auth = new EventEmitter() as unknown as Auth
   const cache = createVerifiedTokenCache({ auth, clock, ...options })
-  return { cache, auth, advance: (ms: number) => (now += ms) }
+  /** Verifies a credential the way a route does, seeding the cache with it. */
+  const seed = (
+    kind: 'session' | 'streamwall',
+    tokenId: string,
+    secret: string,
+    identity: AuthTokenInfo = { ...IDENTITY, kind },
+  ) => cache.verify(kind, tokenId, secret, async () => identity)
+  return { cache, auth, seed, advance: (ms: number) => (now += ms) }
 }
 
-describe('createVerifiedTokenCache', () => {
-  test('remembers a verification and hands it back', () => {
-    const { cache } = harness()
-    cache.set('session', 'abc', 'secret', IDENTITY)
+describe('createVerifiedTokenCache', async () => {
+  test('remembers a verification and hands it back', async () => {
+    const { cache, seed } = harness()
+    await seed('session', 'abc', 'secret', IDENTITY)
 
     assert.equal(cache.get('session', 'abc', 'secret'), IDENTITY)
   })
 
-  test('never confuses one credential for another', () => {
-    const { cache } = harness()
-    cache.set('session', 'abc', 'secret', IDENTITY)
+  test('never confuses one credential for another', async () => {
+    const { cache, seed } = harness()
+    await seed('session', 'abc', 'secret', IDENTITY)
 
     assert.equal(
       cache.get('session', 'abc', 'other'),
@@ -50,20 +60,21 @@ describe('createVerifiedTokenCache', () => {
     assert.equal(cache.get('session', 'ab', 'csecret'), null)
   })
 
-  test('a credential verified for one kind is never returned for another', () => {
+  test('a credential verified for one kind is never returned for another', async () => {
     // The uplink's bearer token and a browser session cookie carry very
     // different authority; answering a session lookup with the uplink's
     // identity would hand a desktop credential a browser session's rights.
-    const { cache } = harness()
-    cache.set('streamwall', 'abc', 'secret', IDENTITY)
+    const { cache, seed } = harness()
+    const uplink = { ...IDENTITY, kind: 'streamwall' } as AuthTokenInfo
+    await seed('streamwall', 'abc', 'secret', uplink)
 
     assert.equal(cache.get('session', 'abc', 'secret'), null)
-    assert.equal(cache.get('streamwall', 'abc', 'secret'), IDENTITY)
+    assert.equal(cache.get('streamwall', 'abc', 'secret'), uplink)
   })
 
-  test('forgets an entry once its TTL has passed unused', () => {
-    const { cache, advance } = harness({ ttlMs: 5000 })
-    cache.set('session', 'abc', 'secret', IDENTITY)
+  test('forgets an entry once its TTL has passed unused', async () => {
+    const { cache, seed, advance } = harness({ ttlMs: 5000 })
+    await seed('session', 'abc', 'secret', IDENTITY)
 
     advance(4999)
     assert.equal(cache.get('session', 'abc', 'secret'), IDENTITY)
@@ -76,11 +87,11 @@ describe('createVerifiedTokenCache', () => {
     )
   })
 
-  test('a credential in continuous use keeps its entry alive', () => {
+  test('a credential in continuous use keeps its entry alive', async () => {
     // A peer that reconnects every few seconds must not be dropped on a timer
     // and pushed back onto the strict rate-limit budget.
-    const { cache, advance } = harness({ ttlMs: 5000 })
-    cache.set('session', 'abc', 'secret', IDENTITY)
+    const { cache, seed, advance } = harness({ ttlMs: 5000 })
+    await seed('session', 'abc', 'secret', IDENTITY)
 
     for (let i = 0; i < 5; i++) {
       advance(4000)
@@ -88,11 +99,11 @@ describe('createVerifiedTokenCache', () => {
     }
   })
 
-  test('evicts the oldest entry rather than growing without bound', () => {
-    const { cache } = harness({ maxEntries: 2 })
-    cache.set('session', 'one', 's', IDENTITY)
-    cache.set('session', 'two', 's', IDENTITY)
-    cache.set('session', 'three', 's', IDENTITY)
+  test('evicts the oldest entry rather than growing without bound', async () => {
+    const { cache, seed } = harness({ maxEntries: 2 })
+    await seed('session', 'one', 's', IDENTITY)
+    await seed('session', 'two', 's', IDENTITY)
+    await seed('session', 'three', 's', IDENTITY)
 
     assert.equal(
       cache.get('session', 'one', 's'),
@@ -103,11 +114,11 @@ describe('createVerifiedTokenCache', () => {
     assert.equal(cache.get('session', 'three', 's'), IDENTITY)
   })
 
-  test('re-verifying a known credential evicts nobody', () => {
-    const { cache } = harness({ maxEntries: 2 })
-    cache.set('session', 'one', 's', IDENTITY)
-    cache.set('session', 'two', 's', IDENTITY)
-    cache.set('session', 'two', 's', IDENTITY)
+  test('re-verifying a known credential evicts nobody', async () => {
+    const { cache, seed } = harness({ maxEntries: 2 })
+    await seed('session', 'one', 's', IDENTITY)
+    await seed('session', 'two', 's', IDENTITY)
+    await seed('session', 'two', 's', IDENTITY)
 
     assert.equal(
       cache.get('session', 'one', 's'),
@@ -116,9 +127,80 @@ describe('createVerifiedTokenCache', () => {
     )
   })
 
-  test('drops everything as soon as the token set changes', () => {
-    const { cache, auth } = harness()
-    cache.set('session', 'abc', 'secret', IDENTITY)
+  test('never verifies one credential twice at the same time', async () => {
+    // A herd of tabs reconnecting on one session hits the routes before the
+    // first derivation finishes; without single-flighting they would each pay
+    // for their own, and each be charged against the strict rate-limit budget.
+    const { cache } = harness()
+    let derivations = 0
+    let release: (identity: AuthTokenInfo) => void = () => {}
+    const derive = () => {
+      derivations += 1
+      return new Promise<AuthTokenInfo | null>((resolve) => {
+        release = resolve
+      })
+    }
+
+    const inFlight = Array.from({ length: 5 }, () =>
+      cache.verify('session', 'abc', 'secret', derive),
+    )
+    assert.equal(
+      cache.willDerive('session', 'abc', 'secret'),
+      false,
+      'a request joining a running verification pays for no derivation',
+    )
+    release(IDENTITY)
+    const results = await Promise.all(inFlight)
+
+    assert.equal(derivations, 1, 'one credential costs one derivation')
+    assert.deepEqual(new Set(results), new Set([IDENTITY]))
+    assert.equal(
+      cache.willDerive('session', 'abc', 'secret'),
+      false,
+      'the finished verification is now simply a cache hit',
+    )
+  })
+
+  test('charges the first request on an unknown credential, not the herd', async () => {
+    // The rate limiter classifies a request before the handler runs, so the
+    // first of a burst claims the derivation the rest will share; once it
+    // settles, a later request is charged again.
+    const { cache, advance } = harness()
+
+    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
+    assert.equal(
+      cache.willDerive('session', 'abc', 'secret'),
+      false,
+      'the rest of the herd rides on the claim',
+    )
+    assert.equal(
+      cache.willDerive('session', 'other', 'secret'),
+      true,
+      'a different credential is its own derivation',
+    )
+
+    // A claim whose request never verifies must not shield that credential
+    // forever.
+    advance(DEFAULT_DERIVATION_CLAIM_TTL_MS)
+    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
+  })
+
+  test('releases the claim as soon as its verification settles', async () => {
+    const { cache } = harness()
+
+    assert.equal(cache.willDerive('session', 'abc', 'secret'), true)
+    await cache.verify('session', 'abc', 'secret', async () => null)
+
+    assert.equal(
+      cache.willDerive('session', 'abc', 'secret'),
+      true,
+      'a failed verification must leave the next attempt chargeable',
+    )
+  })
+
+  test('drops everything as soon as the token set changes', async () => {
+    const { cache, auth, seed } = harness()
+    await seed('session', 'abc', 'secret', IDENTITY)
 
     auth.emit('state', { invites: [], sessions: [] })
 
