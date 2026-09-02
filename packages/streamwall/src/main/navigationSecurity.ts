@@ -6,6 +6,9 @@ import log from './logger'
 // exercised without a running Electron app.
 interface NavigationEvent {
   readonly url: string
+  // `will-redirect` fires for sub-frames as well as the main frame. Optional
+  // because `secureStreamView`'s guard does not read it (see #794).
+  readonly isMainFrame?: boolean
   preventDefault(): void
 }
 
@@ -92,8 +95,9 @@ export function secureStreamView(webContents: WebContents): void {
 }
 
 /**
- * Lock a window that renders Streamwall's own bundled UI (currently the control
- * window) to that UI, and route outward links to the OS browser instead.
+ * Lock a window that renders one of Streamwall's own bundled pages -- the
+ * control window and the wall's two chrome layers -- to that page, and, where
+ * the caller supplies a way to, route outward links to the OS browser instead.
  *
  * The control window holds the `streamwallControl` bridge, and every `control:*`
  * IPC guard compares `ev.sender` against this very webContents — so a navigation
@@ -110,18 +114,35 @@ export function secureStreamView(webContents: WebContents): void {
  * that URL can only ever be an app page, since nothing else is allowed to
  * commit.
  *
+ * `openExternal` is stated rather than defaulted: the control window hands an
+ * outward link to the OS browser because an operator is sitting in front of it,
+ * while the wall's chrome layers -- which nobody is sitting at, and whose
+ * content is operator-supplied -- pass `null` and get no outward path at all
+ * (#776). Nullable rather than optional so a new caller cannot lose the outward
+ * path by forgetting the field.
+ *
+ * `allowSubframeNavigation` is likewise opt-in. `will-redirect` fires for
+ * sub-frames as well as the main frame, and the chrome layers exist to host
+ * third-party iframes whose own 302s (shortlinks, http->https, CDNs) have to
+ * resolve -- those requests are governed at the network layer by the session's
+ * SSRF guard instead (#733). The control window does not opt in: it renders no
+ * iframe today, and relaxing it would leave `control.html`'s `<meta>` CSP as
+ * the only thing standing between a future embed and remote content.
+ *
  * `appPageURL` and `openExternal` are injected rather than imported so the
  * guards stay testable without a running Electron app; callers pass
- * `rendererPageURL(...)` and `shell.openExternal`.
+ * `rendererPageURL(...)` and either `shell.openExternal` or `null`.
  */
 export function secureAppWindow(
   webContents: WebContents,
   {
     appPageURL,
     openExternal,
+    allowSubframeNavigation = false,
   }: {
     appPageURL: () => string
-    openExternal: (url: string) => void
+    openExternal: ((url: string) => void) | null
+    allowSubframeNavigation?: boolean
   },
 ): void {
   webContents.setWindowOpenHandler(({ url }) => {
@@ -130,7 +151,7 @@ export function secureAppWindow(
     // privileges. Anything the OS browser has no business launching -- and the
     // app's own page, which would just be a second copy of the UI -- is dropped
     // with a breadcrumb rather than silently swallowed.
-    if (url !== appPageURL() && isExternallyOpenable(url)) {
+    if (openExternal && url !== appPageURL() && isExternallyOpenable(url)) {
       // Logged because this is the one thing here that reaches outside the app:
       // an operator wondering why their browser just opened something can
       // correlate it.
@@ -150,6 +171,12 @@ export function secureAppWindow(
   // http-equiv="refresh">`, a dropped URL), and those must not be able to launch
   // the operator's browser at a control-server-supplied address unattended.
   const guard = (event: NavigationEvent) => {
+    // Where the caller hosts third-party iframes, a sub-frame navigating itself
+    // is not this window leaving its page. An event that reports no frame at
+    // all is treated as the main frame, so an unknown event shape fails closed.
+    if (allowSubframeNavigation && event.isMainFrame === false) {
+      return
+    }
     if (event.url === appPageURL() || event.url === webContents.getURL()) {
       return
     }

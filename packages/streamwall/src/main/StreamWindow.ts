@@ -24,9 +24,9 @@ import {
   ViewState,
 } from 'streamwall-shared'
 import { createActor, EventFrom, SnapshotFrom } from 'xstate'
-import { devServerOrigin, loadHTML } from './loadHTML'
+import { devServerOrigin, loadHTML, rendererPageURL } from './loadHTML'
 import log from './logger'
-import { secureStreamView } from './navigationSecurity'
+import { secureAppWindow, secureStreamView } from './navigationSecurity'
 import {
   allocateLayerPartition,
   allocateViewPartition,
@@ -195,6 +195,12 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * with the SSRF request guard and permission denial. Left in Electron's
    * default session it would reach the network with neither, and would share
    * cookies and cache on disk with the control window (#733).
+   *
+   * It is pinned to its own page for the same reason the control window is
+   * (#732/#776): the layer holds the `streamwallLayer` bridge, whose `layer:*`
+   * IPC guards compare `ev.sender` against this very webContents and would keep
+   * passing after a navigation. Unlike the control window it gets no
+   * `openExternal`: nobody is sitting at the wall to receive a browser tab.
    */
   private createLayerView(
     page: 'background' | 'overlay',
@@ -206,6 +212,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         ...webPreferences,
         partition: allocateLayerPartition(),
       },
+    })
+    secureAppWindow(layerView.webContents, {
+      appPageURL: () => rendererPageURL(page),
+      openExternal: null,
+      allowSubframeNavigation: true,
     })
     hardenSession(layerView.webContents.session, {
       // In development the layer page and its assets are served from the Vite
