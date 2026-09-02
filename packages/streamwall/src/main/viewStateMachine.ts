@@ -6,7 +6,12 @@ import {
   WebContentsView,
 } from 'electron'
 import { isEqual } from 'lodash-es'
-import { ViewContent, ViewId, ViewPos } from 'streamwall-shared'
+import {
+  MAX_VIEW_ERROR_LENGTH,
+  ViewContent,
+  ViewId,
+  ViewPos,
+} from 'streamwall-shared'
 import {
   ContentDisplayOptions,
   ContentViewInfo,
@@ -84,15 +89,23 @@ export type DesiredAudio = 'muted' | 'listening' | 'background'
 /**
  * Turns an arbitrary thrown value into a short, serializable reason that can be
  * shown on the wall overlay and in the control UI.
+ *
+ * Some rejection paths (e.g. `main()` in `mediaPreload.ts`) wrap a real
+ * `Error` thrown while loading page-supplied content, so `.message` could in
+ * principle carry attacker-influenced text. This flows into the broadcast
+ * `StreamwallState` (`context.error`), so it is truncated here - the same
+ * denial-of-service vector issue #734 fixed for `document.title` - rather
+ * than left for the schema to reject outright (issue #770). The schema's
+ * `MAX_VIEW_ERROR_LENGTH` bound is the backstop in case this is ever bypassed.
  */
 function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  if (typeof error === 'string') {
-    return error
-  }
-  return String(error)
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : String(error)
+  return message.slice(0, MAX_VIEW_ERROR_LENGTH)
 }
 
 const viewStateMachine = setup({

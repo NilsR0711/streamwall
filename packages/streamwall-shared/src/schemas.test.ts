@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import {
   type ControlCommand,
+  MAX_URL_LENGTH,
+  MAX_VIEW_ERROR_LENGTH,
   MAX_VIEW_IDX,
   MAX_VIEW_INFO_TITLE_LENGTH,
   type ServerStatus,
@@ -355,6 +357,41 @@ describe('controlCommandMessageSchema', () => {
     ).toBe(false)
   })
 
+  // Issue #770: command `url` fields ultimately originate from operator
+  // input, but were unbounded, the same class of gap #734 fixed for
+  // document.title. 2048 (MAX_URL_LENGTH) mirrors common browser URL limits.
+  describe.each([
+    { type: 'rotate-stream', extra: { rotation: 0 } },
+    {
+      type: 'update-custom-stream',
+      extra: { data: { link: 'x', kind: 'video' } },
+    },
+    { type: 'delete-custom-stream', extra: {} },
+    { type: 'browse', extra: {} },
+  ])('bounds the url field on $type', ({ type, extra }) => {
+    test('rejects a url longer than the allowed length', () => {
+      expect(
+        controlCommandMessageSchema.safeParse({
+          id: 1,
+          type,
+          url: 'x'.repeat(MAX_URL_LENGTH + 1),
+          ...extra,
+        }).success,
+      ).toBe(false)
+    })
+
+    test('accepts a url at exactly the allowed length', () => {
+      expect(
+        controlCommandMessageSchema.safeParse({
+          id: 1,
+          type,
+          url: 'x'.repeat(MAX_URL_LENGTH),
+          ...extra,
+        }).success,
+      ).toBe(true)
+    })
+  })
+
   test('accepts create-invite with a known role', () => {
     expect(
       controlCommandMessageSchema.safeParse({
@@ -518,6 +555,31 @@ describe('controlCommandMessageSchema', () => {
       }).success,
     ).toBe(false)
   })
+
+  describe.each(['add-favorite', 'remove-favorite'] as const)(
+    'bounds the url field on %s',
+    (type) => {
+      test('rejects a url longer than the allowed length', () => {
+        expect(
+          controlCommandMessageSchema.safeParse({
+            id: 1,
+            type,
+            url: 'x'.repeat(MAX_URL_LENGTH + 1),
+          }).success,
+        ).toBe(false)
+      })
+
+      test('accepts a url at exactly the allowed length', () => {
+        expect(
+          controlCommandMessageSchema.safeParse({
+            id: 1,
+            type,
+            url: 'x'.repeat(MAX_URL_LENGTH),
+          }).success,
+        ).toBe(true)
+      })
+    },
+  )
 
   test('parsed commands remain assignable to the ControlCommand type', () => {
     const result = controlCommandMessageSchema.safeParse({
@@ -683,6 +745,94 @@ describe('streamwallStateSchema', () => {
             info: { title: 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH) },
             pos: null,
             error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
+  })
+
+  // Issue #770: a view's displayed content `url` is re-broadcast on every
+  // state update, the same class of gap #734 fixed for the info.title field.
+  test('rejects a view content url longer than the allowed length', () => {
+    const tooLong = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: {
+              url: 'https://example.com/' + 'x'.repeat(MAX_URL_LENGTH),
+              kind: 'video',
+            },
+            info: null,
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+  })
+
+  test('accepts a view content url at exactly the allowed length', () => {
+    const atLimit = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: { url: 'x'.repeat(MAX_URL_LENGTH), kind: 'video' },
+            info: null,
+            pos: null,
+            error: null,
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
+  })
+
+  // Issue #770: a view's `error` reason can wrap a rejection derived from
+  // page-supplied content; it flows into the broadcast state, the same
+  // class of gap #734 fixed for the info.title field.
+  test('rejects a view error reason longer than the allowed length', () => {
+    const tooLong = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: { url: 'https://example.com/s', kind: 'video' },
+            info: null,
+            pos: null,
+            error: 'x'.repeat(MAX_VIEW_ERROR_LENGTH + 1),
+            volume: 1,
+          },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+  })
+
+  test('accepts a view error reason at exactly the allowed length', () => {
+    const atLimit = {
+      ...VALID_STATE,
+      views: [
+        {
+          state: 'empty',
+          context: {
+            id: 0,
+            content: { url: 'https://example.com/s', kind: 'video' },
+            info: null,
+            pos: null,
+            error: 'x'.repeat(MAX_VIEW_ERROR_LENGTH),
             volume: 1,
           },
         },
