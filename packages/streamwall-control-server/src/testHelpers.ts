@@ -24,7 +24,7 @@ import type { LogLevel } from './logger.ts'
 import type { SentryCaptureClient } from './sentry.ts'
 import type { DocUpdateLimits } from './stateDocGuard.ts'
 import type { StorageDB, StoredData } from './storage.ts'
-import type { UpdateChecker } from './updateCheck.ts'
+import type { UpdateChecker, UpdateStatus } from './updateCheck.ts'
 
 /**
  * Creates a throwaway directory containing a minimal index.html so that
@@ -37,6 +37,24 @@ export function makeStaticDir(): string {
     '<!doctype html><title>streamwall test</title>',
   )
   return dir
+}
+
+/** Stub `UpdateChecker` so specs never reach GitHub. */
+export function fakeUpdateChecker(): UpdateChecker {
+  const status: UpdateStatus = {
+    version: 'test',
+    latestVersion: null,
+    updateAvailable: false,
+    releaseUrl: null,
+    lastCheckedAt: null,
+    checkEnabled: false,
+  }
+  return {
+    getStatus: () => status,
+    checkNow: async () => status,
+    start: async () => {},
+    stop: () => {},
+  }
 }
 
 /** An isolated in-memory storage backend, so tests never touch the disk. */

@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { inviteLink } from 'streamwall-shared'
 import type { Auth } from './auth.ts'
 import { resolveListenPort } from './config.ts'
@@ -129,6 +130,85 @@ export function logBootstrap({
   console.log('🔑 Admin invite:', adminInviteLink)
 }
 
+/** The slice of `process` the shutdown wiring uses, so specs can inject one. */
+export interface ProcessLike {
+  on(signal: 'SIGTERM' | 'SIGINT', listener: () => void): unknown
+  exit(code?: number): void
+}
+
+/** The slice of a Fastify instance the shutdown wiring uses. */
+interface ClosableApp {
+  log: {
+    info(fields: object, msg?: string): void
+    warn(fields: object, msg?: string): void
+    error(fields: object, msg?: string): void
+  }
+  close(): Promise<void>
+}
+
+/**
+ * How long a shutdown may take before the process exits anyway. A container
+ * runtime escalates to SIGKILL after ~10s of its own, so hanging any longer
+ * only trades a logged force-exit for an unlogged kill.
+ */
+export const DEFAULT_FORCE_EXIT_MS = 10_000
+
+/**
+ * Terminates the server on `SIGTERM`/`SIGINT` instead of letting the runtime
+ * kill it outright: `app.close()` runs the `onClose` hooks (update-checker
+ * teardown, storage flush) and sends WebSocket peers a close frame rather than
+ * a TCP reset (issue #751).
+ *
+ * The shutdown runs at most once, so the second signal an impatient operator
+ * sends cannot re-enter it, and a close that gets stuck still exits by way of
+ * the force-exit timer.
+ */
+export function registerShutdownHandlers({
+  app,
+  process: proc,
+  forceExitAfterMs = DEFAULT_FORCE_EXIT_MS,
+}: {
+  app: ClosableApp
+  process: ProcessLike
+  forceExitAfterMs?: number
+}): void {
+  let shuttingDown = false
+
+  const shutdown = (signal: 'SIGTERM' | 'SIGINT') => {
+    if (shuttingDown) {
+      app.log.warn({ signal }, 'Shutdown already in progress, ignoring signal')
+      return
+    }
+    shuttingDown = true
+    app.log.info({ signal }, 'Shutting down')
+
+    const forceExit = setTimeout(() => {
+      app.log.error({ signal, forceExitAfterMs }, 'Shutdown timed out, exiting')
+      proc.exit(1)
+    }, forceExitAfterMs)
+    // Unref'd so a shutdown that finishes early is never held open by the
+    // timer it no longer needs.
+    forceExit.unref()
+
+    void app.close().then(
+      () => {
+        clearTimeout(forceExit)
+        app.log.info({ signal }, 'Shutdown complete')
+        proc.exit(0)
+      },
+      (err: unknown) => {
+        clearTimeout(forceExit)
+        app.log.error({ err, signal }, 'Shutdown failed')
+        proc.exit(1)
+      },
+    )
+  }
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    proc.on(signal, () => shutdown(signal))
+  }
+}
+
 export default async function runServer({
   port: overridePort,
   hostname: overrideHostname,
@@ -138,9 +218,12 @@ export default async function runServer({
   logLevel,
   logStream,
   updateChecker: injectedUpdateChecker,
+  process: proc = process,
 }: AppOptions & {
   hostname?: string
   port?: string
+  /** Test-only override for the signal source and exit path. */
+  process?: ProcessLike
   /** Test-only override so specs can exercise the real listen() path without touching disk. */
   db?: StorageDB
   /** Overrides the level from `LOG_LEVEL` (used by tests to silence or widen output). */
@@ -179,9 +262,23 @@ export default async function runServer({
   // throws FST_ERR_INSTANCE_ALREADY_LISTENING otherwise (issue #442).
   app.addHook('onClose', async () => {
     updateChecker.stop()
+    // Auth persistence is fire-and-forget (`auth.on('state')` in `initApp`) and
+    // storage writes are serialized, so one more write drains whatever is
+    // still queued instead of letting a shutdown truncate it. A storage that
+    // is already failing must not turn an orderly shutdown into a crash — it
+    // is reported the same way the fire-and-forget writes are.
+    try {
+      await db.write()
+    } catch (err) {
+      app.log.error({ err }, 'Failed to flush storage during shutdown')
+    }
   })
 
   await app.listen({ port, host: hostname })
+
+  // Registered only once the server is actually up: before that, a failed
+  // boot exits on its own and there is nothing to shut down.
+  registerShutdownHandlers({ app, process: proc })
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
   void updateChecker.start()
