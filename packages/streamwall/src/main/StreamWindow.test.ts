@@ -1648,19 +1648,20 @@ describe('StreamWindow constructor', () => {
     // Asserted on the call list rather than by iterating it: an empty list
     // would let a `for` loop pass without hardening anything at all.
     expect(
-      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
-    ).toEqual([
-      { allowedOrigins: ['http://localhost:5173'] },
-      { allowedOrigins: ['http://localhost:5173'] },
-    ])
+      vi
+        .mocked(hardenSession)
+        .mock.calls.map(([, options]) => options?.allowedOrigins),
+    ).toEqual([['http://localhost:5173'], ['http://localhost:5173']])
   })
 
   it('passes no allowed origins in a packaged build, where there is no dev server', () => {
     new StreamWindow(makeConfig())
 
     expect(
-      vi.mocked(hardenSession).mock.calls.map(([, options]) => options),
-    ).toEqual([{ allowedOrigins: [] }, { allowedOrigins: [] }])
+      vi
+        .mocked(hardenSession)
+        .mock.calls.map(([, options]) => options?.allowedOrigins),
+    ).toEqual([[], []])
   })
 
   // The layers render the app's own page and hold the `streamwallLayer` bridge,
@@ -1692,6 +1693,52 @@ describe('StreamWindow constructor', () => {
       { openExternal: null, allowSubframeNavigation: true },
       { openExternal: null, allowSubframeNavigation: true },
     ])
+  })
+
+  // A blocked request is otherwise invisible in the layer: unlike a stream view
+  // it has no `did-fail-load` surface, and a cancelled load inside an iframe
+  // would not reach one anyway (#790).
+  it('tells the layer which of its URLs the SSRF guard blocked', () => {
+    const sw = new StreamWindow(makeConfig())
+
+    const [[, backgroundOptions], [, overlayOptions]] =
+      vi.mocked(hardenSession).mock.calls
+    backgroundOptions!.onBlocked!(
+      'http://192.168.1.50/bg',
+      'blocking request to private-network address',
+    )
+    overlayOptions!.onBlocked!(
+      'http://169.254.169.254/meta',
+      'blocking request to private-network address',
+    )
+
+    expect(sw.backgroundView.webContents.send).toHaveBeenCalledWith(
+      'layer:blocked-url',
+      {
+        url: 'http://192.168.1.50/bg',
+        reason: 'blocking request to private-network address',
+      },
+    )
+    expect(sw.overlayView.webContents.send).toHaveBeenCalledWith(
+      'layer:blocked-url',
+      {
+        url: 'http://169.254.169.254/meta',
+        reason: 'blocking request to private-network address',
+      },
+    )
+    // Each layer hears only about its own session.
+    expect(sw.backgroundView.webContents.send).toHaveBeenCalledTimes(1)
+    expect(sw.overlayView.webContents.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not report a blocked URL to a layer that is already gone', () => {
+    const sw = new StreamWindow(makeConfig())
+    vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(true)
+
+    const [, [, overlayOptions]] = vi.mocked(hardenSession).mock.calls
+    overlayOptions!.onBlocked!('http://192.168.1.50/x', 'blocked')
+
+    expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
   })
 
   it('starts with empty view bookkeeping', () => {

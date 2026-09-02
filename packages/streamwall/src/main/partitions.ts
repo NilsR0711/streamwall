@@ -92,6 +92,14 @@ export interface RequestGuardOptions {
    * {@link createSessionHostResolver}) rather than an independent lookup.
    */
   findBlockReason?: (url: string) => Promise<string | null>
+  /**
+   * Notified for every request the guard cancels. A cancellation is otherwise
+   * invisible to whatever asked for the URL -- a stream view surfaces it through
+   * `did-fail-load`, but a chrome layer's iframe just goes blank -- so the
+   * caller gets a chance to tell the operator (#790). Failures here are logged
+   * and swallowed: reporting must never decide whether a request is blocked.
+   */
+  onBlocked?: (url: string, reason: string) => void
 }
 
 /** Extracts the `host` (hostname[:port]) from an origin string, or undefined if unparseable. */
@@ -121,6 +129,7 @@ export function installRequestSSRFGuard(
     allowedOrigins = [],
     findBlockReason = (url) =>
       findRequestBlockReason(url, createSessionHostResolver(session)),
+    onBlocked,
   }: RequestGuardOptions = {},
 ): void {
   const allowedHosts = new Set(
@@ -145,6 +154,11 @@ export function installRequestSSRFGuard(
         const reason = await findBlockReason(details.url)
         if (reason !== null) {
           log.warn(reason)
+          try {
+            onBlocked?.(details.url, reason)
+          } catch (err) {
+            log.warn('SSRF request guard reporter error:', err)
+          }
           callback({ cancel: true })
           return
         }

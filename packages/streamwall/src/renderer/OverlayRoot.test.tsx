@@ -128,3 +128,81 @@ describe('overlay view identity across a shrinking view list', () => {
     expect(tileAfter).toBe(tileBefore)
   })
 })
+
+function makeOverlayStream(link: string): StreamData {
+  return {
+    _id: link,
+    _dataSource: 'custom',
+    kind: 'overlay',
+    link,
+  }
+}
+
+function renderOverlayStreams(
+  streams: StreamData[],
+  blockedURLs?: ReadonlyMap<string, string>,
+): HTMLDivElement {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  act(() => {
+    render(
+      <Overlay
+        config={makeConfig(1)}
+        views={[]}
+        streams={streams}
+        blockedURLs={blockedURLs}
+      />,
+      container!,
+    )
+  })
+  return container
+}
+
+// The SSRF request guard cancels a rejected overlay URL at the network layer,
+// which the layer would otherwise experience only as an iframe that never
+// paints -- and a layer has no `did-fail-load` surface to report it (#790).
+describe('overlay blocked-URL rendering', () => {
+  test('frames an overlay whose URL the session accepted', () => {
+    const root = renderOverlayStreams([
+      makeOverlayStream('https://ok.example/overlay'),
+    ])
+
+    expect(root.querySelector('iframe')?.getAttribute('src')).toBe(
+      'https://ok.example/overlay',
+    )
+  })
+
+  test('replaces a blocked overlay with a notice naming the URL and reason', () => {
+    const root = renderOverlayStreams(
+      [makeOverlayStream('http://192.168.1.50/overlay')],
+      new Map([
+        [
+          'http://192.168.1.50/overlay',
+          'blocking request to private-network address',
+        ],
+      ]),
+    )
+
+    expect(root.querySelector('iframe')).toBeNull()
+    expect(root.textContent).toContain('http://192.168.1.50/overlay')
+    expect(root.textContent).toContain(
+      'blocking request to private-network address',
+    )
+  })
+
+  test('leaves the other overlays framed when only one is blocked', () => {
+    const root = renderOverlayStreams(
+      [
+        makeOverlayStream('http://192.168.1.50/overlay'),
+        makeOverlayStream('https://ok.example/overlay'),
+      ],
+      new Map([['http://192.168.1.50/overlay', 'private network']]),
+    )
+
+    expect(
+      [...root.querySelectorAll('iframe')].map((frame) =>
+        frame.getAttribute('src'),
+      ),
+    ).toEqual(['https://ok.example/overlay'])
+  })
+})

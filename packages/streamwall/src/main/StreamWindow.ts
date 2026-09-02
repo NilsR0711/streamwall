@@ -223,6 +223,17 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       // dev server on loopback; allow that origin so the SSRF request guard
       // does not cancel the layer's own load.
       allowedOrigins: [devServerOrigin()].filter((o) => o !== undefined),
+      // Unlike a stream view, a layer has no `did-fail-load` surface -- and a
+      // cancelled load inside one of its iframes would not reach one anyway --
+      // so a blocked URL would just go blank. Tell the layer, which renders it
+      // as a visible error in place of the iframe (#790).
+      onBlocked: (url, reason) => {
+        const { webContents } = layerView
+        if (webContents.isDestroyed()) {
+          return
+        }
+        webContents.send('layer:blocked-url', { url, reason })
+      },
     })
     layerView.setBackgroundColor('#0000')
     this.win.contentView.addChildView(layerView)

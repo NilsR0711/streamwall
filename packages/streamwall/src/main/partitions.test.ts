@@ -284,3 +284,50 @@ test('installRequestSSRFGuard blocks a request when the session resolver reports
     true,
   )
 })
+
+test('installRequestSSRFGuard reports a blocked request to the caller', async () => {
+  // The guard's cancellation is otherwise invisible to the surface that asked
+  // for the URL, which leaves an operator staring at a blank layer (#790).
+  const blocked: Array<[string, string]> = []
+  const session = fakeSession()
+  installRequestSSRFGuard(session, {
+    findBlockReason: async (url) =>
+      url === 'http://192.168.1.50/overlay'
+        ? 'blocking request to private-network address'
+        : null,
+    onBlocked: (url, reason) => blocked.push([url, reason]),
+  })
+
+  await session.requestURL('http://192.168.1.50/overlay')
+  await session.requestURL('https://cdn.example/overlay')
+
+  assert.deepEqual(blocked, [
+    [
+      'http://192.168.1.50/overlay',
+      'blocking request to private-network address',
+    ],
+  ])
+})
+
+test('installRequestSSRFGuard survives a reporter that throws', async () => {
+  // A failing reporter must not turn into a fail-open for the request itself.
+  const session = fakeSession()
+  installRequestSSRFGuard(session, {
+    findBlockReason: async () => 'blocking request to private-network address',
+    onBlocked: () => {
+      throw new Error('reporter exploded')
+    },
+  })
+
+  assert.equal(await session.requestURL('http://192.168.1.50/overlay'), true)
+})
+
+test('hardenSession passes the blocked-request reporter through', async () => {
+  const blocked: string[] = []
+  const session = fakeSession()
+  hardenSession(session, { onBlocked: (url) => blocked.push(url) })
+
+  await session.requestURL('http://169.254.169.254/latest/meta-data/')
+
+  assert.deepEqual(blocked, ['http://169.254.169.254/latest/meta-data/'])
+})
