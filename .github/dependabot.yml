@@ -23,11 +23,28 @@ updates:
         update-types:
           - version-update:semver-minor
           - version-update:semver-major
+    # Grouped PRs are all-or-nothing, so a group is split by update-type: a
+    # blocked major (see the `ignore` comment above) never holds back the
+    # low-risk minor/patch updates that ship alongside it (#690).
     groups:
-      production-dependencies:
+      production-minor-patch:
         dependency-type: production
-      development-dependencies:
+        update-types:
+          - minor
+          - patch
+      production-major:
+        dependency-type: production
+        update-types:
+          - major
+      development-minor-patch:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
+      development-major:
+        dependency-type: development
+        update-types:
+          - major
 
   # Keep GitHub Actions pinned-SHAs current (paired with SHA pinning in workflows).
   # The extra directory covers the local composite action in .github/actions.
