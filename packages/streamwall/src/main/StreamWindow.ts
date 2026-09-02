@@ -452,9 +452,11 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * from scratch (issue #369). Mirrors `viewStateMachine`'s `offscreenView`
    * action, which the actor itself uses while a fresh view is loading.
    */
-  private hideView(actor: ViewActor) {
-    const { id, view, win, offscreenWin, desiredAudio } =
-      actor.getSnapshot().context
+  private hideView(
+    actor: ViewActor,
+    previouslyParkedAudio: Map<ViewId, DesiredAudio>,
+  ) {
+    const { id, view, win, offscreenWin } = actor.getSnapshot().context
     win.contentView.removeChildView(view)
     offscreenWin.contentView.addChildView(view)
     const { width, height } = offscreenWin.getBounds()
@@ -465,10 +467,19 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     // (and, once another tile is selected to listen to, cannot silence) keeps
     // playing over the expansion (issue #740). Unmuting is deferred until the
     // view is displayed again -- see `displayPlannedViews`.
+    //
+    // The state to restore comes from the previous park whenever there was
+    // one: every state-doc change during an expansion re-runs `setViews` with
+    // `parkUnused`, re-parking an already-parked view, and by then its own
+    // `desiredAudio` is the muted state the first park imposed -- re-deriving
+    // from it would strand the view silent for good.
+    const desiredAudio =
+      previouslyParkedAudio.get(id) ?? actor.getSnapshot().context.desiredAudio
     this.parkedAudio.set(id, desiredAudio)
     // `background` is the "keep listening even when another tile is selected"
     // mode and deliberately ignores MUTE (see viewStateMachine's `audio`
-    // region), so silencing it takes UNBACKGROUND.
+    // region), so silencing it takes UNBACKGROUND. Both are idempotent, so a
+    // repeated park is harmless.
     actor.send({
       type: desiredAudio === 'background' ? 'UNBACKGROUND' : 'MUTE',
     })
@@ -643,10 +654,14 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
    * either parked (kept alive but hidden, see `hideView` and the
    * `parkedViews` field) or stopped and fully disposed.
    */
-  private retireUnusedViews(unusedViews: Set<ViewActor>, parkUnused: boolean) {
+  private retireUnusedViews(
+    unusedViews: Set<ViewActor>,
+    parkUnused: boolean,
+    previouslyParkedAudio: Map<ViewId, DesiredAudio>,
+  ) {
     for (const view of unusedViews) {
       if (parkUnused) {
-        this.hideView(view)
+        this.hideView(view, previouslyParkedAudio)
         this.parkedViews.set(view.getSnapshot().context.id, view)
         continue
       }
@@ -701,7 +716,7 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       previouslyParkedAudio,
       unusedViews,
     )
-    this.retireUnusedViews(unusedViews, parkUnused)
+    this.retireUnusedViews(unusedViews, parkUnused, previouslyParkedAudio)
     this.views = newViews
     this.emitState()
   }

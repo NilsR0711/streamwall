@@ -616,7 +616,21 @@ function makeReuseTestActor(opts: {
   running: boolean
   desiredAudio?: 'muted' | 'listening' | 'background'
 }) {
-  const send = vi.fn()
+  // Mirrors viewStateMachine's `audio` region closely enough for the park
+  // tests: every audio event updates `desiredAudio`, except MUTE while
+  // background-listening, which that state deliberately ignores.
+  let desiredAudio = opts.desiredAudio ?? 'muted'
+  const send = vi.fn((event: { type: string }) => {
+    if (event.type === 'UNMUTE') {
+      desiredAudio = 'listening'
+    } else if (event.type === 'BACKGROUND') {
+      desiredAudio = 'background'
+    } else if (event.type === 'UNBACKGROUND') {
+      desiredAudio = 'muted'
+    } else if (event.type === 'MUTE' && desiredAudio !== 'background') {
+      desiredAudio = 'muted'
+    }
+  })
   const stop = vi.fn()
   const disposeView = vi.fn()
   const setBounds = vi.fn()
@@ -634,15 +648,20 @@ function makeReuseTestActor(opts: {
         id: opts.id,
         content: opts.content,
         pos: { spaces: opts.spaces },
-        desiredAudio: opts.desiredAudio ?? 'muted',
+        desiredAudio,
         view,
         win,
         offscreenWin,
         next: null,
         disposeView,
       },
-      matches: (query: { displaying: string }) =>
-        opts.running && query.displaying === 'running',
+      // Accepts both shapes the production code uses: the plain 'displaying'
+      // string (setListeningView) and the nested running query (reuse).
+      matches: (query: string | { displaying: string }) =>
+        opts.running &&
+        (typeof query === 'string'
+          ? query === 'displaying'
+          : query.displaying === 'running'),
     }),
     send,
     stop,
@@ -1896,26 +1915,60 @@ describe('StreamWindow mutes parked views (issue #740)', () => {
   })
 
   it('never unmutes a parked view when it is selected as the listening view', () => {
-    const { sw, other, expand } = setupExpansion('muted')
+    const { sw, expanding, other, expand } = setupExpansion('muted')
     expand()
+    expanding.send.mockClear()
     other.send.mockClear()
 
     sw.setListeningView(2)
 
+    // The live view is muted as usual, proving the selection was applied at
+    // all -- but the parked one is left alone rather than made audible.
+    expect(expanding.send).toHaveBeenCalledWith({ type: 'MUTE' })
     expect(other.send).not.toHaveBeenCalled()
   })
 
   it('drops the recorded audio state of a parked view when another view is selected', () => {
-    const { sw, other, expand, collapse } = setupExpansion('listening')
+    const { sw, expanding, other, expand, collapse } =
+      setupExpansion('listening')
     expand()
 
     // The operator picks the expanded view instead: the parked one must not
     // come back audible and make two streams play at once.
     sw.setListeningView(1)
+    expect(expanding.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
     other.send.mockClear()
     collapse()
 
     expect(other.send).not.toHaveBeenCalledWith({ type: 'UNMUTE' })
+  })
+
+  // Any state-doc change while an expansion is active re-runs `setViews` with
+  // `parkUnused`, so an already-parked view is parked again -- by which point
+  // its own `desiredAudio` is the muted state the first park imposed, and
+  // re-deriving the restore state from it would strand the view muted for
+  // good.
+  it('keeps the recorded audio state when the expansion is re-applied while parked', () => {
+    const { other, expand, collapse } = setupExpansion('listening')
+
+    expand()
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
+  })
+
+  it('keeps a listen selection made while parked across a re-applied expansion', () => {
+    const { sw, other, expand, collapse } = setupExpansion('muted')
+
+    expand()
+    sw.setListeningView(2)
+    expand()
+    other.send.mockClear()
+    collapse()
+
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNMUTE' })
   })
 
   it('applies a listen selection made while the view was parked on collapse', () => {
