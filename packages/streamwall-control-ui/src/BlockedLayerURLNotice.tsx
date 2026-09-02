@@ -66,7 +66,7 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
               {url}
             </div>
           ))}
-          {urls.length >= MAX_BLOCKED_LAYER_URLS && (
+          {visible.length >= MAX_BLOCKED_LAYER_URLS && (
             // The desktop stops collecting at this point, so what is listed is
             // not necessarily everything that was refused (issue #797).
             <div className="blocked-layer-capped">

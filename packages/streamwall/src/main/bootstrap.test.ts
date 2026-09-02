@@ -607,13 +607,13 @@ describe('createBlockedLayerURLReporter', () => {
   function setup() {
     const updateState = vi.fn()
     let report: ((url: string) => void) | undefined
-    const syncLayerLinks = createBlockedLayerURLReporter({
+    const syncBlockedLayerURLs = createBlockedLayerURLReporter({
       onBlockedURL: (listener) => {
         report = listener
       },
       updateState,
     })
-    return { updateState, report: report!, syncLayerLinks }
+    return { updateState, report: report!, syncBlockedLayerURLs }
   }
 
   const overlay = (link: string): StreamData => ({
@@ -621,6 +621,13 @@ describe('createBlockedLayerURLReporter', () => {
     kind: 'overlay',
     link,
   })
+
+  function stateWith(
+    streams: StreamData[],
+    blockedLayerURLs: string[] = [],
+  ): StreamwallState {
+    return fakeStreamwallState({ streams, blockedLayerURLs })
+  }
 
   it("folds the wall's refused URLs into the broadcast state", () => {
     const { updateState, report } = setup()
@@ -645,22 +652,43 @@ describe('createBlockedLayerURLReporter', () => {
   })
 
   it('clears the broadcast list once a layer link is edited', () => {
-    const { report, syncLayerLinks } = setup()
-    syncLayerLinks([overlay('https://example.com/o')])
+    const { report, syncBlockedLayerURLs } = setup()
+    syncBlockedLayerURLs(stateWith([overlay('https://example.com/o')]))
     report('http://192.168.1.5/overlay')
 
-    expect(syncLayerLinks([overlay('https://example.com/fixed')])).toEqual([])
+    const next = syncBlockedLayerURLs(
+      stateWith(
+        [overlay('https://example.com/fixed')],
+        ['http://192.168.1.5/overlay'],
+      ),
+    )
+
+    expect(next.blockedLayerURLs).toEqual([])
   })
 
-  // `updateState` is what calls the returned function, so anything but `null`
-  // for an unchanged state would be a broadcast loop.
-  it('asks for no further update while the layer links stand still', () => {
-    const { report, syncLayerLinks } = setup()
-    const links = [overlay('https://example.com/o')]
-    syncLayerLinks(links)
+  // `updateState` is what feeds the returned function, so handing back a new
+  // object for an unchanged state would be a broadcast loop.
+  it('hands the state straight back while the layer links stand still', () => {
+    const { report, syncBlockedLayerURLs } = setup()
+    const state = stateWith([overlay('https://example.com/o')])
+    syncBlockedLayerURLs(state)
     report('http://192.168.1.5/overlay')
 
-    expect(syncLayerLinks(links)).toBeNull()
+    expect(syncBlockedLayerURLs(state)).toBe(state)
+  })
+
+  it('leaves the rest of the state alone when it clears the list', () => {
+    const { report, syncBlockedLayerURLs } = setup()
+    syncBlockedLayerURLs(stateWith([overlay('https://example.com/o')]))
+    report('http://192.168.1.5/overlay')
+
+    const before = stateWith(
+      [overlay('https://example.com/fixed')],
+      ['http://192.168.1.5/overlay'],
+    )
+    const after = syncBlockedLayerURLs(before)
+
+    expect(after).toEqual({ ...before, blockedLayerURLs: [] })
   })
 })
 

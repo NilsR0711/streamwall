@@ -2,7 +2,6 @@ import { throttle } from 'lodash-es'
 import { join } from 'node:path'
 import type {
   DataSourceType,
-  StreamData,
   StreamWindowConfig,
   StreamwallState,
   ViewId,
@@ -510,15 +509,15 @@ export interface BlockedLayerURLReporterDeps {
  * possibly on another machine, with no view of the wall's own notice
  * (issue #797).
  *
- * Returns the function `updateState` has to call with each new state's
- * streams: an operator's edit to a layer link is what takes the notice down
- * again, and `updateState` is the one place every state change passes through.
- * It answers `null` unless the links actually changed, so the update it feeds
- * cannot loop back into itself.
+ * Returns the function every assembled state has to pass through on its way to
+ * being broadcast: an operator's edit to a layer link is what takes the notice
+ * down again, and `updateState` is the one place every state change goes
+ * through. It hands back the state unchanged unless the links actually
+ * changed, so the update it feeds cannot loop back into itself.
  */
 export function createBlockedLayerURLReporter(
   deps: BlockedLayerURLReporterDeps,
-): (streams: readonly StreamData[]) => string[] | null {
+): (state: StreamwallState) => StreamwallState {
   const tracker = new BlockedLayerURLTracker()
   deps.onBlockedURL((url) => {
     const blockedLayerURLs = tracker.report(url)
@@ -526,7 +525,10 @@ export function createBlockedLayerURLReporter(
       deps.updateState({ blockedLayerURLs })
     }
   })
-  return (streams) => tracker.syncLayerLinks(streams)
+  return (state) => {
+    const cleared = tracker.syncLayerLinks(state.streams)
+    return cleared ? { ...state, blockedLayerURLs: cleared } : state
+  }
 }
 
 export interface SentryPhaseDeps {

@@ -15,6 +15,17 @@ function layers(...links: string[]): StreamData[] {
 }
 
 describe('BlockedLayerURLTracker', () => {
+  // The returned list is stored as the broadcast state, so handing out the
+  // tracker's own array would let a later mutation rewrite a state already
+  // sent.
+  it('hands out a list of its own', () => {
+    const tracker = new BlockedLayerURLTracker()
+    const first = tracker.report('http://192.168.1.5/a')
+    tracker.report('http://192.168.1.5/b')
+
+    expect(first).toEqual(['http://192.168.1.5/a'])
+  })
+
   it('collects refused URLs in the order they were reported', () => {
     const tracker = new BlockedLayerURLTracker()
 
@@ -46,6 +57,18 @@ describe('BlockedLayerURLTracker', () => {
     expect(urls).toHaveLength(1)
     expect(urls![0]).toHaveLength(MAX_BLOCKED_LAYER_URL_LENGTH)
     expect(urls![0]).toMatch(/…$/)
+  })
+
+  // Two addresses that differ only past the cut are the same entry to anybody
+  // reading the notice, and listing them twice would spend a slot to say
+  // nothing.
+  it('holds one entry for URLs that differ only past the cut', () => {
+    const tracker = new BlockedLayerURLTracker()
+    const prefix = `http://192.168.1.5/${'x'.repeat(MAX_BLOCKED_LAYER_URL_LENGTH)}`
+
+    tracker.report(`${prefix}a`)
+
+    expect(tracker.report(`${prefix}b`)).toBeNull()
   })
 
   it('leaves a URL at exactly the bound alone', () => {

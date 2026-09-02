@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => {
       setupStreamdelayClient: vi.fn(() => null),
       setupTwitchBot: vi.fn(() => null),
       createDataSourceHealthReporter: vi.fn(() => vi.fn(() => vi.fn())),
-      createBlockedLayerURLReporter: vi.fn(() => vi.fn(() => null)),
+      createBlockedLayerURLReporter: vi.fn(() => vi.fn((state) => state)),
       createBrowseWindow: vi.fn(),
       configureSentry: vi.fn(),
       configureElectronRuntime: vi.fn(),

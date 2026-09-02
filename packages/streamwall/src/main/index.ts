@@ -226,13 +226,11 @@ async function main(argv: ReturnType<typeof parseArgs>) {
   })
 
   function updateState(newState: Partial<StreamwallState>) {
-    const next = { ...clientState, ...newState }
     // Every state update passes through here, so this is where an operator's
     // edit to a layer link is seen -- which is what takes the notice down
-    // again. Answers null unless the links actually changed, so the update the
-    // reporter makes cannot loop back into itself.
-    const cleared = syncBlockedLayerURLs(next.streams)
-    clientState = cleared ? { ...next, blockedLayerURLs: cleared } : next
+    // again. The state comes back untouched unless the links actually changed,
+    // so the update the reporter makes cannot loop back into itself.
+    clientState = syncBlockedLayerURLs({ ...clientState, ...newState })
     streamWindow.onState(clientState)
     controlWindow.onState(clientState)
     stateEmitter.emit('state', clientState)

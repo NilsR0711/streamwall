@@ -93,6 +93,22 @@ describe('BlockedLayerURLNotice', () => {
     expect(el.querySelector('.blocked-layer-capped')).not.toBeNull()
   })
 
+  // Dismissing entries must not leave a "list is full" caption describing one
+  // remaining address.
+  test('stops saying the list is full once entries are dismissed', () => {
+    const urls = Array.from(
+      { length: MAX_BLOCKED_LAYER_URLS },
+      (_unused, i) => `http://192.168.1.5/${i}`,
+    )
+    const el = renderNotice(urls)
+    act(() => {
+      dismissButton(el)!.click()
+    })
+    rerender([...urls, 'http://10.0.0.9/bg'].slice(1))
+
+    expect(el.querySelector('.blocked-layer-capped')).toBeNull()
+  })
+
   test('says nothing about a full list while there is room', () => {
     const el = renderNotice(['http://192.168.1.5/overlay'])
 

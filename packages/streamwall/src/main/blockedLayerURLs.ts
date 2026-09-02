@@ -39,12 +39,16 @@ export class BlockedLayerURLTracker {
     if (this.urls.length >= MAX_BLOCKED_LAYER_URLS) {
       return null
     }
+    // Deliberately compared after truncation, not before: two URLs that differ
+    // only past the cut are the same entry as far as anybody reading the
+    // notice is concerned, and listing them twice would say nothing while
+    // spending a slot. It also keeps the list usable as its own render key.
     const shown = truncate(url)
     if (this.urls.includes(shown)) {
       return null
     }
     this.urls = [...this.urls, shown]
-    return this.urls
+    return [...this.urls]
   }
 
   /**
@@ -65,6 +69,6 @@ export class BlockedLayerURLTracker {
       return null
     }
     this.urls = []
-    return this.urls
+    return [...this.urls]
   }
 }
