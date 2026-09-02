@@ -350,3 +350,81 @@ test('an admin revoking their own session via delete-token closes their own sock
   await closed
   assert.equal(adminWs.readyState, WebSocket.CLOSED)
 })
+
+test('releases the uplink slot when the desktop dies during token validation', async () => {
+  // Token validation is an `await` on a real scrypt derivation, so a socket
+  // that dies inside that window fires `close` before the route's own close
+  // handler exists. The single uplink slot must not stay claimed by that dead
+  // socket (issue #743).
+  const { app, auth, port, logs } = await startTestServer()
+
+  // Hold the first uplink inside that window deterministically instead of
+  // betting on the production work factor outrunning a TCP reset: the gate
+  // stands in for the derivation's duration, so the spec exercises the race on
+  // any host at the cheap test work factor.
+  const realValidateToken = auth.validateToken.bind(auth)
+  let openValidationGate = () => {}
+  const validationGate = new Promise<void>((resolve) => {
+    openValidationGate = resolve
+  })
+  let gateNextValidation = true
+  auth.validateToken = async (id: string, secret: string) => {
+    const info = await realValidateToken(id, secret)
+    if (gateNextValidation) {
+      gateNextValidation = false
+      await validationGate
+    }
+    return info
+  }
+
+  // Observed on the server's own socket, so the gate opens only once the
+  // uplink's death has actually been delivered to the route's `close`
+  // listener — not merely once the client-side socket reports itself closed.
+  const serverSawClose = new Promise<void>((resolve) => {
+    app.server.once('connection', (socket) => socket.once('close', resolve))
+  })
+
+  const first = await mintUplinkToken(auth, port)
+  const firstWs = new WebSocket(first.base, {
+    headers: { authorization: `Bearer ${first.secret}` },
+  })
+  after(() => firstWs.terminate())
+  await once(firstWs, 'open')
+  firstWs.terminate()
+  await serverSawClose
+  openValidationGate()
+
+  // The server now finishes handling a connection whose socket is already
+  // gone: it either claims the slot (the bug) or unwinds (the fix), and both
+  // outcomes are logged, so there is nothing to sleep for.
+  await logs.waitFor(
+    (entry) =>
+      typeof entry.msg === 'string' &&
+      (entry.msg.includes('Streamwall connecting') ||
+        entry.msg.includes('closed during authorization')),
+  )
+
+  const second = await mintUplinkToken(auth, port)
+  const secondWs = new WebSocket(second.base, {
+    headers: { authorization: `Bearer ${second.secret}` },
+  })
+  after(() => secondWs.terminate())
+  const nextMessage = messageCollector(secondWs)
+  await once(secondWs, 'open')
+  secondWs.send(JSON.stringify({ type: 'state', state: VALID_STATE }))
+
+  // Whichever comes first decides: a refusal frame, or the server logging the
+  // reconnected uplink as fully connected.
+  const refusal = await Promise.race([
+    nextMessage(5000),
+    logs.waitForMessage('Streamwall connected', 5000).then(() => null),
+  ])
+  assert.equal(
+    refusal,
+    null,
+    'the reconnecting uplink must not be refused: the slot must have been released',
+  )
+  // Not being refused is only half of it: the reconnect has to complete.
+  await logs.waitForMessage('Streamwall connected')
+  assert.equal(secondWs.readyState, WebSocket.OPEN)
+})

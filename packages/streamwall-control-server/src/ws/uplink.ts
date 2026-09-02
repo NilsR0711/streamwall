@@ -32,6 +32,19 @@ export function registerUplinkRoute(
       ws.binaryType = 'arraybuffer'
       const handleMessage = queueWebSocketMessages(ws, request.log)
 
+      // Token validation below awaits a real scrypt derivation, so a socket
+      // that dies inside that window fires `close` long before this handler
+      // could be registered further down. Subscribing up front — and only
+      // running the release once the slot has actually been claimed — is what
+      // keeps a flapping desktop from wedging the single uplink slot on a dead
+      // socket forever (issue #743).
+      let closed = false
+      let releaseSlot: (() => void) | null = null
+      ws.on('close', () => {
+        closed = true
+        releaseSlot?.()
+      })
+
       const { id } = request.params
       const token = bearerToken(request.headers.authorization)
 
@@ -50,14 +63,17 @@ export function registerUplinkRoute(
 
       const log = request.log.child(identityFields(tokenInfo))
 
+      if (closed) {
+        log.warn('Streamwall uplink closed during authorization')
+        return
+      }
+
       if (ctx.currentStreamwallWs != null) {
         log.warn('Rejecting Streamwall connection (already connected)')
         ws.send(JSON.stringify({ error: 'streamwall already connected' }))
         ws.close()
         return
       }
-
-      ctx.currentStreamwallWs = ws
 
       // Liveness check: without it, a desktop that disappears mid-connection
       // would keep the single uplink slot occupied and block any reconnect.
@@ -68,7 +84,13 @@ export function registerUplinkRoute(
         log,
       )
 
-      ws.on('close', () => {
+      // Claiming the slot and arming its release stay adjacent and free of any
+      // `await`, so no future statement can slip in between and reintroduce a
+      // narrower version of the window this fix closes.
+      ctx.currentStreamwallWs = ws
+      releaseSlot = () => {
+        // The slot is released exactly once, no matter how often `close` fires.
+        releaseSlot = null
         log.info('Streamwall disconnected')
         ctx.currentStreamwallWs = null
         ctx.currentStreamwallConn = null
@@ -77,7 +99,7 @@ export function registerUplinkRoute(
         for (const client of ctx.clients.values()) {
           client.ws.close()
         }
-      })
+      }
 
       let clientState: StateWrapper | null = null
       const stateDoc = new Y.Doc()
