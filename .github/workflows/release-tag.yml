@@ -50,12 +50,37 @@ jobs:
       - name: Check the release version is tagged
         run: node scripts/check-release-tag.mjs
 
-      # A tag alone proves nothing: the publish matrix may have failed
-      # half-way through, or never run for the tag at all (#533). Runs even
-      # when the step above failed — the two report different halves of the
-      # same pipeline, and one missing tag must not hide a broken release.
+  # A tag alone proves nothing: the publish matrix may have failed half-way
+  # through, never have run for the tag at all (#533), or have left the release
+  # as an unpublished draft (#698). Deliberately independent of `check` — the
+  # two report different halves of the same pipeline, and one missing tag must
+  # not hide a broken release.
+  #
+  # A job of its own rather than a step of `check`, because it is the only part
+  # of this workflow that needs `contents: write`: GitHub lists draft releases
+  # only to a token with push access, and a draft is exactly what this check
+  # has to be able to see. With `contents: read` the unpublished release of
+  # v0.10.5 read as a tag that had produced nothing at all, and the report told
+  # the maintainer to re-push the tag. The scripts only read, and the checkout
+  # keeps `persist-credentials: false`, so the token never reaches git either.
+  assets:
+    name: Check the newest tag produced a complete release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The version's tag has to be visible to `git tag --list` here too.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
       - name: Check the newest tag produced a complete release
-        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/check-release-assets.mjs
@@ -64,7 +89,7 @@ jobs:
   # one, so the report goes into the issue tracker instead (#514) — which is
   # also where a forgotten tag belongs.
   report:
-    needs: [check]
+    needs: [check, assets]
     if: always()
     permissions:
       issues: write

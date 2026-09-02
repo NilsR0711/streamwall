@@ -9,6 +9,8 @@ import {
   EXPECTED_ASSET_PATTERNS,
   FIRST_CHECKED_VERSION,
   evaluateReleaseAssets,
+  fetchReleaseByTag,
+  findReleaseByTag,
   formatReport,
   parseRepository,
   selectReleaseTag,
@@ -237,20 +239,182 @@ test('formatReport notes a release predating the check without failing', () => {
   assert.match(report, /v0\.9\.1/)
 })
 
+// A draft release has no tag association on GitHub yet, so
+// `GET /releases/tags/<tag>` answers 404 for it however privileged the token
+// is (#698). Only the listing carries drafts, and matching on `tag_name` is
+// what tells a draft release apart from a tag that produced nothing at all.
+test('findReleaseByTag finds a draft release the tag endpoint cannot return', () => {
+  const draft = { tag_name: 'v0.9.1', draft: true, assets: [] }
+
+  assert.equal(
+    findReleaseByTag([{ tag_name: 'v0.9.0', draft: false }, draft], 'v0.9.1'),
+    draft,
+  )
+})
+
+test('findReleaseByTag reports no release when the listing holds none for the tag', () => {
+  assert.equal(
+    findReleaseByTag([{ tag_name: 'v0.9.0', draft: false }], 'v0.9.1'),
+    null,
+  )
+})
+
+// Two publish legs racing on a tag with no draft yet each created their own
+// release (#671). The published one is the one anybody can install.
+test('findReleaseByTag prefers the published release when a tag carries two', () => {
+  const published = { tag_name: 'v0.9.1', draft: false, assets: [] }
+
+  assert.equal(
+    findReleaseByTag(
+      [{ tag_name: 'v0.9.1', draft: true, assets: [] }, published],
+      'v0.9.1',
+    ),
+    published,
+  )
+})
+
+function listingResponse(releases) {
+  return { ok: true, status: 200, json: async () => releases }
+}
+
+// The endpoint is the fix: `GET /releases/tags/<tag>` cannot see a draft, the
+// listing can.
+test('fetchReleaseByTag reads the listing rather than the tag endpoint', async () => {
+  const draft = { tag_name: 'v0.9.1', draft: true, assets: [] }
+  const urls = []
+
+  const release = await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    token: 'secret',
+    fetchImpl: async (url, init) => {
+      urls.push(url)
+      assert.equal(init.headers.authorization, 'Bearer secret')
+      return listingResponse([draft])
+    },
+  })
+
+  assert.equal(release, draft)
+  assert.deepEqual(urls, [
+    'https://api.github.com/repos/streamwallhq/streamwall/releases?per_page=100&page=1',
+  ])
+})
+
+test('fetchReleaseByTag stops at the page holding the release', async () => {
+  let pages = 0
+
+  const release = await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    perPage: 2,
+    fetchImpl: async () => {
+      pages += 1
+      return listingResponse(
+        pages === 1
+          ? [{ tag_name: 'v1.0.0' }, { tag_name: 'v0.9.2' }]
+          : [{ tag_name: 'v0.9.1' }, { tag_name: 'v0.9.0' }],
+      )
+    },
+  })
+
+  assert.equal(release.tag_name, 'v0.9.1')
+  assert.equal(pages, 2)
+})
+
+test('fetchReleaseByTag reports no release once the listing is exhausted', async () => {
+  const release = await fetchReleaseByTag({
+    repository: 'streamwallhq/streamwall',
+    tag: 'v0.9.1',
+    perPage: 2,
+    fetchImpl: async () => listingResponse([{ tag_name: 'v1.0.0' }]),
+  })
+
+  assert.equal(release, null)
+})
+
+// Blaming a paging limit on a release that was never built would be the same
+// misdiagnosis this check exists to avoid.
+test('fetchReleaseByTag fails loudly when it runs out of pages', async () => {
+  await assert.rejects(
+    fetchReleaseByTag({
+      repository: 'streamwallhq/streamwall',
+      tag: 'v0.9.1',
+      perPage: 1,
+      maxPages: 2,
+      fetchImpl: async () => listingResponse([{ tag_name: 'v1.0.0' }]),
+    }),
+    /most recent releases/,
+  )
+})
+
+test('fetchReleaseByTag fails on an API error rather than reading it as absent', async () => {
+  await assert.rejects(
+    fetchReleaseByTag({
+      repository: 'streamwallhq/streamwall',
+      tag: 'v0.9.1',
+      fetchImpl: async () => ({ ok: false, status: 503 }),
+    }),
+    /503/,
+  )
+})
+
+// "Delete and re-push the tag" throws away the only record of what shipped
+// and, for a release that is merely unpublished, fixes nothing.
+test('formatReport does not advise deleting the tag of a missing release', () => {
+  const report = formatReport({
+    status: 'no-release',
+    tag: 'v0.9.1',
+    missing: EXPECTED_ASSET_PATTERNS,
+  })
+
+  assert.doesNotMatch(report, /delete/i)
+  assert.match(report, /release\.yml/)
+})
+
+// Drafts are listed only for a token with push access; with contents: read the
+// check read the v0.10.5 draft as a release that never existed and demanded
+// the tag be re-pushed (#698). The elevated permission is confined to this
+// job, which is why the asset check is not a step of the tag check.
+test('the asset check runs with the push access that reveals draft releases', () => {
+  const workflow = load(
+    readFileSync(join(rootDir, '.github/workflows/release-tag.yml'), 'utf8'),
+  )
+
+  assert.equal(
+    workflow.jobs.assets.permissions?.contents,
+    'write',
+    'the asset check needs push access to see draft releases',
+  )
+  assert.equal(
+    workflow.jobs.check.permissions?.contents,
+    'read',
+    'the tag check must stay read-only',
+  )
+})
+
 test('the release tag workflow also checks the release assets', () => {
   const workflow = load(
     readFileSync(join(rootDir, '.github/workflows/release-tag.yml'), 'utf8'),
   )
-  const job = workflow.jobs.check
+  const job = workflow.jobs.assets
   const step = job.steps.find((candidate) =>
     candidate.run?.includes('scripts/check-release-assets.mjs'),
   )
 
   assert.ok(step, 'release-tag.yml must run the release asset check')
-  // The asset check must still report when the tag check above it failed.
-  assert.match(step.if ?? '', /cancelled/)
+  // A missing tag must not hide a broken release: the two checks report
+  // different halves of the same pipeline, so neither may gate the other.
+  assert.equal(job.needs, undefined)
   assert.ok(
     step.env?.GH_TOKEN,
     'the GitHub API call needs a token to stay within the API rate limit',
   )
+  // `git tag --list` decides which release is inspected, so this job needs the
+  // tags as much as the tag check does.
+  const checkout = job.steps.find((candidate) =>
+    candidate.uses?.startsWith('actions/checkout@'),
+  )
+  assert.equal(checkout.with['fetch-depth'], 0)
+  // Both failures have to reach the issue the scheduled report files.
+  assert.deepEqual(workflow.jobs.report.needs, ['check', 'assets'])
 })
