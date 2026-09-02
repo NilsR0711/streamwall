@@ -1,3 +1,4 @@
+import EventEmitter from 'events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -149,7 +150,9 @@ vi.mock('./ControlWindow', () => ({
 }))
 
 vi.mock('./StreamWindow', () => ({
-  default: class FakeStreamWindow {},
+  // An EventEmitter, like the real one: `main()` subscribes to its
+  // `blockedURL` reports on the way to the broadcast state (issue #797).
+  default: class FakeStreamWindow extends EventEmitter {},
 }))
 
 vi.mock('./updaterSetup', () => ({

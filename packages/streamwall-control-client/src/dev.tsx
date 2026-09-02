@@ -169,6 +169,7 @@ const demoState: StreamwallState = {
   layoutPresets: [],
   favorites: ['https://twitch.tv/woke'],
   dataSourceHealth: [],
+  blockedLayerURLs: [],
 }
 
 function useMockConnection(): StreamwallConnection {

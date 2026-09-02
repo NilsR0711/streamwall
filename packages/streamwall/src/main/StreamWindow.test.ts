@@ -1809,6 +1809,49 @@ describe('StreamWindow constructor', () => {
 
       expect(sw.overlayView.webContents.send).not.toHaveBeenCalled()
     })
+
+    // #797: the wall notice only helps somebody standing at the wall. In a
+    // control-server deployment the operator who typed the link can be on
+    // another machine entirely, so the report has to leave this window too.
+    it('emits every blocked URL for the broadcast state', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background, overlay } = reportersOf(sw)
+      const emitted: string[] = []
+      sw.on('blockedURL', (url) => emitted.push(url))
+
+      background('http://192.168.1.50/bg', 'private network')
+      overlay('http://169.254.169.254/meta', 'private network')
+
+      expect(emitted).toEqual([
+        'http://192.168.1.50/bg',
+        'http://169.254.169.254/meta',
+      ])
+    })
+
+    it('emits a blocked URL even before the overlay renderer subscribed', () => {
+      // The control UI has its own delivery path and must not inherit the
+      // overlay renderer's readiness as a precondition.
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      const emitted: string[] = []
+      sw.on('blockedURL', (url) => emitted.push(url))
+
+      background('http://192.168.1.50/bg', 'private network')
+
+      expect(emitted).toEqual(['http://192.168.1.50/bg'])
+    })
+
+    it('stops emitting blocked URLs once disposed', () => {
+      const sw = new StreamWindow(makeConfig())
+      const { background } = reportersOf(sw)
+      const emitted: string[] = []
+      sw.on('blockedURL', (url) => emitted.push(url))
+      sw.dispose()
+
+      background('http://192.168.1.50/x', 'private network')
+
+      expect(emitted).toEqual([])
+    })
   })
 
   // The stream views' sessions need the same dev-server allowance the layers

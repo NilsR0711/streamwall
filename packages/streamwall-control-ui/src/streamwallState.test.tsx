@@ -86,6 +86,7 @@ function makeState(views: ViewState[]): StreamwallState {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 

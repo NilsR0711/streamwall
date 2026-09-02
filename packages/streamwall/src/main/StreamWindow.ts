@@ -68,6 +68,13 @@ export interface StreamWindowEventMap {
   close: [ElectronEvent]
   state: [ViewState[]]
   resize: []
+  /**
+   * A URL one of the layer sessions refused, on its way to the broadcast
+   * state so the control UI can name it too (#797). Fired for every refusal,
+   * independently of the wall's own notice: the operator who typed the link
+   * may be on another machine with no view of the wall at all.
+   */
+  blockedURL: [string]
 }
 
 export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
@@ -280,6 +287,10 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
     if (this.disposed) {
       return
     }
+    // Announced before the overlay's own delivery, which is gated on the
+    // renderer having announced itself: the control UI's path is separate and
+    // must not inherit that wait (#797).
+    this.emit('blockedURL', url)
     if (!this.overlayLoaded) {
       // Drops the newcomer rather than the oldest, so a layer page issuing a
       // stream of refused requests cannot push the operator's own refused link

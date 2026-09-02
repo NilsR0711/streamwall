@@ -127,6 +127,7 @@ function renderControlUI(role: StreamwallRole | null): {
     layoutPresets: [],
     favorites: [],
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 
   act(() => {

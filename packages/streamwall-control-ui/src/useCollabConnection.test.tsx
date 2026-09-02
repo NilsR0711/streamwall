@@ -30,6 +30,7 @@ const minimalState: StreamwallState = {
   layoutPresets: [],
   favorites: [],
   dataSourceHealth: [],
+  blockedLayerURLs: [],
 }
 
 /**

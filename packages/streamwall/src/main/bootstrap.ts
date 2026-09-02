@@ -115,6 +115,7 @@ export function createInitialClientState(
     layoutPresets: deps.layoutPresets,
     favorites: deps.favorites,
     dataSourceHealth: [],
+    blockedLayerURLs: [],
   }
 }
 
