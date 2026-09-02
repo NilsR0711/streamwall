@@ -1,14 +1,31 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import process from 'node:process'
 import { test } from 'node:test'
+import type WebSocket from 'ws'
 
 import { DEFAULT_SCRYPT_PARAMS } from './auth.ts'
 import {
   captureLogs,
+  messageCollector,
   setEnvForTest,
   startTestServer,
   TEST_SCRYPT_PARAMS,
 } from './testHelpers.ts'
+
+/**
+ * A minimal stand-in for a `ws` socket: `messageCollector` only ever calls
+ * `.on('message', ...)` and `.off('message', ...)`, both satisfied by a plain
+ * `EventEmitter`.
+ */
+function fakeSocket() {
+  const emitter = new EventEmitter()
+  return {
+    ws: emitter as unknown as WebSocket,
+    emitMessage: (data: string, isBinary = false) =>
+      emitter.emit('message', Buffer.from(data), isBinary),
+  }
+}
 
 /** Snapshot taken before any override, so the restore assertion is exact. */
 const RATE_LIMIT_MAX_AT_LOAD = process.env.STREAMWALL_RATE_LIMIT_MAX
@@ -131,4 +148,45 @@ test('startTestServer merges a partial rateLimit override with the wide test def
     429,
     `expected the overridden authMax of 2 to apply, got: ${authCodes.join(',')}`,
   )
+})
+
+test('messageCollector resolves with the first JSON frame it receives', async () => {
+  const { ws, emitMessage } = fakeSocket()
+  const nextMessage = messageCollector(ws)
+
+  emitMessage(JSON.stringify({ error: 'unauthorized' }))
+
+  assert.deepEqual(await nextMessage(500), { error: 'unauthorized' })
+})
+
+test('messageCollector ignores a binary frame that arrives before the first JSON frame', async () => {
+  // A binary Yjs doc-update frame can race in front of the app-level JSON
+  // frame a caller is actually waiting for. It must be skipped, not treated
+  // as (and fail to parse as) the "first" message.
+  const { ws, emitMessage } = fakeSocket()
+  const nextMessage = messageCollector(ws)
+
+  emitMessage('not valid json, this is a stand-in for binary doc bytes', true)
+  emitMessage(JSON.stringify({ error: 'unauthorized' }))
+
+  assert.deepEqual(await nextMessage(500), { error: 'unauthorized' })
+})
+
+test('messageCollector ignores an unparsable text frame and waits for a later JSON frame', async () => {
+  const { ws, emitMessage } = fakeSocket()
+  const nextMessage = messageCollector(ws)
+
+  emitMessage('not json')
+  emitMessage(JSON.stringify({ error: 'unauthorized' }))
+
+  assert.deepEqual(await nextMessage(500), { error: 'unauthorized' })
+})
+
+test('messageCollector resolves null when only a binary frame arrives before the timeout', async () => {
+  const { ws, emitMessage } = fakeSocket()
+  const nextMessage = messageCollector(ws)
+
+  emitMessage('binary doc bytes', true)
+
+  assert.equal(await nextMessage(50), null)
 })
