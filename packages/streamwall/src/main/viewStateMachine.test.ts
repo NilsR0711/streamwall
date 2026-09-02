@@ -1,3 +1,4 @@
+import { MAX_VIEW_ERROR_LENGTH } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import log from './logger'
 
@@ -141,6 +142,35 @@ describe('viewStateMachine error handling and auto-retry', () => {
     actor.send({ type: 'VIEW_ERROR', error: 'plain string failure' })
 
     expect(actor.getSnapshot().context.error).toBe('plain string failure')
+  })
+
+  // Issue #770: a rejection reason can wrap a real Error thrown while
+  // loading page-supplied content, so its .message could in principle carry
+  // attacker-influenced text. Truncating here - the same fix issue #734
+  // applied to document.title - keeps an oversized reason from ever pushing
+  // a broadcast state frame over the uplink's maxPayload.
+  it('truncates an oversized error reason to MAX_VIEW_ERROR_LENGTH', () => {
+    const actor = makeActor(makeRetry({ enabled: false }))
+    actor.start()
+    display(actor)
+
+    const oversized = 'x'.repeat(MAX_VIEW_ERROR_LENGTH + 500)
+    actor.send({ type: 'VIEW_ERROR', error: new Error(oversized) })
+
+    expect(actor.getSnapshot().context.error).toBe(
+      'x'.repeat(MAX_VIEW_ERROR_LENGTH),
+    )
+  })
+
+  it('does not truncate an error reason at exactly MAX_VIEW_ERROR_LENGTH', () => {
+    const actor = makeActor(makeRetry({ enabled: false }))
+    actor.start()
+    display(actor)
+
+    const atLimit = 'x'.repeat(MAX_VIEW_ERROR_LENGTH)
+    actor.send({ type: 'VIEW_ERROR', error: new Error(atLimit) })
+
+    expect(actor.getSnapshot().context.error).toBe(atLimit)
   })
 
   it('auto-retries from the error state after the backoff delay', () => {
