@@ -94,6 +94,10 @@ describe('ServerUpdateBanner', () => {
     expect(banner?.textContent).toContain('0.9.1')
     const link = banner?.querySelector('a') as HTMLAnchorElement
     expect(link.href).toBe(AVAILABLE_STATUS.releaseUrl)
+    // The URL comes from the control server, so the link must open away from
+    // the control UI without handing the target an opener (#732).
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
 
   test('renders English copy', () => {

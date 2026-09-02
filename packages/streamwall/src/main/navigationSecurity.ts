@@ -21,13 +21,13 @@ export function denyWindowOpen(webContents: WebContents): void {
 function preventNavigationAway(
   webContents: WebContents,
   event: NavigationEvent,
-): boolean {
+): void {
   const currentURL = webContents.getURL()
 
   // Allow the page to reload itself (navigating to the URL it is already on).
   if (event.url === currentURL) {
     log.info('Allowing page to reload:', event.url)
-    return false
+    return
   }
 
   // Allow the initial load to resolve through server redirects. Until the view
@@ -35,11 +35,10 @@ function preventNavigationAway(
   // (http->https, CDN, shortlinks) fire `will-redirect` even though the load was
   // started from the main process, and must not be blocked.
   if (currentURL === '') {
-    return false
+    return
   }
 
   event.preventDefault()
-  return true
 }
 
 // The only schemes we are willing to hand to the OS browser. Anything else
@@ -62,9 +61,8 @@ function isExternallyOpenable(url: string): boolean {
 export function secureStreamView(webContents: WebContents): void {
   denyWindowOpen(webContents)
 
-  const guard = (event: NavigationEvent) => {
+  const guard = (event: NavigationEvent) =>
     preventNavigationAway(webContents, event)
-  }
   webContents.on('will-navigate', guard)
   webContents.on('will-redirect', guard)
 }
@@ -79,29 +77,45 @@ export function secureStreamView(webContents: WebContents): void {
  * every sender check. control.html's `<meta>` CSP is a property of the local
  * document and does not survive such a navigation either (#732).
  *
- * `openExternal` is injected rather than imported so the guards stay testable
- * without a running Electron app; callers pass `shell.openExternal`.
+ * Unlike `secureStreamView`, this allowlists the app's own pages outright
+ * instead of pinning to whatever has committed: the page is loaded from disk (or
+ * the dev server) by the main process, so there is no legitimate redirect chain
+ * to leave room for, and no window in which nothing has committed yet.
+ *
+ * `isAppURL` and `openExternal` are injected rather than imported so the guards
+ * stay testable without a running Electron app; callers pass `isAppPageURL` and
+ * `shell.openExternal`.
  */
 export function secureAppWindow(
   webContents: WebContents,
-  openExternal: (url: string) => void,
+  {
+    isAppURL,
+    openExternal,
+  }: {
+    isAppURL: (url: string) => boolean
+    openExternal: (url: string) => void
+  },
 ): void {
-  webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternallyOpenable(url)) {
+  // Hands an outward link to the OS browser, where the page gets none of the
+  // app's privileges. An app page reached this way is dropped instead: opening
+  // a second copy of the control UI in a browser is not what a click meant.
+  const openAway = (url: string) => {
+    if (!isAppURL(url) && isExternallyOpenable(url)) {
       openExternal(url)
     }
+  }
+
+  webContents.setWindowOpenHandler(({ url }) => {
+    openAway(url)
     return { action: 'deny' as const }
   })
 
   const guard = (event: NavigationEvent) => {
-    if (!preventNavigationAway(webContents, event)) {
+    if (isAppURL(event.url)) {
       return
     }
-    // The click was a deliberate "take me to this stream"; honour the intent in
-    // the OS browser, where the page gets none of the app's privileges.
-    if (isExternallyOpenable(event.url)) {
-      openExternal(event.url)
-    }
+    event.preventDefault()
+    openAway(event.url)
   }
   webContents.on('will-navigate', guard)
   webContents.on('will-redirect', guard)

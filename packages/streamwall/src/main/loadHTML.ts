@@ -1,6 +1,7 @@
 import { WebContents } from 'electron'
 import path from 'path'
 import querystring from 'querystring'
+import { fileURLToPath } from 'url'
 
 /**
  * Origin of the Vite dev server that serves the renderer HTML pages during
@@ -17,6 +18,44 @@ export function devServerOrigin(): string | undefined {
     return new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin
   } catch {
     return undefined
+  }
+}
+
+/** Directory the packaged renderer bundle (HTML pages and assets) lives in. */
+function rendererRoot(): string {
+  return path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`)
+}
+
+/**
+ * Whether `url` is one of the app's own renderer pages -- the only navigation
+ * target a window rendering Streamwall's own UI may reach (#732).
+ *
+ * In development that is the Vite dev server's origin; in a packaged build it is
+ * a `file:` URL inside the bundled renderer directory. The `file:` path is
+ * resolved before the prefix check -- `new URL()` cannot be relied on to fold
+ * `..` segments away -- so a crafted path cannot climb out of that directory.
+ */
+export function isAppPageURL(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+
+  const devOrigin = devServerOrigin()
+  if (devOrigin) {
+    return parsed.origin === devOrigin
+  }
+
+  if (parsed.protocol !== 'file:') {
+    return false
+  }
+  try {
+    const root = rendererRoot()
+    return path.resolve(fileURLToPath(parsed)).startsWith(root + path.sep)
+  } catch {
+    return false
   }
 }
 
@@ -42,10 +81,7 @@ export function loadHTML(
     )
   } else {
     return webContents.loadFile(
-      path.join(
-        __dirname,
-        `../renderer/${MAIN_WINDOW_VITE_NAME}/src/renderer/${name}.html`,
-      ),
+      path.join(rendererRoot(), `src/renderer/${name}.html`),
       options,
     )
   }

@@ -146,13 +146,24 @@ test('secureStreamView allows will-redirect to the same URL', () => {
 // `streamwallControl` bridge, so it must never be allowed to navigate to remote
 // content: the `control:*` sender guards compare against the same webContents
 // and would keep passing afterwards, and control.html's <meta> CSP does not
-// survive a navigation (#732).
-const APP_PAGE = 'file:///app/renderer/control.html'
+// survive a navigation (#732). Unlike a stream view it is allowlisted against
+// the app's own pages rather than pinned to what has committed, so there is no
+// window in which anything goes.
+const APP_ROOT = 'file:///app/renderer/main_window/'
+const APP_PAGE = `${APP_ROOT}src/renderer/control.html`
+const isAppURL = (url: string) => url.startsWith(APP_ROOT)
+
+// Builds a control-window-style guard set over a fake webContents, returning
+// the double and the injected `openExternal` spy.
+function secureFakeAppWindow(currentURL = APP_PAGE) {
+  const wc = new FakeWebContents(currentURL)
+  const openExternal = vi.fn()
+  secureAppWindow(asWebContents(wc), { isAppURL, openExternal })
+  return { wc, openExternal }
+}
 
 test('secureAppWindow hands an http(s) popup to the OS browser and denies the in-app window', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.ok(wc.windowOpenHandler, 'a window-open handler must be registered')
   assert.deepEqual(
@@ -165,9 +176,7 @@ test('secureAppWindow hands an http(s) popup to the OS browser and denies the in
 })
 
 test('secureAppWindow denies a non-http popup without handing it to the OS', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.deepEqual(wc.windowOpenHandler!({ url: 'file:///etc/passwd' }), {
     action: 'deny',
@@ -176,9 +185,7 @@ test('secureAppWindow denies a non-http popup without handing it to the OS', () 
 })
 
 test('secureAppWindow denies a popup whose URL does not parse', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.deepEqual(wc.windowOpenHandler!({ url: 'not a url' }), {
     action: 'deny',
@@ -186,10 +193,17 @@ test('secureAppWindow denies a popup whose URL does not parse', () => {
   assert.equal(openExternal.mock.calls.length, 0)
 })
 
+test('secureAppWindow denies a popup onto the app itself without launching a browser copy of the UI', () => {
+  const { wc, openExternal } = secureFakeAppWindow()
+
+  assert.deepEqual(wc.windowOpenHandler!({ url: APP_PAGE }), {
+    action: 'deny',
+  })
+  assert.equal(openExternal.mock.calls.length, 0)
+})
+
 test('secureAppWindow blocks will-navigate away and opens the target externally', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.equal(
     wc.dispatchNavigation('will-navigate', 'https://evil.example/'),
@@ -198,10 +212,8 @@ test('secureAppWindow blocks will-navigate away and opens the target externally'
   assert.deepEqual(openExternal.mock.calls, [['https://evil.example/']])
 })
 
-test('secureAppWindow blocks a will-redirect escape once the app page has committed', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+test('secureAppWindow blocks a will-redirect escape too, so a 302 cannot do what a click cannot', () => {
+  const { wc } = secureFakeAppWindow()
 
   assert.equal(
     wc.dispatchNavigation('will-redirect', 'https://evil.example/'),
@@ -210,9 +222,7 @@ test('secureAppWindow blocks a will-redirect escape once the app page has commit
 })
 
 test('secureAppWindow blocks a non-http navigation without handing it to the OS', () => {
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.equal(
     wc.dispatchNavigation('will-navigate', 'file:///etc/passwd'),
@@ -221,28 +231,28 @@ test('secureAppWindow blocks a non-http navigation without handing it to the OS'
   assert.equal(openExternal.mock.calls.length, 0)
 })
 
-test('secureAppWindow allows the app page to reload itself', () => {
-  // Silence the informational reload log so test output stays clean.
-  vi.spyOn(log, 'info').mockImplementation(() => undefined)
-  const wc = new FakeWebContents(APP_PAGE)
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
-
-  assert.equal(wc.dispatchNavigation('will-navigate', APP_PAGE), false)
-  assert.equal(openExternal.mock.calls.length, 0)
-})
-
-test('secureAppWindow allows the initial load to resolve before anything has committed', () => {
-  const wc = new FakeWebContents('')
-  const openExternal = vi.fn()
-  secureAppWindow(asWebContents(wc), openExternal)
+test("secureAppWindow allows navigation between the app's own pages", () => {
+  const { wc, openExternal } = secureFakeAppWindow()
 
   assert.equal(
     wc.dispatchNavigation(
-      'will-redirect',
-      'http://localhost:5173/control.html',
+      'will-navigate',
+      `${APP_ROOT}src/renderer/overlay.html`,
     ),
     false,
   )
   assert.equal(openExternal.mock.calls.length, 0)
+})
+
+test('secureAppWindow blocks a remote navigation even before anything has committed', () => {
+  // Unlike a stream view, an app window's page is loaded from disk by the main
+  // process: there is no operator-supplied redirect chain to leave room for, so
+  // an uncommitted window must not be a hole.
+  const { wc, openExternal } = secureFakeAppWindow('')
+
+  assert.equal(
+    wc.dispatchNavigation('will-redirect', 'https://evil.example/'),
+    true,
+  )
+  assert.deepEqual(openExternal.mock.calls, [['https://evil.example/']])
 })

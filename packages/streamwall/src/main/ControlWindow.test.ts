@@ -19,7 +19,7 @@ class FakeWebContents {
   windowOpenHandler: ((details: { url: string }) => { action: string }) | null =
     null
   navHandlers: Record<string, Array<(event: NavEvent) => void>> = {}
-  url = 'file:///app/control.html'
+  url = APP_PAGE
 
   getURL(): string {
     return this.url
@@ -82,9 +82,15 @@ vi.mock('electron', () => ({
   shell: { openPath, openExternal },
 }))
 
-// Returns a resolved promise like the real loadHTML, so the caller's `.catch`
-// breadcrumb (issue #626) has something to attach to.
-vi.mock('./loadHTML', () => ({ loadHTML: vi.fn(() => Promise.resolve()) }))
+// `loadHTML` returns a resolved promise like the real one, so the caller's
+// `.catch` breadcrumb (issue #626) has something to attach to. `isAppPageURL`
+// stands in for the real app-page allowlist, whose answer depends on
+// build-time Vite globals; here the window's own page is the only app URL.
+const APP_PAGE = 'file:///app/renderer/control.html'
+vi.mock('./loadHTML', () => ({
+  loadHTML: vi.fn(() => Promise.resolve()),
+  isAppPageURL: (url: string) => url === APP_PAGE,
+}))
 
 const createExampleConfig = vi.fn()
 vi.mock('./exampleConfig', () => ({ createExampleConfig }))
