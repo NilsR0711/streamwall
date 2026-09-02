@@ -34,19 +34,15 @@ function fakeProcess() {
       emitter.emit(signal)
     },
   }
-  return { proc, exitCodes, listenerCount: () => emitter.eventNames().length }
+  return { proc, exitCodes }
 }
 
 /** The slice of a Fastify instance the shutdown wiring actually uses. */
 function fakeApp(close: () => Promise<void>, logs: LogCapture) {
   const record =
     (level: string) =>
-    (fields: unknown, msg?: string): void => {
-      const entry =
-        typeof fields === 'string'
-          ? { level, msg: fields }
-          : { level, ...(fields as object), msg }
-      logs.stream.write(JSON.stringify(entry))
+    (fields: object, msg?: string): void => {
+      logs.stream.write(JSON.stringify({ level, ...fields, msg }))
     }
   let closeCalls = 0
   return {

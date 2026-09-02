@@ -182,13 +182,14 @@ export function registerShutdownHandlers({
     shuttingDown = true
     app.log.info({ signal }, 'Shutting down')
 
+    // Deliberately not unref'd: a wedged `close()` can leave nothing but
+    // pending promises behind, and an unref'd timer would let the process
+    // slip out with code 0 instead of reporting the timeout. Both settle
+    // paths clear it, so it can never hold an orderly shutdown open.
     const forceExit = setTimeout(() => {
       app.log.error({ signal, forceExitAfterMs }, 'Shutdown timed out, exiting')
       proc.exit(1)
     }, forceExitAfterMs)
-    // Unref'd so a shutdown that finishes early is never held open by the
-    // timer it no longer needs.
-    forceExit.unref()
 
     void app.close().then(
       () => {
@@ -255,9 +256,6 @@ export default async function runServer({
   )
   app.log.debug({ hostname, port }, 'Initializing web server')
 
-  const bootstrap = await initialInviteCodes({ db, auth, baseURL })
-  logBootstrap(bootstrap)
-
   // Hooks must be registered before the instance starts listening -- Fastify 5
   // throws FST_ERR_INSTANCE_ALREADY_LISTENING otherwise (issue #442).
   app.addHook('onClose', async () => {
@@ -274,11 +272,16 @@ export default async function runServer({
     }
   })
 
-  await app.listen({ port, host: hostname })
-
-  // Registered only once the server is actually up: before that, a failed
-  // boot exits on its own and there is nothing to shut down.
+  // Armed before the boot finishes rather than after `listen`, so a stop
+  // signal arriving during a slow start — minting the uplink token is a scrypt
+  // derivation plus two storage writes — is handled too. Closing an instance
+  // that never listened simply runs the hooks above.
   registerShutdownHandlers({ app, process: proc })
+
+  const bootstrap = await initialInviteCodes({ db, auth, baseURL })
+  logBootstrap(bootstrap)
+
+  await app.listen({ port, host: hostname })
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
   void updateChecker.start()

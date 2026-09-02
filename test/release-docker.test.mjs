@@ -254,14 +254,18 @@ test('the compose stack can pull the published image', () => {
 // would go back to killing the container outright after its grace period.
 test('the container runs node directly, so a stop signal reaches it', () => {
   const dockerfile = readText(`packages/${IMAGE_REPOSITORY}/Dockerfile`)
-  const cmd = dockerfile.match(/^CMD\s+(.*)$/m)
+  // Every stage's CMD, not just the first: this is a multi-stage build, and a
+  // shell-form CMD anywhere would be easy to miss.
+  const commands = [...dockerfile.matchAll(/^CMD\s+(.*)$/gm)]
 
-  assert.ok(cmd, 'the Dockerfile must declare a CMD')
-  assert.match(
-    cmd[1],
-    /^\[/,
-    'CMD must use the exec form so no shell intercepts SIGTERM',
-  )
+  assert.ok(commands.length > 0, 'the Dockerfile must declare a CMD')
+  for (const [, value] of commands) {
+    assert.match(
+      value,
+      /^\[/,
+      'CMD must use the exec form so no shell intercepts SIGTERM',
+    )
+  }
   assert.ok(
     !/^ENTRYPOINT\s+(?!\[)/m.test(dockerfile),
     'an ENTRYPOINT, if any, must use the exec form for the same reason',
