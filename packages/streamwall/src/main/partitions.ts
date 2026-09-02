@@ -9,8 +9,11 @@
  * and is discarded when its last web context goes away.
  *
  * To prevent cross-site data bleed and persistent tracking, every stream view
- * gets its own unique, ephemeral partition and the browse window gets a separate
- * ephemeral partition of its own.
+ * gets its own unique, ephemeral partition, each chrome layer (which embeds
+ * operator-supplied overlay/background URLs in iframes) gets one too, and the
+ * browse window gets a separate ephemeral partition of its own. Nothing that
+ * renders third-party content is left in Electron's default session, which is
+ * persisted to disk and shared with the control window.
  *
  * @see https://www.electronjs.org/docs/latest/api/session
  */
@@ -20,6 +23,7 @@ import { createSessionHostResolver, findRequestBlockReason } from '../util'
 import log from './logger'
 
 const VIEW_PARTITION_PREFIX = 'view-'
+const LAYER_PARTITION_PREFIX = 'layer-'
 
 /**
  * Dedicated ephemeral partition for the operator's browse window. It is
@@ -46,6 +50,18 @@ export function createPartitionAllocator(prefix: string): () => string {
  */
 export const allocateViewPartition = createPartitionAllocator(
   VIEW_PARTITION_PREFIX,
+)
+
+/**
+ * App-wide allocator for the wall's chrome-layer partitions (the background and
+ * overlay layers). They render the app's own page, but that page embeds
+ * operator-supplied URLs in iframes, so each layer needs a hardened session of
+ * its own rather than the app's default one -- which is persisted to disk,
+ * shared with the control window, and never passed through
+ * {@link hardenSession} (#733).
+ */
+export const allocateLayerPartition = createPartitionAllocator(
+  LAYER_PARTITION_PREFIX,
 )
 
 // Minimal structural view of the request-filtering surface a session exposes,
