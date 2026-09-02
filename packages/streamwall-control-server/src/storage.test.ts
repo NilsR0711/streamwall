@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { after, afterEach, describe, test } from 'node:test'
 
-import { loadStorage, resolveDbPath } from './storage.ts'
+import {
+  loadStorage,
+  resolveDbPath,
+  STORAGE_DIR_MODE,
+  STORAGE_FILE_MODE,
+} from './storage.ts'
 import { setEnvForTest } from './testHelpers.ts'
 
 describe('resolveDbPath', () => {
@@ -90,4 +95,95 @@ describe('loadStorage', () => {
     const onDisk = JSON.parse(await readFile(dbPath, 'utf-8'))
     assert.equal(onDisk.auth.salt, 'test-salt')
   })
+})
+
+describe('storage file permissions', () => {
+  // Modes are a POSIX concept; Windows governs access through ACLs, and
+  // `loadStorage` deliberately leaves them alone there.
+  const posixOnly =
+    process.platform === 'win32' ? 'POSIX file modes only' : undefined
+
+  let scratchDir: string
+  after(() => {
+    if (scratchDir) {
+      rmSync(scratchDir, { recursive: true, force: true })
+    }
+  })
+
+  /** The permission bits of `target`. */
+  async function modeOf(target: string): Promise<number> {
+    return (await stat(target)).mode & 0o777
+  }
+
+  test(
+    'creates the storage directory owner-only',
+    { skip: posixOnly },
+    async () => {
+      scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-perm-'))
+      const dbPath = path.join(scratchDir, 'nested', 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+
+      await loadStorage()
+
+      assert.equal(await modeOf(path.dirname(dbPath)), STORAGE_DIR_MODE)
+    },
+  )
+
+  test('creates the storage file owner-only', { skip: posixOnly }, async () => {
+    scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-perm-'))
+    const dbPath = path.join(scratchDir, 'storage.json')
+    setEnvForTest({ DB_PATH: dbPath })
+
+    const db = await loadStorage()
+    db.data.auth.salt = 'test-salt'
+    await db.write()
+
+    assert.equal(await modeOf(dbPath), STORAGE_FILE_MODE)
+  })
+
+  test(
+    'keeps the file owner-only across repeated writes',
+    { skip: posixOnly },
+    async () => {
+      // lowdb writes through steno, which renames a fresh temp file over the
+      // storage file, so every write hands it a new inode with the umask's mode.
+      scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-perm-'))
+      const dbPath = path.join(scratchDir, 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+
+      const db = await loadStorage()
+      for (let i = 0; i < 3; i++) {
+        db.data.auth.salt = `salt-${i}`
+        await db.write()
+        assert.equal(await modeOf(dbPath), STORAGE_FILE_MODE, `write ${i}`)
+      }
+    },
+  )
+
+  test(
+    'tightens a directory and file left loose by an older server',
+    { skip: posixOnly },
+    async () => {
+      scratchDir = mkdtempSync(path.join(tmpdir(), 'sw-perm-'))
+      const dbDir = path.join(scratchDir, 'existing')
+      const dbPath = path.join(dbDir, 'storage.json')
+      mkdirSync(dbDir, { mode: 0o755 })
+      await writeFile(
+        dbPath,
+        JSON.stringify({
+          auth: { salt: 'old', tokens: [] },
+          streamwallToken: null,
+        }),
+      )
+      chmodSync(dbDir, 0o755)
+      chmodSync(dbPath, 0o644)
+      setEnvForTest({ DB_PATH: dbPath })
+
+      const db = await loadStorage()
+
+      assert.equal(db.data.auth.salt, 'old', 'the existing store is still read')
+      assert.equal(await modeOf(dbDir), STORAGE_DIR_MODE)
+      assert.equal(await modeOf(dbPath), STORAGE_FILE_MODE)
+    },
+  )
 })

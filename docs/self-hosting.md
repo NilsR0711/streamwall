@@ -67,7 +67,11 @@ interchangeable without editing the compose file.
 
 Auth-token storage (`storage.json`) lives on the `control-server-data` named
 volume, so it survives container restarts/rebuilds; back that volume up like
-you would any other persistent data.
+you would any other persistent data. It holds credentials — the auth salt and
+every token's scrypt hash, id and operator-chosen name — so the server creates
+its directory `0700` and the file itself `0600`, and re-applies both on
+startup. Keep those permissions on any copy you make: treat a backup of it the
+way you would treat a key file.
 
 CI covers this path: every pull request that touches the server, the web
 control client, the shared packages or `deploy/` builds the image on both
