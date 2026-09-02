@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { render } from 'preact'
 import { act } from 'preact/test-utils'
+import type { StreamData } from 'streamwall-shared'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   BLOCKED_URL_FLUSH_MS,
-  BLOCKED_URL_TTL_MS,
+  layerLinksKey,
   MAX_BLOCKED_URLS,
   useBlockedLayerURLs,
 } from './useBlockedLayerURLs'
@@ -26,11 +27,14 @@ afterEach(() => {
 
 // Renders the hook's list as one line per URL so a test can read it back out,
 // and counts renders so the report coalescing can be observed.
-function renderHook(subscribe: Parameters<typeof useBlockedLayerURLs>[0]) {
+function renderHook(
+  subscribe: Parameters<typeof useBlockedLayerURLs>[0],
+  resetKey = 'links',
+) {
   let renders = 0
-  function Probe() {
+  function Probe({ resetKey: key }: { resetKey: string }) {
     renders++
-    const blocked = useBlockedLayerURLs(subscribe)
+    const blocked = useBlockedLayerURLs(subscribe, key)
     return (
       <ul>
         {blocked.map((url) => (
@@ -42,32 +46,63 @@ function renderHook(subscribe: Parameters<typeof useBlockedLayerURLs>[0]) {
   container = document.createElement('div')
   document.body.appendChild(container)
   act(() => {
-    render(<Probe />, container!)
+    render(<Probe resetKey={resetKey} />, container!)
   })
   return {
     urls: () =>
       [...container!.querySelectorAll('li')].map((li) => li.textContent),
     renders: () => renders,
+    setResetKey: (key: string) =>
+      act(() => {
+        render(<Probe resetKey={key} />, container!)
+      }),
   }
 }
 
 /** Renders the hook and hands back the reporter the subscription captured. */
-function renderHookWithReporter() {
+function renderHookWithReporter(resetKey = 'links') {
   let report: ((url: string) => void) | undefined
   const probe = renderHook((handleBlocked) => {
     report = handleBlocked
     return () => {}
-  })
+  }, resetKey)
   return {
     ...probe,
     report: (url: string) => report!(url),
     /** Advances past the next flush, so buffered reports reach the render. */
-    flush: (times = 1) =>
+    flush: () =>
       act(() => {
-        vi.advanceTimersByTime(BLOCKED_URL_FLUSH_MS * times)
+        vi.advanceTimersByTime(BLOCKED_URL_FLUSH_MS)
       }),
   }
 }
+
+describe('layerLinksKey', () => {
+  const stream = (kind: StreamData['kind'], link: string): StreamData => ({
+    _id: link,
+    _dataSource: 'custom',
+    kind,
+    link,
+  })
+
+  test('covers both layers and ignores everything else', () => {
+    const key = layerLinksKey([
+      stream('overlay', 'https://a.example'),
+      stream('video', 'https://ignored.example'),
+      stream('background', 'https://b.example'),
+    ])
+
+    expect(key).toContain('https://a.example')
+    expect(key).toContain('https://b.example')
+    expect(key).not.toContain('ignored')
+  })
+
+  test('changes when a layer link is edited', () => {
+    expect(layerLinksKey([stream('overlay', 'https://a.example')])).not.toBe(
+      layerLinksKey([stream('overlay', 'https://b.example')]),
+    )
+  })
+})
 
 describe('useBlockedLayerURLs', () => {
   test('starts empty and collects each reported URL in order', () => {
@@ -99,18 +134,6 @@ describe('useBlockedLayerURLs', () => {
     expect(renders()).toBe(rendersBefore)
   })
 
-  test('keeps only the most recent URLs, so a polling page cannot fill the wall', () => {
-    const { urls, report, flush } = renderHookWithReporter()
-
-    for (let i = 0; i < MAX_BLOCKED_URLS + 3; i++) {
-      report(`http://192.168.1.50/?t=${i}`)
-    }
-    flush()
-
-    expect(urls()).toHaveLength(MAX_BLOCKED_URLS)
-    expect(urls().at(-1)).toBe(`http://192.168.1.50/?t=${MAX_BLOCKED_URLS + 2}`)
-  })
-
   test('does not re-render when the same URL is refused again', () => {
     const { urls, renders, report, flush } = renderHookWithReporter()
     report('http://192.168.1.50/a')
@@ -124,24 +147,42 @@ describe('useBlockedLayerURLs', () => {
     expect(renders()).toBe(rendersAfterFirst)
   })
 
-  test('drops a URL once it has stopped being refused, so a fixed link clears', () => {
-    // The layer page is never reloaded on a config change, so nothing else
-    // would ever take the notice down again.
+  test('keeps the URLs it already has rather than letting layer content push them out', () => {
+    // A framed page can request any number of distinct refused URLs; the
+    // operator's own refused link must not be evicted by that churn.
     const { urls, report, flush } = renderHookWithReporter()
+    report('http://192.168.1.50/the-operators-link')
+    flush()
+
+    for (let i = 0; i < MAX_BLOCKED_URLS * 10; i++) {
+      report(`http://192.168.1.50/?churn=${i}`)
+    }
+    flush()
+
+    expect(urls()).toHaveLength(MAX_BLOCKED_URLS)
+    expect(urls()[0]).toBe('http://192.168.1.50/the-operators-link')
+  })
+
+  test('clears when the layer links change, so a fixed address stops being reported', () => {
+    // A refused iframe is requested exactly once, so a report can never expire
+    // on its own evidence, and the layer page is never reloaded on a config
+    // change -- the operator's edit is the only signal there is.
+    const { urls, report, flush, setResetKey } = renderHookWithReporter()
     report('http://192.168.1.50/a')
     flush()
     expect(urls()).toEqual(['http://192.168.1.50/a'])
 
-    flush(BLOCKED_URL_TTL_MS / BLOCKED_URL_FLUSH_MS + 1)
+    setResetKey('https://fixed.example')
+    flush()
 
     expect(urls()).toEqual([])
   })
 
-  test('keeps a URL that is still being refused', () => {
+  test('keeps the notice while the operator has changed nothing', () => {
     const { urls, report, flush } = renderHookWithReporter()
+    report('http://192.168.1.50/a')
 
-    for (let i = 0; i < BLOCKED_URL_TTL_MS / BLOCKED_URL_FLUSH_MS + 2; i++) {
-      report('http://192.168.1.50/a')
+    for (let i = 0; i < 10; i++) {
       flush()
     }
 
