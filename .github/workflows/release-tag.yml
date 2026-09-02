@@ -69,6 +69,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: write
+    outputs:
+      # `ok` | `failed` | `inconclusive` — set by the check step below so the
+      # report job can tell a transient GitHub API error (#721) apart from a
+      # real failure without treating either as a plain job result.
+      outcome: ${{ steps.assets.outputs.outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,10 +85,31 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # `check-release-assets.mjs` exits 2 rather than 1 when it could not
+      # reach the GitHub API even after retrying (#721): a 5xx or a rate limit
+      # says nothing about whether the release is broken, so that outcome must
+      # not read as the same failure a missing artifact would be. The step
+      # itself still succeeds (exit 0) so the job result stays clean; the
+      # `outcome` output is how the report job tells the two apart.
       - name: Check the newest tag produced a complete release
+        id: assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/check-release-assets.mjs
+        run: |
+          set +e
+          node scripts/check-release-assets.mjs
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo 'outcome=inconclusive' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$code" -eq 0 ]; then
+            echo 'outcome=ok' >> "$GITHUB_OUTPUT"
+          else
+            echo 'outcome=failed' >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
 
   # A failing scheduled run is invisible without this: nobody is emailed about
   # one, so the report goes into the issue tracker instead (#514) — which is
@@ -95,7 +121,13 @@ jobs:
       issues: write
     uses: ./.github/workflows/scheduled-report.yml
     with:
+      # A transient GitHub API error must neither file a fresh "workflow
+      # failing" report nor quietly close an existing one — the run said
+      # nothing about the release either way (#721). `needs.*.result` still
+      # covers every job's real result; only the "success" branch is narrowed,
+      # so an inconclusive `assets` run falls through to `none` instead.
       result: >-
         ${{ contains(needs.*.result, 'failure') && 'failure'
-         || contains(needs.*.result, 'success') && 'success'
+         || (contains(needs.*.result, 'success')
+             && needs.assets.outputs.outcome != 'inconclusive') && 'success'
          || 'none' }}
