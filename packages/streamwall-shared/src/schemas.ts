@@ -512,6 +512,31 @@ const blockedLayerURLsSchema = z
   // than costing it one notice.
   .default([])
 
+/**
+ * Counts the clears the desktop applied to {@link blockedLayerURLsSchema}
+ * (issue #810).
+ *
+ * A control client that was disconnected across the operator's edit never
+ * observes the empty list: it reconnects to a snapshot that can already name
+ * the same address again, which membership alone cannot tell apart from the
+ * address never having gone away. The counter is the marker that says a clear
+ * happened, so a dismissal made under an older value never applies to a
+ * newer one.
+ *
+ * `int()` is the bound: it holds the value inside the safe integer range, so
+ * the equality the control UI compares by survives the JSON round trip
+ * exactly. The desktop bumps it once per operator edit, which does not come
+ * within reach of that range.
+ */
+const blockedLayerURLsGenerationSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  // Same version skew as the list itself: a desktop older than #810 sends no
+  // such field, and taking its whole state broadcast down would cost far more
+  // than the one dismissal edge this counter fixes.
+  .default(0)
+
 const dataSourceHealthSchema = z.object({
   id: z.string(),
   type: z.enum(['json-url', 'toml-file']),
@@ -548,6 +573,7 @@ export const streamwallStateSchema = z.object({
   favorites: z.array(z.string()),
   dataSourceHealth: z.array(dataSourceHealthSchema),
   blockedLayerURLs: blockedLayerURLsSchema,
+  blockedLayerURLsGeneration: blockedLayerURLsGenerationSchema,
 })
 
 /**

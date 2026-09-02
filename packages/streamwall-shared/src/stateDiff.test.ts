@@ -54,6 +54,7 @@ function makeState(overrides: Partial<StreamwallState> = {}): StreamwallState {
     favorites: [],
     dataSourceHealth: [],
     blockedLayerURLs: [],
+    blockedLayerURLsGeneration: 0,
     ...overrides,
   }
 }

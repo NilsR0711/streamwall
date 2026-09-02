@@ -87,6 +87,7 @@ function makeState(views: ViewState[]): StreamwallState {
     favorites: [],
     dataSourceHealth: [],
     blockedLayerURLs: [],
+    blockedLayerURLsGeneration: 0,
   }
 }
 
@@ -201,6 +202,25 @@ describe('useStreamwallState', () => {
     delete (state as Partial<StreamwallState>).blockedLayerURLs
 
     expect(runHook(state).blockedLayerURLs).toEqual([])
+  })
+
+  // Issue #810: the notice keys its dismissals by this value, so it has to
+  // reach the sidebar as the desktop sent it.
+  test('carries the blocked layer URL generation through', () => {
+    const state = makeState([])
+    state.blockedLayerURLsGeneration = 4
+
+    expect(runHook(state).blockedLayerURLsGeneration).toBe(4)
+  })
+
+  // Same version skew as the list: a server older than #810 sends no
+  // generation, and a constant default keeps every dismissal valid rather
+  // than dropping them on every update.
+  test('defaults the blocked layer URL generation when a server omits it', () => {
+    const state = makeState([])
+    delete (state as Partial<StreamwallState>).blockedLayerURLsGeneration
+
+    expect(runHook(state).blockedLayerURLsGeneration).toBe(0)
   })
 
   test('keeps the view-id and cell-index axes apart', () => {

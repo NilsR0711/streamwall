@@ -405,6 +405,7 @@ function makeState(): StreamwallState {
     favorites: ['https://example.com/stream'],
     dataSourceHealth: [],
     blockedLayerURLs: ['http://192.168.1.5/overlay'],
+    blockedLayerURLsGeneration: 2,
   }
 }
 
@@ -418,6 +419,26 @@ for (const role of ['admin', 'operator', 'local'] satisfies StreamwallRole[]) {
     const view = new StateWrapper(state).view(role)
 
     assert.deepEqual(view.blockedLayerURLs, state.blockedLayerURLs)
+  })
+}
+
+// Issue #810: the generation says nothing about any address, and a client
+// that is later told about the list has to be able to tell which clear the
+// list it sees belongs to.
+for (const role of [
+  'admin',
+  'operator',
+  'local',
+  'monitor',
+] satisfies StreamwallRole[]) {
+  test(`StateWrapper.view("${role}") carries the blocked layer URL generation`, () => {
+    const state = makeState()
+    const view = new StateWrapper(state).view(role)
+
+    assert.equal(
+      view.blockedLayerURLsGeneration,
+      state.blockedLayerURLsGeneration,
+    )
   })
 }
 

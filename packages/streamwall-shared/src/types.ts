@@ -167,6 +167,17 @@ export interface StreamwallState {
    * `MAX_BLOCKED_LAYER_URL_LENGTH`.
    */
   blockedLayerURLs: string[]
+  /**
+   * How often the wall has cleared `blockedLayerURLs` because the operator
+   * edited a layer link (issue #810).
+   *
+   * A control client that was disconnected across such a clear reconnects to a
+   * snapshot that can already name the same address again, and cannot tell
+   * that apart from the address never having gone away. Dismissals in the
+   * control UI are keyed by this value, so one made against an older list
+   * never suppresses a newer refusal.
+   */
+  blockedLayerURLsGeneration: number
 }
 
 type MessageMeta = {

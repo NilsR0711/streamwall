@@ -91,6 +91,7 @@ const E2E_STATE: StreamwallState = {
   favorites: [],
   dataSourceHealth: [],
   blockedLayerURLs: [],
+  blockedLayerURLsGeneration: 0,
 }
 
 /** Options for {@link startHarness}, exposed to specs via `test.use(...)`. */

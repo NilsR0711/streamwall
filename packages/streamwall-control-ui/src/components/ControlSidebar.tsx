@@ -43,6 +43,7 @@ export function ControlSidebar({
   onChangeCustomStream,
   onDeleteCustomStream,
   blockedLayerURLs,
+  blockedLayerURLsGeneration,
   authState,
   newInvite,
   onCreateInvite,
@@ -63,6 +64,7 @@ export function ControlSidebar({
   onChangeCustomStream: (url: string, customStream: LocalStreamData) => void
   onDeleteCustomStream: (url: string) => void
   blockedLayerURLs: string[]
+  blockedLayerURLsGeneration: number
   authState: StreamwallState['auth'] | undefined
   newInvite: Invite | undefined
   onCreateInvite: (args: { name: string; role: InvitableRole }) => void
@@ -151,7 +153,10 @@ export function ControlSidebar({
                 same thing to whoever stands in front of it, which is nobody in
                 a control-server deployment (issue #797).
               */}
-              <BlockedLayerURLNotice urls={blockedLayerURLs} />
+              <BlockedLayerURLNotice
+                urls={blockedLayerURLs}
+                generation={blockedLayerURLsGeneration}
+              />
               <div>
                 {/*
                   Keyed by `link` (each custom stream's stable id) rather

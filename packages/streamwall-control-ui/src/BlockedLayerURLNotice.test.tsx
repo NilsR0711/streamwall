@@ -14,16 +14,19 @@ afterEach(() => {
   }
 })
 
-function renderNotice(urls: readonly string[]): HTMLDivElement {
+function renderNotice(urls: readonly string[], generation = 0): HTMLDivElement {
   container = document.createElement('div')
   document.body.appendChild(container)
-  rerender(urls)
+  rerender(urls, generation)
   return container
 }
 
-function rerender(urls: readonly string[]): void {
+function rerender(urls: readonly string[], generation = 0): void {
   act(() => {
-    render(<BlockedLayerURLNotice urls={urls} />, container!)
+    render(
+      <BlockedLayerURLNotice urls={urls} generation={generation} />,
+      container!,
+    )
   })
 }
 
@@ -135,6 +138,49 @@ describe('BlockedLayerURLNotice', () => {
     })
 
     rerender(['http://192.168.1.5/overlay', 'http://10.0.0.9/bg'])
+
+    expect(shownURLs(el)).toEqual(['http://10.0.0.9/bg'])
+  })
+
+  // Issue #810: a client disconnected across the operator's edit reconnects to
+  // a snapshot that already names the same address again, so it never observes
+  // the empty list. The generation the desktop bumped on that clear is what
+  // tells it the dismissal was made against a list that no longer stands.
+  test('names an address again after a clear it never saw', () => {
+    const el = renderNotice(['http://192.168.1.5/overlay'], 3)
+    act(() => {
+      dismissButton(el)!.click()
+    })
+    expect(shownURLs(el)).toEqual([])
+
+    rerender(['http://192.168.1.5/overlay'], 4)
+
+    expect(shownURLs(el)).toEqual(['http://192.168.1.5/overlay'])
+  })
+
+  // The point of keying by generation rather than dropping dismissals on every
+  // reconnect: a dismissal the operator made still holds for the list it was
+  // made against, however often that list is re-broadcast.
+  test('keeps a dismissal while the generation stands', () => {
+    const el = renderNotice(['http://192.168.1.5/overlay'], 3)
+    act(() => {
+      dismissButton(el)!.click()
+    })
+
+    rerender(['http://192.168.1.5/overlay'], 3)
+
+    expect(shownURLs(el)).toEqual([])
+  })
+
+  // A desktop older than #810 sends no generation and the control UI defaults
+  // it to a constant, which must not read as a clear on every state update.
+  test('keeps a dismissal across updates from a desktop with no generation', () => {
+    const el = renderNotice(['http://192.168.1.5/overlay'], 0)
+    act(() => {
+      dismissButton(el)!.click()
+    })
+
+    rerender(['http://192.168.1.5/overlay', 'http://10.0.0.9/bg'], 0)
 
     expect(shownURLs(el)).toEqual(['http://10.0.0.9/bg'])
   })
