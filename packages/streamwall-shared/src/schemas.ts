@@ -75,6 +75,22 @@ const layoutPresetNameSchema = z
   .max(MAX_LAYOUT_PRESET_NAME_LENGTH)
 const layoutPresetIdSchema = z.string().min(1).max(100)
 
+/**
+ * Longest allowed URL anywhere it crosses a trust boundary: a control command
+ * argument (`rotate-stream`, `update-custom-stream`, `delete-custom-stream`,
+ * `browse`, `add-favorite`, `remove-favorite`) or a view's displayed content
+ * URL in the broadcast `StreamwallState` (issue #770, following up on #734).
+ * These ultimately originate from operator input or a data source, both of
+ * which are untrusted, and the content URL in particular is re-broadcast on
+ * every state update - an unbounded value could grow a `state` frame past
+ * the uplink's `maxPayload`, the same denial-of-service loop #734 fixed for
+ * `document.title`. 2048 mirrors the URL length browsers themselves treat as
+ * a practical limit, generous enough for any real stream or page URL.
+ */
+export const MAX_URL_LENGTH = 2048
+const urlSchema = z.string().max(MAX_URL_LENGTH)
+const nonEmptyUrlSchema = z.string().min(1).max(MAX_URL_LENGTH)
+
 /** Optional descriptive fields shared by every stream-data shape. */
 const streamMetaFields = {
   label: z.string().optional(),
@@ -170,17 +186,17 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('rotate-stream'),
-    url: z.string(),
+    url: urlSchema,
     rotation: rotationSchema,
   }),
   z.object({
     type: z.literal('update-custom-stream'),
-    url: z.string(),
+    url: urlSchema,
     data: localStreamDataSchema,
   }),
   z.object({
     type: z.literal('delete-custom-stream'),
-    url: z.string(),
+    url: urlSchema,
   }),
   z.object({
     type: z.literal('reload-view'),
@@ -193,7 +209,7 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('browse'),
-    url: z.string(),
+    url: urlSchema,
   }),
   z.object({
     type: z.literal('dev-tools'),
@@ -235,11 +251,11 @@ export const controlCommandSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add-favorite'),
-    url: z.string().min(1),
+    url: nonEmptyUrlSchema,
   }),
   z.object({
     type: z.literal('remove-favorite'),
-    url: z.string().min(1),
+    url: nonEmptyUrlSchema,
   }),
 ])
 
@@ -307,7 +323,7 @@ const streamDataSchema = localStreamDataSchema.extend({
 })
 
 const viewContentSchema = z.object({
-  url: z.string(),
+  url: urlSchema,
   kind: contentKindSchema,
 })
 
@@ -377,6 +393,21 @@ export const viewStateValueSchema = z.union([
   }),
 ])
 
+/**
+ * Longest allowed reason string for a view's `error` context field (issue
+ * #770, following up on #734). `formatError()`
+ * (packages/streamwall/src/main/viewStateMachine.ts) derives this from
+ * whatever a page's `main()` promise rejects with - in some paths that
+ * wraps a real `Error` thrown while loading page-supplied content, so its
+ * `.message` could in principle carry attacker-influenced text. The reason
+ * flows into the broadcast `StreamwallState`, so left unbounded it is the
+ * same denial-of-service vector #734 fixed for `document.title`.
+ * `formatError()` truncates to this length before the reason ever reaches
+ * this schema; the bound here is the server-side backstop in case that
+ * truncation is ever bypassed.
+ */
+export const MAX_VIEW_ERROR_LENGTH = 1000
+
 const viewStateSchema = z.object({
   state: viewStateValueSchema,
   context: z.object({
@@ -386,7 +417,7 @@ const viewStateSchema = z.object({
     content: viewContentSchema.nullable(),
     info: contentViewInfoSchema.nullable(),
     pos: viewPosSchema.nullable(),
-    error: z.string().nullable(),
+    error: z.string().max(MAX_VIEW_ERROR_LENGTH).nullable(),
     volume: volumeSchema,
   }),
 })
