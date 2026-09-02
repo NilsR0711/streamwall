@@ -135,6 +135,7 @@ export function ControlGrid({
                   top: `${(100 * y) / rows}%`,
                 }}
                 idx={idx}
+                cols={cols}
                 spaceValue={streamId ?? ''}
                 onChangeSpace={onSetView}
                 isHighlighted={isHighlighted}

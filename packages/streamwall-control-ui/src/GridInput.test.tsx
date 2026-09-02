@@ -49,8 +49,10 @@ function gridInput(
 ): ComponentChildren {
   return (
     <GridInput
+      key={props.idx ?? 0}
       style={{}}
       idx={asCellIdx(0)}
+      cols={1}
       onChangeSpace={() => {}}
       spaceValue=""
       isHighlighted={false}
@@ -171,6 +173,36 @@ describe('GridInput', () => {
     })
 
     expect(input.value).toBe('wok')
+  })
+
+  // A run of up to 64 (8x8) otherwise-identical text inputs is the grid's
+  // primary control, so a screen reader/voice-control user needs a way to
+  // tell them apart (WCAG 4.1.2 Name, Role, Value; issue #746).
+  describe('accessible name (issue #746)', () => {
+    test('gives every cell an accessible name derived from its row/column position', () => {
+      const box = renderInput({ idx: asCellIdx(5), cols: 3 })
+      const input = box.querySelector('input')!
+
+      // idx 5 in a 3-column grid: row 1 (0-based), column 2 (0-based).
+      expect(input.getAttribute('aria-label')).toBe(
+        'Stream for cell row 2, column 3',
+      )
+    })
+
+    test('gives cells in different rows/columns distinct accessible names', () => {
+      const box = renderWithStyles(
+        <>
+          {gridInput({ idx: asCellIdx(0), cols: 4 })}
+          {gridInput({ idx: asCellIdx(1), cols: 4 })}
+          {gridInput({ idx: asCellIdx(4), cols: 4 })}
+        </>,
+      )
+      const labels = Array.from(box.querySelectorAll('input')).map((input) =>
+        input.getAttribute('aria-label'),
+      )
+
+      expect(new Set(labels).size).toBe(labels.length)
+    })
   })
 
   test('paints the tile lighter while it is highlighted', () => {

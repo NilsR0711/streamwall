@@ -71,6 +71,7 @@ const StyledGridInput = styled(LazyChangeInput)<{
 export function GridInput({
   style,
   idx,
+  cols,
   onChangeSpace,
   spaceValue,
   isHighlighted,
@@ -82,6 +83,8 @@ export function GridInput({
   style: JSX.HTMLAttributes['style']
   onPointerDown: JSX.PointerEventHandler<HTMLInputElement>
   idx: CellIdx
+  /** Grid column count, used only to derive the cell's row/column position for its accessible name. */
+  cols: number
   onChangeSpace: (idx: CellIdx, value: string) => void
   spaceValue: string
   isHighlighted: boolean
@@ -101,6 +104,13 @@ export function GridInput({
     },
     [idx, onChangeSpace],
   )
+  // A run of up to 64 (8x8) otherwise-identical text inputs is the grid's
+  // primary control, so each one needs its own name for a screen reader or
+  // voice-control user to tell them apart (WCAG 4.1.2, issue #746) - row/
+  // column position is always present and unique, unlike the stream id.
+  const row = Math.floor(idx / cols)
+  const col = idx % cols
+  const label = `Stream for cell row ${row + 1}, column ${col + 1}`
   return (
     <StyledGridInputContainer style={style}>
       <StyledGridInput
@@ -113,6 +123,7 @@ export function GridInput({
         onPointerDown={onPointerDown}
         onChange={handleChange}
         isEager
+        aria-label={label}
         data-testid="grid-cell"
         data-idx={idx}
       />
