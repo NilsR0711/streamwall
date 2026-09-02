@@ -1676,6 +1676,15 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
     expect(registeredChannels()).toEqual(
       expect.arrayContaining(['pause', 'resume', 'options', 'volume']),
     )
+    // Pinned by call order rather than by "they exist once the import
+    // settled": the request must go out only after every channel is
+    // listening, so no suspension point can ever be introduced between the
+    // two and silently reopen the window.
+    const requestedAt = invoke.mock.invocationCallOrder[0]
+    for (const channel of ['pause', 'resume', 'options', 'volume']) {
+      const index = on.mock.calls.findIndex(([ch]) => ch === channel)
+      expect(on.mock.invocationCallOrder[index]).toBeLessThan(requestedAt)
+    }
   })
 
   it('honors a pause delivered before view-init resolved', async () => {

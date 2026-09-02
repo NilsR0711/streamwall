@@ -580,7 +580,8 @@ export type StreamwallMediaGlobal = typeof mediaApi
 contextBridge.exposeInMainWorld('streamwallMedia', mediaApi)
 
 async function main() {
-  const viewInit = ipcRenderer.invoke('view-init')
+  // Subscribed here rather than next to the 'view-init' request below, since
+  // 'loaded' can only be emitted once this synchronous prologue returns.
   const pageReady = new Promise((resolve) => process.once('loaded', resolve))
 
   // Operator-set state, all of it tracked across re-acquisitions (which build
@@ -670,6 +671,13 @@ async function main() {
       console.warn('error resuming media playback', err)
     })
   })
+
+  // Requested only now that every channel is listening. Keeping the request
+  // below the registrations makes the ordering structural instead of relying
+  // on there being no suspension point in between: the main process answers
+  // 'view-init' and dispatches VIEW_INIT to the view actor in one go, so a
+  // PAUSE/RESUME can follow immediately.
+  const viewInit = ipcRenderer.invoke('view-init')
 
   const [
     {
