@@ -20,9 +20,15 @@ import { styled } from 'styled-components'
  * the layer framed, and must not become something an operator can be induced
  * to follow.
  *
- * Dismissal is per address, so a later refusal of a different URL -- or of the
- * same one after the desktop cleared the list on the operator's edit -- is
- * announced again rather than swallowed by an earlier dismissal.
+ * Dismissal is per address and forgotten once the desktop stops reporting that
+ * address, so a later refusal of a different URL, or of the same one after a
+ * clear this client saw, is announced again rather than swallowed by an
+ * earlier dismissal. A clear this client did not see -- it was disconnected
+ * across the operator's edit and reconnected to a snapshot already naming the
+ * same address again -- is indistinguishable from the address never having
+ * gone away, and stays dismissed. Telling the two apart would need the
+ * desktop to carry a clear generation in the state, which is more machinery
+ * than a dismissed notice is worth.
  *
  * The live region itself stays mounted while nothing is refused and only its
  * contents are swapped: `aria-live` announcements are only reliable for
@@ -84,6 +90,17 @@ export function BlockedLayerURLNotice({ urls }: { urls: readonly string[] }) {
 const StyledBlockedLayerURLNotice = styled.div`
   font-size: 12px;
   color: #e0a800;
+
+  /* Matches the other dismissable banners (CommandErrorBanner). */
+  button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    text-decoration: underline;
+  }
   /* The content is supplied by whatever the layer framed, so it must never be
      able to push the operator's own custom-stream controls out of view. */
   max-height: 8em;

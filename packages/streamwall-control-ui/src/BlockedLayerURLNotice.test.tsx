@@ -139,9 +139,9 @@ describe('BlockedLayerURLNotice', () => {
     expect(shownURLs(el)).toEqual(['http://10.0.0.9/bg'])
   })
 
-  // The desktop clears the list when the operator edits a layer link. If the
-  // same address is refused again after that edit, the dismissal must not
-  // still be suppressing it.
+  // The desktop clears the list when the operator edits a layer link. If this
+  // client sees that clear and the address is refused again afterwards, the
+  // dismissal must not still be suppressing it.
   test('names an address again once it is refused after a cleared list', () => {
     const el = renderNotice(['http://192.168.1.5/overlay'])
     act(() => {
