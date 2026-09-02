@@ -1,6 +1,6 @@
 {
   "name": "streamwall-control-server",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "description": "Multiplayer Streamwall: backend",
   "main": "src/index.ts",
   "type": "module",
