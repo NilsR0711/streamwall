@@ -121,6 +121,7 @@ export function createUpdateChecker({
   let lastCheckedAt: string | null = null
   let announcedVersion: string | null = null
   let timer: unknown = null
+  let stopped = false
 
   const getStatus = (): UpdateStatus => ({
     version: currentVersion,
@@ -175,12 +176,20 @@ export function createUpdateChecker({
       if (!enabled || timer !== null) {
         return
       }
+      stopped = false
       await checkNow()
+      // The first check is a network round trip, so a `stop()` can land while
+      // it is still in flight — arming the interval afterwards would leave a
+      // poll running on a server that has already been torn down.
+      if (stopped) {
+        return
+      }
       timer = setIntervalImpl(() => {
         void checkNow()
       }, intervalMs)
     },
     stop() {
+      stopped = true
       if (timer !== null) {
         clearIntervalImpl(timer)
         timer = null

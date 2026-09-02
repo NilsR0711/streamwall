@@ -232,6 +232,39 @@ describe('createUpdateChecker', () => {
     assert.equal(timers.length, 0)
   })
 
+  test('a stop() during the first check never arms the interval', async () => {
+    // `start()` awaits a real network round trip before scheduling, so a
+    // shutdown can land inside it. Arming afterwards would leave a poll
+    // running on a server that has already been torn down (issue #751).
+    const timers: unknown[] = []
+    let releaseFetch = () => {}
+    const fetching = new Promise<void>((resolve) => {
+      releaseFetch = resolve
+    })
+    const checker = createUpdateChecker({
+      log: recordingLogger().log,
+      currentVersion: '0.9.1',
+      fetchImpl: async () => {
+        await fetching
+        return jsonResponse({ tag_name: 'v0.9.1', html_url: 'https://x.test' })
+      },
+      setIntervalImpl: () => {
+        timers.push({})
+        return timers.length
+      },
+      clearIntervalImpl: () => {
+        timers.pop()
+      },
+    })
+
+    const started = checker.start()
+    checker.stop()
+    releaseFetch()
+    await started
+
+    assert.deepEqual(timers, [], 'no interval may survive the stop')
+  })
+
   test('start() is idempotent (no duplicate intervals)', async () => {
     const timers: unknown[] = []
     const checker = createUpdateChecker({

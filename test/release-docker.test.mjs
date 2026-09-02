@@ -248,6 +248,30 @@ test('the compose stack can pull the published image', () => {
   )
 })
 
+// The server shuts down gracefully on SIGTERM (#751), which only helps if the
+// signal reaches node at all: the shell form of CMD wraps the process in
+// `/bin/sh -c`, which becomes PID 1 and swallows the signal, so `docker stop`
+// would go back to killing the container outright after its grace period.
+test('the container runs node directly, so a stop signal reaches it', () => {
+  const dockerfile = readText(`packages/${IMAGE_REPOSITORY}/Dockerfile`)
+  // Every stage's CMD, not just the first: this is a multi-stage build, and a
+  // shell-form CMD anywhere would be easy to miss.
+  const commands = [...dockerfile.matchAll(/^CMD\s+(.*)$/gm)]
+
+  assert.ok(commands.length > 0, 'the Dockerfile must declare a CMD')
+  for (const [, value] of commands) {
+    assert.match(
+      value,
+      /^\[/,
+      'CMD must use the exec form so no shell intercepts SIGTERM',
+    )
+  }
+  assert.ok(
+    !/^ENTRYPOINT\s+(?!\[)/m.test(dockerfile),
+    'an ENTRYPOINT, if any, must use the exec form for the same reason',
+  )
+})
+
 test('self-hosting documents pulling and pinning the image', () => {
   const doc = readText('docs/self-hosting.md')
 

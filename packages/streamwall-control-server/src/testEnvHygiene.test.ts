@@ -81,3 +81,27 @@ test('no spec writes process.env through a computed key', () => {
     'setEnvForTest() takes a variable name as a key, so a bracketed write is never needed',
   )
 })
+
+/**
+ * `runServer` arms the SIGTERM/SIGINT handlers on the `process` it is given,
+ * which defaults to the real one. A spec that lets it default installs handlers
+ * on the test runner itself: a Ctrl-C would then shut that app down and exit 0
+ * instead of interrupting the run, and every boot leaks two listeners.
+ */
+test('every spec that boots runServer injects a fake process', () => {
+  // Checked per file rather than per call site: matching a call's own extent
+  // means brace-counting, and a spec that boots the server without an injected
+  // process alongside one that does is not a distinction worth the parser.
+  const offenders = testFiles()
+    .filter((file) => {
+      const source = readFileSync(file, 'utf8')
+      return /\brunServer\(/.test(source) && !/\bprocess:/.test(source)
+    })
+    .map((file) => path.relative(SRC_DIR, file))
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'pass `process: fakeProcess().proc` so the handlers never land on the test runner',
+  )
+})

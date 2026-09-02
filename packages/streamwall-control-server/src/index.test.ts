@@ -7,28 +7,14 @@ import runServer, {
   resolveListenPort,
   SESSION_COOKIE_NAME,
 } from './index.ts'
-import { captureLogs, inMemoryDb } from './testHelpers.ts'
-import type { UpdateChecker, UpdateStatus } from './updateCheck.ts'
+import {
+  captureLogs,
+  fakeProcess,
+  fakeUpdateChecker,
+  inMemoryDb,
+} from './testHelpers.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
-
-/** Stub `UpdateChecker` so specs never reach GitHub. */
-function fakeUpdateChecker(): UpdateChecker {
-  const status: UpdateStatus = {
-    version: 'test',
-    latestVersion: null,
-    updateAvailable: false,
-    releaseUrl: null,
-    lastCheckedAt: null,
-    checkEnabled: false,
-  }
-  return {
-    getStatus: () => status,
-    checkNow: async () => status,
-    start: async () => {},
-    stop: () => {},
-  }
-}
 
 /**
  * Build an isolated control-server app backed by in-memory storage, mint a
@@ -143,6 +129,7 @@ describe('runServer', () => {
       clientStaticPath: import.meta.dirname,
       db: inMemoryDb(),
       updateChecker: fakeUpdateChecker(),
+      process: fakeProcess().proc,
     })
     after(() => {
       server.close()
@@ -174,6 +161,7 @@ describe('runServer', () => {
         logLevel: 'trace',
         logStream: logs.stream,
         updateChecker: fakeUpdateChecker(),
+        process: fakeProcess().proc,
       }))
     } finally {
       console.log = originalLog
