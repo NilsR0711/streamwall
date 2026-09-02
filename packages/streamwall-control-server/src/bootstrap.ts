@@ -162,15 +162,22 @@ export const DEFAULT_FORCE_EXIT_MS = 10_000
  * The shutdown runs at most once, so the second signal an impatient operator
  * sends cannot re-enter it, and a close that gets stuck still exits by way of
  * the force-exit timer.
+ *
+ * `beforeClose` lets the caller finish work the instance knows nothing about
+ * (the boot, which is still minting and persisting tokens) before the teardown
+ * runs; a rejection there is ignored, since a failed boot must not keep the
+ * process alive. The force-exit timer bounds that wait too.
  */
 export function registerShutdownHandlers({
   app,
   process: proc,
   forceExitAfterMs = DEFAULT_FORCE_EXIT_MS,
+  beforeClose,
 }: {
   app: ClosableApp
   process: ProcessLike
   forceExitAfterMs?: number
+  beforeClose?: () => Promise<unknown>
 }): void {
   let shuttingDown = false
 
@@ -191,7 +198,18 @@ export function registerShutdownHandlers({
       proc.exit(1)
     }, forceExitAfterMs)
 
-    void app.close().then(
+    const closed = (async () => {
+      if (beforeClose) {
+        try {
+          await beforeClose()
+        } catch {
+          // A boot that failed has nothing left to protect; close anyway.
+        }
+      }
+      await app.close()
+    })()
+
+    void closed.then(
       () => {
         clearTimeout(forceExit)
         app.log.info({ signal }, 'Shutdown complete')
@@ -272,16 +290,19 @@ export default async function runServer({
     }
   })
 
-  // Armed before the boot finishes rather than after `listen`, so a stop
-  // signal arriving during a slow start — minting the uplink token is a scrypt
-  // derivation plus two storage writes — is handled too. Closing an instance
-  // that never listened simply runs the hooks above.
-  registerShutdownHandlers({ app, process: proc })
+  // The rest of the boot runs as one awaitable unit so the shutdown handlers
+  // can be armed before it starts: a stop signal arriving during a slow start
+  // — minting the uplink token is a scrypt derivation plus two storage writes
+  // — then waits for those writes to land instead of exiting on top of them.
+  const boot = (async () => {
+    const bootstrap = await initialInviteCodes({ db, auth, baseURL })
+    logBootstrap(bootstrap)
+    await app.listen({ port, host: hostname })
+  })()
 
-  const bootstrap = await initialInviteCodes({ db, auth, baseURL })
-  logBootstrap(bootstrap)
+  registerShutdownHandlers({ app, process: proc, beforeClose: () => boot })
 
-  await app.listen({ port, host: hostname })
+  await boot
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
   void updateChecker.start()

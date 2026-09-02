@@ -7,7 +7,12 @@ import runServer, {
   resolveListenPort,
   SESSION_COOKIE_NAME,
 } from './index.ts'
-import { captureLogs, fakeUpdateChecker, inMemoryDb } from './testHelpers.ts'
+import {
+  captureLogs,
+  fakeProcess,
+  fakeUpdateChecker,
+  inMemoryDb,
+} from './testHelpers.ts'
 
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60
 
@@ -124,6 +129,7 @@ describe('runServer', () => {
       clientStaticPath: import.meta.dirname,
       db: inMemoryDb(),
       updateChecker: fakeUpdateChecker(),
+      process: fakeProcess().proc,
     })
     after(() => {
       server.close()
@@ -155,6 +161,7 @@ describe('runServer', () => {
         logLevel: 'trace',
         logStream: logs.stream,
         updateChecker: fakeUpdateChecker(),
+        process: fakeProcess().proc,
       }))
     } finally {
       console.log = originalLog

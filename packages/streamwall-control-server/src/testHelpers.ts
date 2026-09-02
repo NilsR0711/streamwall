@@ -1,5 +1,5 @@
 import { Low, Memory } from 'lowdb'
-import { once } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -18,6 +18,7 @@ import type {
 } from 'streamwall-shared'
 import WebSocket from 'ws'
 import type { ScryptParams } from './auth.ts'
+import type { ProcessLike } from './bootstrap.ts'
 import type { HeartbeatConfig, RateLimitConfig } from './config.ts'
 import { type AppOptions, initApp } from './index.ts'
 import type { LogLevel } from './logger.ts'
@@ -37,6 +38,29 @@ export function makeStaticDir(): string {
     '<!doctype html><title>streamwall test</title>',
   )
   return dir
+}
+
+/**
+ * A stand-in for `process`: the spec emits the signals, and `exit` is recorded
+ * instead of tearing the test runner down. Every spec that boots `runServer`
+ * needs one, or the real signal handlers end up on the runner's own process.
+ */
+export function fakeProcess() {
+  const emitter = new EventEmitter()
+  const exitCodes: (number | undefined)[] = []
+  const proc: ProcessLike & { emit(signal: string): void } = {
+    on(signal, listener) {
+      emitter.on(signal, listener)
+      return proc
+    },
+    exit(code) {
+      exitCodes.push(code)
+    },
+    emit(signal: string) {
+      emitter.emit(signal)
+    },
+  }
+  return { proc, exitCodes }
 }
 
 /** Stub `UpdateChecker` so specs never reach GitHub. */

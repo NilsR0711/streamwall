@@ -1,41 +1,16 @@
 import assert from 'node:assert/strict'
-import { EventEmitter } from 'node:events'
 import { after, describe, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import runServer, {
-  registerShutdownHandlers,
-  type ProcessLike,
-} from './bootstrap.ts'
+import runServer, { registerShutdownHandlers } from './bootstrap.ts'
 import type { StorageDB } from './storage.ts'
 import {
   captureLogs,
+  fakeProcess,
   fakeUpdateChecker,
   inMemoryDb,
   type LogCapture,
 } from './testHelpers.ts'
-
-/**
- * A stand-in for `process`: signals are emitted by the spec and `exit` is
- * recorded instead of tearing the test runner down.
- */
-function fakeProcess() {
-  const emitter = new EventEmitter()
-  const exitCodes: (number | undefined)[] = []
-  const proc: ProcessLike & { emit(signal: string): void } = {
-    on(signal, listener) {
-      emitter.on(signal, listener)
-      return proc
-    },
-    exit(code) {
-      exitCodes.push(code)
-    },
-    emit(signal: string) {
-      emitter.emit(signal)
-    },
-  }
-  return { proc, exitCodes }
-}
 
 /** The slice of a Fastify instance the shutdown wiring actually uses. */
 function fakeApp(close: () => Promise<void>, logs: LogCapture) {
@@ -164,6 +139,51 @@ describe('runServer shutdown wiring', () => {
       server.listening,
       false,
       'the server must have stopped listening',
+    )
+    assert.deepEqual(exitCodes, [0])
+  })
+
+  test('a signal during the boot waits for the boot to finish writing', async () => {
+    // Minting the uplink token is a scrypt derivation plus persisted writes,
+    // so a container stop can easily land inside the boot. Exiting on top of
+    // those writes is exactly the truncated storage.json #751 is about.
+    const db = inMemoryDb() as StorageDB
+    const { proc, exitCodes } = fakeProcess()
+    const events: string[] = []
+    const realUpdate = db.update.bind(db)
+    let signalled = false
+    db.update = async (fn) => {
+      if (!signalled) {
+        signalled = true
+        // The boot's very first write is in flight: stop the server now.
+        proc.emit('SIGTERM')
+      }
+      events.push('write:start')
+      await delay(20)
+      await realUpdate(fn)
+      events.push('write:done')
+    }
+    proc.exit = (code) => {
+      events.push(`exit:${code}`)
+      exitCodes.push(code)
+    }
+
+    const logs = captureLogs()
+    const { server } = await runServer({
+      baseURL: 'http://127.0.0.1:0',
+      clientStaticPath: import.meta.dirname,
+      db,
+      logLevel: 'trace',
+      logStream: logs.stream,
+      updateChecker: fakeUpdateChecker(),
+      process: proc,
+    })
+    after(() => server.close())
+    await logs.waitForMessage('Shutdown complete', 10000)
+
+    assert.ok(
+      events.indexOf('write:done') < events.indexOf('exit:0'),
+      `the boot's writes must land before the process exits, got ${events.join(', ')}`,
     )
     assert.deepEqual(exitCodes, [0])
   })
