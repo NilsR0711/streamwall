@@ -449,8 +449,9 @@ the root today, because those are the ones that have actually broken. The
 other packages several workspaces share (`yjs`, `xstate`, `zod`,
 `jsondiffpatch`, `lodash-es`, `react-icons`) are deliberately left to npm's own
 hoisting choice — anchoring every shared dependency pre-emptively would just
-be guessing at which one breaks next, and the guard test above catches it in
-CI if one of them does (#728).
+be guessing at which one breaks next, and the
+`shared-dependency-hoisting.test.mjs` guard above catches it in CI if one of
+them does (#728).
 
 ### Changelog
 
