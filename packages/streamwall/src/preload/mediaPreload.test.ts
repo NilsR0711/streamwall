@@ -1777,5 +1777,8 @@ describe('mediaPreload IPC handlers registered before view-init (issue #756)', (
 
     expect(viewLoadedCalls()).toHaveLength(1)
     expect(video.className).toBe('__rot0__')
+    // Not just "the view still loads": before the guard, dereferencing the
+    // null threw out of main() and put the tile into an error state.
+    expect(send).not.toHaveBeenCalledWith('view-error', expect.anything())
   })
 })
