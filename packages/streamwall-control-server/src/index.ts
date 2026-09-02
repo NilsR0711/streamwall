@@ -262,7 +262,7 @@ export async function initApp({
     ctx.currentStreamwallConn?.clientState.update({ auth: auth.getState() })
   })
 
-  return { app, db, auth, updateChecker }
+  return { app, db, auth, updateChecker, reportCaughtError }
 }
 
 // `runServer` and the bootstrap helpers live in `./bootstrap.ts`; re-exported

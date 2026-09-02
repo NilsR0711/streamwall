@@ -147,11 +147,11 @@ interface ClosableApp {
 }
 
 /**
- * How long a shutdown may take before the process exits anyway. A container
- * runtime escalates to SIGKILL after ~10s of its own, so hanging any longer
- * only trades a logged force-exit for an unlogged kill.
+ * How long a shutdown may take before the process exits anyway. Kept just
+ * under Docker's default ten-second stop grace period, so a wedged shutdown
+ * still exits with a logged reason instead of being SIGKILLed unannounced.
  */
-export const DEFAULT_FORCE_EXIT_MS = 10_000
+export const DEFAULT_FORCE_EXIT_MS = 8_000
 
 /**
  * Terminates the server on `SIGTERM`/`SIGINT` instead of letting the runtime
@@ -178,7 +178,7 @@ export function registerShutdownHandlers({
   process: ProcessLike
   forceExitAfterMs?: number
   beforeClose?: () => Promise<unknown>
-}): void {
+}): { isShuttingDown: () => boolean } {
   let shuttingDown = false
 
   const shutdown = (signal: 'SIGTERM' | 'SIGINT') => {
@@ -237,6 +237,10 @@ export function registerShutdownHandlers({
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     proc.on(signal, () => shutdown(signal))
   }
+
+  // Lets the caller skip work it would otherwise start on top of a teardown
+  // that is already running.
+  return { isShuttingDown: () => shuttingDown }
 }
 
 export default async function runServer({
@@ -270,7 +274,7 @@ export default async function runServer({
   // The startup diagnostics below run *after* `initApp` purely so they can go
   // through `app.log`: they belong in the structured stream like every other
   // server diagnostic, and the logger only exists once Fastify does (#493).
-  const { app, db, auth, updateChecker } = await initApp({
+  const { app, db, auth, updateChecker, reportCaughtError } = await initApp({
     baseURL,
     clientStaticPath,
     db: injectedDb,
@@ -307,6 +311,7 @@ export default async function runServer({
       await db.write()
     } catch (err) {
       app.log.error({ err }, 'Failed to flush storage during shutdown')
+      reportCaughtError(err)
     }
   })
 
@@ -320,12 +325,21 @@ export default async function runServer({
     await app.listen({ port, host: hostname })
   })()
 
-  registerShutdownHandlers({ app, process: proc, beforeClose: () => boot })
+  const { isShuttingDown } = registerShutdownHandlers({
+    app,
+    process: proc,
+    beforeClose: () => boot,
+  })
 
   await boot
 
   // Fire-and-forget: a slow or unreachable GitHub must never delay serving.
-  void updateChecker.start()
+  // Skipped when a signal already arrived during the boot: the checker's first
+  // request would then go out as part of shutting down, and it would arm a
+  // poll interval after `onClose` had already stopped it.
+  if (!isShuttingDown()) {
+    void updateChecker.start()
+  }
 
   return { server: app.server }
 }
