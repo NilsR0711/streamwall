@@ -198,12 +198,15 @@ export function registerShutdownHandlers({
       proc.exit(1)
     }, forceExitAfterMs)
 
+    let bootError: unknown = null
     const closed = (async () => {
       if (beforeClose) {
         try {
           await beforeClose()
-        } catch {
-          // A boot that failed has nothing left to protect; close anyway.
+        } catch (err) {
+          // A boot that failed has nothing left to protect, so the teardown
+          // still runs — but the process must not report a clean stop for it.
+          bootError = err
         }
       }
       await app.close()
@@ -212,6 +215,14 @@ export function registerShutdownHandlers({
     void closed.then(
       () => {
         clearTimeout(forceExit)
+        if (bootError !== null) {
+          app.log.error(
+            { err: bootError, signal },
+            'Shutdown complete, but the boot had failed',
+          )
+          proc.exit(1)
+          return
+        }
         app.log.info({ signal }, 'Shutdown complete')
         proc.exit(0)
       },
@@ -278,11 +289,20 @@ export default async function runServer({
   // throws FST_ERR_INSTANCE_ALREADY_LISTENING otherwise (issue #442).
   app.addHook('onClose', async () => {
     updateChecker.stop()
-    // Auth persistence is fire-and-forget (`auth.on('state')` in `initApp`) and
-    // storage writes are serialized, so one more write drains whatever is
-    // still queued instead of letting a shutdown truncate it. A storage that
-    // is already failing must not turn an orderly shutdown into a crash — it
-    // is reported the same way the fire-and-forget writes are.
+  })
+
+  // Auth persistence is fire-and-forget (`auth.on('state')` in `initApp`) and
+  // storage writes are serialized, so one more write drains whatever is still
+  // queued instead of letting a shutdown truncate it.
+  //
+  // It runs in `preClose`, before connections are drained, rather than in
+  // `onClose` after them: a peer whose TCP path is already dead can hold the
+  // drain open for the WebSocket close timeout, and the force-exit timer would
+  // then fire before a flush placed behind it ever ran — losing exactly the
+  // write this exists to save. A storage that is already failing must not turn
+  // an orderly shutdown into a crash, so it is reported the same way the
+  // fire-and-forget writes are.
+  app.addHook('preClose', async () => {
     try {
       await db.write()
     } catch (err) {

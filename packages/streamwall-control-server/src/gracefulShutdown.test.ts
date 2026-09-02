@@ -17,7 +17,17 @@ function fakeApp(close: () => Promise<void>, logs: LogCapture) {
   const record =
     (level: string) =>
     (fields: object, msg?: string): void => {
-      logs.stream.write(JSON.stringify({ level, ...fields, msg }))
+      // Errors are flattened the way pino's standard serializer does, so a
+      // spec can assert on what an operator would actually read.
+      const { err, ...rest } = fields as { err?: unknown }
+      logs.stream.write(
+        JSON.stringify({
+          level,
+          ...rest,
+          ...(err instanceof Error && { err: { message: err.message } }),
+          msg,
+        }),
+      )
     }
   let closeCalls = 0
   return {
@@ -98,6 +108,24 @@ describe('registerShutdownHandlers', () => {
     proc.emit('SIGTERM')
     await logs.waitForMessage('Shutdown timed out')
 
+    assert.deepEqual(exitCodes, [1])
+  })
+
+  test('still tears down when the boot fails, but never reports it as clean', async () => {
+    const logs = captureLogs()
+    const { proc, exitCodes } = fakeProcess()
+    const { app, calls } = fakeApp(() => Promise.resolve(), logs)
+
+    registerShutdownHandlers({
+      app,
+      process: proc,
+      beforeClose: () => Promise.reject(new Error('listen: EADDRINUSE')),
+    })
+    proc.emit('SIGTERM')
+    const entry = await logs.waitForMessage('the boot had failed')
+
+    assert.equal(calls(), 1, 'a failed boot must still be torn down')
+    assert.match(JSON.stringify(entry.err), /EADDRINUSE/)
     assert.deepEqual(exitCodes, [1])
   })
 
