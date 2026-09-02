@@ -87,7 +87,11 @@ export function ServerUpdateBanner({
             {status.version}).
           </span>
           {status.releaseUrl && (
-            <a href={status.releaseUrl} target="_blank" rel="noreferrer">
+            <a
+              href={status.releaseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Release notes
             </a>
           )}

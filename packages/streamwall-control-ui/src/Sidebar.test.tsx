@@ -535,3 +535,51 @@ describe('CreateCustomStreamInput', () => {
     expect(labelInput.value).toBe('')
   })
 })
+
+// Stream links point at operator- (or control-server-) supplied URLs. In the
+// browser-hosted control UI they must not replace the app; inside Electron the
+// control window's window-open handler turns them into `shell.openExternal`
+// calls, which only works if they ask for a new browsing context (#732).
+describe('stream links open away from the control UI', () => {
+  test('a stream list row links out in a new context without leaking an opener', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow()]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    const link = container.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('https://example.com/stream')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  test('a custom stream row links out in a new context without leaking an opener', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <CustomStreamInput
+          link="https://custom.example/stream"
+          kind="video"
+          onChange={() => {}}
+          onDelete={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    const link = container.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('https://custom.example/stream')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+})

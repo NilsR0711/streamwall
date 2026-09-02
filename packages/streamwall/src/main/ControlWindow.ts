@@ -6,8 +6,9 @@ import { ControlCommand, StreamwallState } from 'streamwall-shared'
 import { type UpdateStatus } from '../updateStatus'
 import { type ControlCommandResult } from './commandDispatch'
 import { createExampleConfig } from './exampleConfig'
-import { loadHTML } from './loadHTML'
+import { loadHTML, rendererPageURL } from './loadHTML'
 import log from './logger'
+import { secureAppWindow } from './navigationSecurity'
 
 export type ControlCommandHandler = (
   command: ControlCommand,
@@ -57,6 +58,19 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
     // Deliberately keeps the window menu (unlike StreamWindow, which stays
     // menu-free for clean capture): on Windows/Linux this is what surfaces
     // the app-level "Open Config Folder" item (#86).
+
+    // Pin the window to the bundled control UI. The sidebar lists
+    // operator-supplied stream URLs, and a click on one must not be able to
+    // carry this webContents -- which holds the `streamwallControl` bridge and
+    // satisfies every `control:*` sender guard -- onto remote content (#732).
+    secureAppWindow(this.win.webContents, {
+      appPageURL: () => rendererPageURL('control'),
+      openExternal: (url) => {
+        shell.openExternal(url).catch((err) => {
+          log.warn('error opening external link', err)
+        })
+      },
+    })
 
     this.win.on('close', (event) => this.emit('close', event))
 
@@ -120,8 +134,10 @@ export default class ControlWindow extends EventEmitter<ControlWindowEventMap> {
 
     this.handleFromControlWindow('control:open-release-notes', () => {
       // Deliberately takes no URL from the renderer: main owns the updater
-      // status, so a compromised renderer cannot turn this into an
-      // open-anything shell.openExternal gadget.
+      // status, so this channel always opens the release notes of the release
+      // the updater actually found. Outward *links* are a separate, deliberate
+      // path -- the navigation guard above forwards them to the OS browser,
+      // restricted to http(s).
       this.updateHandlers?.openReleaseNotes()
     })
   }

@@ -157,7 +157,7 @@ function StreamLine({
             <strong>{source}</strong>{' '}
             <OrientationIndicator orientation={orientation} />{' '}
             {city ? `(${city} ${state}) ` : ''}
-            <a href={link} target="_blank">
+            <a href={link} target="_blank" rel="noopener noreferrer">
               {truncate(link, { length: 55 })}
             </a>{' '}
             {notes}
@@ -221,7 +221,10 @@ export function CustomStreamInput({
         onChange={handleChangeLabel}
         placeholder="Label (optional)"
       />{' '}
-      <a href={props.link}>{props.link}</a> <span>({props.kind})</span>{' '}
+      <a href={props.link} target="_blank" rel="noopener noreferrer">
+        {props.link}
+      </a>{' '}
+      <span>({props.kind})</span>{' '}
       <button
         aria-label={`Delete custom stream ${props.label || props.link}`}
         onClick={handleDeleteClick}

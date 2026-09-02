@@ -1,6 +1,7 @@
 import { WebContents } from 'electron'
 import path from 'path'
 import querystring from 'querystring'
+import { pathToFileURL } from 'url'
 
 /**
  * Origin of the Vite dev server that serves the renderer HTML pages during
@@ -20,6 +21,41 @@ export function devServerOrigin(): string | undefined {
   }
 }
 
+/** The renderer HTML pages the app ships. */
+export type RendererPage = 'background' | 'overlay' | 'playHLS' | 'control'
+
+/** Directory the packaged renderer bundle (HTML pages and assets) lives in. */
+function rendererRoot(): string {
+  return path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`)
+}
+
+/** Where `loadHTML` reads `name` from in a packaged build. */
+function rendererPagePath(name: RendererPage): string {
+  return path.join(rendererRoot(), `src/renderer/${name}.html`)
+}
+
+/**
+ * The exact URL a window ends up on after `loadHTML(webContents, name)` -- the
+ * one navigation target a window rendering that page may reach (#732).
+ *
+ * A single page rather than the whole bundle: the app's renderer pages do not
+ * all carry the same CSP (the layer and HLS pages allow remote frames and
+ * media), and a window keeps its preload across a same-directory navigation, so
+ * "somewhere under the renderer directory" would be a weaker guarantee than it
+ * looks.
+ *
+ * Describes a query-less load only. `loadHTML(…, { query })` appends a query
+ * string this does not know about (the HLS page is loaded that way), so
+ * `secureAppWindow` must not be pointed at a page loaded with one -- it would
+ * pin the window to a URL it never commits.
+ */
+export function rendererPageURL(name: RendererPage): string {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    return `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/renderer/${name}.html`
+  }
+  return pathToFileURL(rendererPagePath(name)).href
+}
+
 /**
  * Loads one of the renderer HTML pages into `webContents`. Returns the
  * underlying `loadURL`/`loadFile` promise so callers can attach a `.catch`
@@ -29,24 +65,15 @@ export function devServerOrigin(): string | undefined {
  */
 export function loadHTML(
   webContents: WebContents,
-  name: 'background' | 'overlay' | 'playHLS' | 'control',
+  name: RendererPage,
   options?: { query?: Record<string, string> },
 ): Promise<void> {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     const queryString = options?.query
       ? '?' + querystring.stringify(options.query)
       : ''
-    return webContents.loadURL(
-      `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/renderer/${name}.html` +
-        queryString,
-    )
+    return webContents.loadURL(rendererPageURL(name) + queryString)
   } else {
-    return webContents.loadFile(
-      path.join(
-        __dirname,
-        `../renderer/${MAIN_WINDOW_VITE_NAME}/src/renderer/${name}.html`,
-      ),
-      options,
-    )
+    return webContents.loadFile(rendererPagePath(name), options)
   }
 }

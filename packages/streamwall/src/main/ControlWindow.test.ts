@@ -5,8 +5,56 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // BrowserWindow as a small EventEmitter so `win.on('close', ...)` wiring can
 // be exercised the same way the real window would drive it, without an
 // Electron runtime.
+interface NavEvent {
+  url: string
+  preventDefault(): void
+}
+
+// Stands in for the window's WebContents. `setWindowOpenHandler` and the
+// navigation listeners are recorded rather than mocked away, so the navigation
+// hardening the constructor installs (#732) can be driven from a test.
+class FakeWebContents {
+  send = vi.fn()
+  openDevTools = vi.fn()
+  windowOpenHandler: ((details: { url: string }) => { action: string }) | null =
+    null
+  navHandlers: Record<string, Array<(event: NavEvent) => void>> = {}
+
+  getURL(): string {
+    return APP_PAGE
+  }
+
+  on(event: string, listener: (event: NavEvent) => void): this {
+    const handlers = this.navHandlers[event] ?? []
+    handlers.push(listener)
+    this.navHandlers[event] = handlers
+    return this
+  }
+
+  setWindowOpenHandler(
+    handler: (details: { url: string }) => { action: string },
+  ) {
+    this.windowOpenHandler = handler
+  }
+
+  // Dispatches a navigation event and reports whether a guard cancelled it.
+  dispatchNavigation(event: string, url: string): boolean {
+    let prevented = false
+    const navEvent: NavEvent = {
+      url,
+      preventDefault: () => {
+        prevented = true
+      },
+    }
+    for (const listener of this.navHandlers[event] ?? []) {
+      listener(navEvent)
+    }
+    return prevented
+  }
+}
+
 class FakeBrowserWindow extends EventEmitter {
-  webContents = { send: vi.fn(), openDevTools: vi.fn() }
+  webContents = new FakeWebContents()
   removeMenu = vi.fn()
   options: Record<string, unknown>
 
@@ -23,16 +71,26 @@ const handle = vi.fn((channel: string, handler: IpcHandler) => {
   ipcHandlers.set(channel, handler)
 })
 const openPath = vi.fn()
+// Resolves like the real shell.openExternal so the caller's `.catch`
+// breadcrumb has something to attach to.
+const openExternal = vi.fn(() => Promise.resolve())
 
 vi.mock('electron', () => ({
   BrowserWindow: FakeBrowserWindow,
   ipcMain: { handle },
-  shell: { openPath },
+  shell: { openPath, openExternal },
 }))
 
-// Returns a resolved promise like the real loadHTML, so the caller's `.catch`
-// breadcrumb (issue #626) has something to attach to.
-vi.mock('./loadHTML', () => ({ loadHTML: vi.fn(() => Promise.resolve()) }))
+// `loadHTML` returns a resolved promise like the real one, so the caller's
+// `.catch` breadcrumb (issue #626) has something to attach to.
+// `rendererPageURL` names the page a window is pinned to; the real one depends
+// on build-time Vite globals.
+const APP_PAGE = 'file:///app/renderer/main_window/src/renderer/control.html'
+vi.mock('./loadHTML', () => ({
+  loadHTML: vi.fn(() => Promise.resolve()),
+  rendererPageURL: (name: string) =>
+    `file:///app/renderer/main_window/src/renderer/${name}.html`,
+}))
 
 const createExampleConfig = vi.fn()
 vi.mock('./exampleConfig', () => ({ createExampleConfig }))
@@ -47,6 +105,7 @@ const configInfo = {
 // Every test constructs its own ControlWindow, so the registration history has
 // to start empty rather than accumulating across the file.
 beforeEach(() => {
+  openExternal.mockClear()
   handle.mockClear()
 })
 
@@ -356,6 +415,77 @@ describe('ControlWindow app version', () => {
     expect(await ipcHandlers.get('control:app-version')!({ sender })).toBe(
       '0.9.1',
     )
+  })
+})
+
+// The control window holds the `streamwallControl` bridge, and every `control:*`
+// sender guard compares against this very webContents -- so a navigation to a
+// remote page would hand that page the whole bridge while still passing every
+// check (#732).
+describe('ControlWindow navigation hardening', () => {
+  it('cancels a navigation to a remote page', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(
+      webContents.dispatchNavigation('will-navigate', 'https://evil.example/'),
+    ).toBe(true)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  it("cancels a navigation to another of the app's own pages", () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(
+      webContents.dispatchNavigation(
+        'will-navigate',
+        'file:///app/renderer/main_window/src/renderer/overlay.html',
+      ),
+    ).toBe(true)
+  })
+
+  it("lets the window stay on the app's own page", () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(webContents.dispatchNavigation('will-navigate', APP_PAGE)).toBe(
+      false,
+    )
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  it('cancels a redirect escape too, so a 302 cannot do what a click cannot', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(
+      webContents.dispatchNavigation('will-redirect', 'https://evil.example/'),
+    ).toBe(true)
+  })
+
+  it('denies renderer-opened windows and hands an http(s) link to the OS browser', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(webContents.windowOpenHandler).not.toBeNull()
+    expect(
+      webContents.windowOpenHandler!({ url: 'https://example.com/stream' }),
+    ).toEqual({ action: 'deny' })
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/stream')
+  })
+
+  it('does not hand a non-http scheme to the OS browser', () => {
+    const controlWindow = new ControlWindow(configInfo)
+    const { webContents } = controlWindow.win as unknown as FakeBrowserWindow
+
+    expect(
+      webContents.windowOpenHandler!({ url: 'file:///etc/passwd' }),
+    ).toEqual({ action: 'deny' })
+    expect(
+      webContents.dispatchNavigation('will-navigate', 'file:///etc/passwd'),
+    ).toBe(true)
+    expect(openExternal).not.toHaveBeenCalled()
   })
 })
 
