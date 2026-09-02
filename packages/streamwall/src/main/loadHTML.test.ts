@@ -40,8 +40,10 @@ const dev = () => {
 
 describe('rendererPageURL', () => {
   // The whole point of the export: `secureAppWindow` pins a window to this URL,
-  // so it has to be the URL the window actually ends up on. A drift between the
-  // two would either wedge the window or open a hole.
+  // so it has to name the same page `loadHTML` loads. This pins the two path
+  // derivations together; Electron formats the committed URL itself, and the
+  // guard's tolerance for a spelling difference there comes from its
+  // committed-URL arm rather than from this test.
   it('is the file URL loadHTML loads in a packaged build', async () => {
     packaged()
     const { calls, webContents } = fakeWebContents()

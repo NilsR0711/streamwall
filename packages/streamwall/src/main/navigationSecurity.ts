@@ -107,9 +107,13 @@ export function secureAppWindow(
     // app's own page, which would just be a second copy of the UI -- is dropped
     // with a breadcrumb rather than silently swallowed.
     if (url !== appPageURL() && isExternallyOpenable(url)) {
+      // Logged because this is the one thing here that reaches outside the app:
+      // an operator wondering why their browser just opened something can
+      // correlate it.
+      log.info('Opening link in the OS browser:', url)
       openExternal(url)
     } else {
-      log.warn('Denied window open without handing it to the OS browser:', url)
+      log.info('Denied window open without handing it to the OS browser:', url)
     }
     return { action: 'deny' as const }
   })
