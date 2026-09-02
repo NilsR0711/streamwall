@@ -61,7 +61,13 @@ export function registerClientRoutes(
   ctx: AppContext,
   { clientStaticPath, rateLimit, verifiedTokens }: ClientRouteOptions,
 ): void {
-  /** Whether serving this request will have to derive a token hash. */
+  /**
+   * Whether serving this request will have to derive a token hash. Evaluated
+   * in the limiter's `onRequest` hook, so it is a snapshot: an entry that
+   * expires (or a `clear()`) between here and the `preHandler` turns a request
+   * classified as verified into one derivation. That needs a credential the
+   * server just verified, so it cannot be used to amplify anything.
+   */
   const derives = (request: FastifyRequest): boolean => {
     const session = parseSessionCookie(request.cookies[SESSION_COOKIE_NAME])
     // No cookie means no verification at all, so such a request must not be
@@ -70,7 +76,7 @@ export function registerClientRoutes(
     // out the operator trying to log in from the same address.
     return (
       session !== null &&
-      verifiedTokens.get(session.tokenId, session.secret) === null
+      verifiedTokens.get('session', session.tokenId, session.secret) === null
     )
   }
 
@@ -93,8 +99,15 @@ export function registerClientRoutes(
     if (!session) {
       return
     }
-    const cached = verifiedTokens.get(session.tokenId, session.secret)
-    if (cached) {
+    const cached = verifiedTokens.get(
+      'session',
+      session.tokenId,
+      session.secret,
+    )
+    // The kind is part of the cache key, so this can only ever be a session;
+    // re-asserting it keeps the boundary between a desktop uplink credential
+    // and a browser session in the code that depends on it.
+    if (cached && cached.kind === 'session') {
       request.identity = cached
       return
     }
@@ -104,7 +117,7 @@ export function registerClientRoutes(
     )
     if (tokenInfo && tokenInfo.kind === 'session') {
       request.identity = tokenInfo
-      verifiedTokens.set(session.tokenId, session.secret, tokenInfo)
+      verifiedTokens.set('session', session.tokenId, session.secret, tokenInfo)
     }
   }
 

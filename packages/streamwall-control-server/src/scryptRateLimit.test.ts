@@ -6,6 +6,7 @@ import WebSocket from 'ws'
 import { SESSION_COOKIE_NAME } from './index.ts'
 import {
   buildTestApp,
+  captureLogs,
   listenTestApp,
   messageCollector,
   mintUplinkToken,
@@ -213,6 +214,38 @@ describe('scrypt-bearing routes', () => {
       })
       ws.terminate()
     }
+  })
+
+  test('the uplink credential is never accepted as a browser session', async () => {
+    // Both credentials are verified through the same cache. If a hit ignored
+    // which kind was asked for, presenting the desktop's bearer token as an
+    // `s` cookie would inherit its admin authority on the browser surface.
+    const logs = captureLogs()
+    const { app, auth } = await buildTestApp({ logs })
+    after(() => app.close())
+    const port = await listenTestApp(app)
+    const { base, secret, tokenId } = await mintUplinkToken(auth, port)
+
+    const uplink = new WebSocket(base, {
+      headers: { authorization: `Bearer ${secret}` },
+    })
+    after(() => uplink.terminate())
+    await once(uplink, 'open')
+    // The client's `open` only means the socket upgraded; wait for the server
+    // to have finished verifying the bearer token, which is what puts it in
+    // the shared cache this spec is about.
+    await logs.waitForMessage('Streamwall connecting')
+
+    const asSession = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${tokenId}:${secret}` },
+    })
+    assert.equal(
+      asSession.statusCode,
+      403,
+      'an uplink token must carry no authority on the client surface',
+    )
   })
 
   test('a request without a cookie never spends the strict budget', async () => {

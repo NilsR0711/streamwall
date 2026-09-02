@@ -44,7 +44,7 @@ export function registerUplinkRoute(
     return (
       token !== null &&
       id !== undefined &&
-      verifiedTokens.get(id, token) === null
+      verifiedTokens.get('streamwall', id, token) === null
     )
   }
 
@@ -96,7 +96,7 @@ export function registerUplinkRoute(
         return
       }
 
-      const cached = verifiedTokens.get(id, token)
+      const cached = verifiedTokens.get('streamwall', id, token)
       const tokenInfo = cached ?? (await ctx.auth.validateToken(id, token))
       if (!tokenInfo || tokenInfo.kind !== 'streamwall') {
         ws.send(JSON.stringify({ error: 'unauthorized' }))
@@ -104,7 +104,7 @@ export function registerUplinkRoute(
         return
       }
       if (!cached) {
-        verifiedTokens.set(id, token, tokenInfo)
+        verifiedTokens.set('streamwall', id, token, tokenInfo)
       }
 
       const log = request.log.child(identityFields(tokenInfo))
