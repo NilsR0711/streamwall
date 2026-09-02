@@ -125,6 +125,14 @@ export async function initApp({
     injectedTrustProxy ?? parseTrustProxy(process.env.STREAMWALL_TRUST_PROXY)
   const app = Fastify({
     trustProxy,
+    // Force sockets shut on `close()` instead of draining them: without this,
+    // a peer that is mid-request when the server shuts down keeps it alive
+    // until `keepAliveTimeout` (72s). Fastify's default does not cover that
+    // case — see `shutdown.test.ts` for the full rationale and the regression
+    // it guards. Nothing here needs a graceful drain: `@fastify/websocket`'s
+    // preClose hook has already asked every socket to close, and the HTTP
+    // routes are short request/response pairs a client retries anyway.
+    forceCloseConnections: true,
     logger: {
       ...getLoggerOptions(logLevel),
       ...(logStream && { stream: logStream }),
