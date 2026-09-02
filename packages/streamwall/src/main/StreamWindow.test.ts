@@ -1796,18 +1796,33 @@ describe('StreamWindow.dispose (issue #629)', () => {
     const sw = new StreamWindow(makeConfig())
     const devtools = electronStub.ipcMain.on.mock.calls.find(
       ([channel]) => channel === 'devtools-overlay',
-    )?.[1] as (ev: unknown) => void
+    )?.[1] as (ev: { sender: unknown }) => void
 
     // The handler outlives the window: firing it after the overlay's
     // webContents is gone must not call (and throw inside) openDevTools.
     vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(true)
-    devtools({})
+    devtools({ sender: sw.overlayView.webContents })
     expect(sw.overlayView.webContents.openDevTools).not.toHaveBeenCalled()
 
     // While the webContents is alive it still opens devtools as before.
     vi.mocked(sw.overlayView.webContents.isDestroyed).mockReturnValue(false)
-    devtools({})
+    devtools({ sender: sw.overlayView.webContents })
     expect(sw.overlayView.webContents.openDevTools).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores devtools-overlay from a sender other than the overlay webContents (issue #764)', () => {
+    // `ipcMain` is process-global, so any renderer in the process --
+    // including a compromised media view loading operator-supplied remote
+    // content -- could otherwise force the wall's overlay DevTools open.
+    const sw = new StreamWindow(makeConfig())
+    const devtools = electronStub.ipcMain.on.mock.calls.find(
+      ([channel]) => channel === 'devtools-overlay',
+    )?.[1] as (ev: { sender: unknown }) => void
+
+    devtools({ sender: sw.backgroundView.webContents })
+    devtools({ sender: {} })
+
+    expect(sw.overlayView.webContents.openDevTools).not.toHaveBeenCalled()
   })
 })
 

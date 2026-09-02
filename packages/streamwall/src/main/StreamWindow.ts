@@ -308,7 +308,15 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
         error,
       })
     })
-    this.registerIpcOn('devtools-overlay', () => {
+    this.registerIpcOn('devtools-overlay', (ev) => {
+      // `ipcMain` is process-global, so without this check any renderer in
+      // the process -- including a compromised media view loading
+      // operator-supplied remote content -- could force the overlay's
+      // DevTools open. Only the overlay's own preload legitimately sends
+      // this channel (issue #764, same bug class as #736).
+      if (ev.sender !== this.overlayView.webContents) {
+        return
+      }
       // The handler outlives the window, so the overlay's webContents may
       // already be gone by the time this fires; opening devtools on a
       // destroyed webContents throws.
