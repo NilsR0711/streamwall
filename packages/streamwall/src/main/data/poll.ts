@@ -86,8 +86,9 @@ export async function* pollDataURL(
       const resp = await fetchWithTimeout(url, fetchTimeout)
       if (!resp.ok) {
         // Drain and discard the unread body instead of leaving it dangling:
-        // undici otherwise holds the connection open until GC reclaims it,
-        // on every failing poll (issue #817).
+        // node-fetch's `body` is a `PassThrough` piped from the raw socket,
+        // which otherwise backpressures and holds the connection open until
+        // GC reclaims it, on every failing poll (issue #817).
         resp.body?.resume()
         // `statusText` is the HTTP reason phrase, entirely controlled by the
         // polled endpoint - forwarding it unbounded into the health message
