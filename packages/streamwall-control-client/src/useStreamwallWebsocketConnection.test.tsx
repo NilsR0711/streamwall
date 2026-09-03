@@ -280,9 +280,9 @@ describe('useStreamwallWebsocketConnection', () => {
         vi.advanceTimersByTime(60_000)
       })
 
-      // If any of the 500 callbacks were still pending, a late close would
-      // still invoke them. None should fire, because they were already
-      // evicted by the timeout, not by this close.
+      // Each is evicted with a synthetic error exactly once (issue #819) - if
+      // any were still pending, a later close would invoke them a second
+      // time.
       const lateCallbacks = Array.from({ length: 500 }, () => vi.fn())
       for (const cb of lateCallbacks) {
         act(() => {
@@ -292,12 +292,16 @@ describe('useStreamwallWebsocketConnection', () => {
       act(() => {
         vi.advanceTimersByTime(60_000)
       })
+      for (const cb of lateCallbacks) {
+        expect(cb).toHaveBeenCalledTimes(1)
+      }
+
       act(() => {
         socket.dispatch('close')
       })
 
       for (const cb of lateCallbacks) {
-        expect(cb).not.toHaveBeenCalled()
+        expect(cb).toHaveBeenCalledTimes(1)
       }
     })
 
@@ -321,6 +325,128 @@ describe('useStreamwallWebsocketConnection', () => {
       expect(cb).toHaveBeenCalledTimes(1)
       expect(cb).toHaveBeenCalledWith(
         expect.objectContaining({ response: true, id: 0, tokenId: 't' }),
+      )
+    })
+  })
+
+  // PR #759 / issue #745 introduced the eviction above but deleted the
+  // callback without ever invoking it, so a reply that genuinely takes
+  // longer than RESPONSE_TIMEOUT_MS to arrive was dropped on the floor: the
+  // operator saw neither success nor an error (issue #819, a regression of
+  // the silent-failure fix from issue #35).
+  describe('firing the evicted response callback instead of dropping it (issue #819)', () => {
+    const setViewVolumeCommand: ControlCommand = {
+      type: 'set-view-volume',
+      viewId: asViewId(0),
+      volume: 0.5,
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('invokes the callback with an error once the eviction window elapses, instead of dropping it', () => {
+      const { getConnection } = mount()
+      const cb = vi.fn()
+
+      act(() => {
+        getConnection().send(setViewVolumeCommand, cb)
+      })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+
+      expect(cb).toHaveBeenCalledTimes(1)
+      expect(cb).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      )
+    })
+
+    it('logs a late reply that arrives after eviction instead of silently dropping it', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      const cb = vi.fn()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      act(() => {
+        getConnection().send(setViewVolumeCommand, cb)
+      })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(cb).toHaveBeenCalledTimes(1)
+
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ response: true, id: 0, ok: true }),
+        })
+      })
+
+      // The already-evicted callback must not be invoked a second time...
+      expect(cb).toHaveBeenCalledTimes(1)
+      // ...but the late reply is logged rather than silently dropped.
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('clears the eviction timer once a reply arrives, so it never later fires a synthetic error too', () => {
+      const { getConnection } = mount()
+      const socket = instances[0]!
+      const cb = vi.fn()
+
+      act(() => {
+        getConnection().send(createInviteCommand, cb)
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      act(() => {
+        socket.dispatch('message', {
+          data: JSON.stringify({ response: true, id: 0, tokenId: 't' }),
+        })
+      })
+      expect(cb).toHaveBeenCalledTimes(1)
+
+      // Advance well past every eviction window this codebase uses. If the
+      // timer were not cleared, the callback would fire a second time with a
+      // synthetic timeout error.
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+
+      expect(cb).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives the scrypt-backed create-invite/delete-token commands a longer eviction window than other commands', () => {
+      const { getConnection } = mount()
+      const volumeCb = vi.fn()
+      const inviteCb = vi.fn()
+
+      act(() => {
+        getConnection().send(setViewVolumeCommand, volumeCb)
+      })
+      act(() => {
+        getConnection().send(createInviteCommand, inviteCb)
+      })
+
+      // Past the plain 5s window: the non-scrypt command is evicted...
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(volumeCb).toHaveBeenCalledTimes(1)
+      // ...but create-invite is still waiting.
+      expect(inviteCb).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      expect(inviteCb).toHaveBeenCalledTimes(1)
+      expect(inviteCb).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
       )
     })
   })
