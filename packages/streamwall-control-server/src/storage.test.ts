@@ -149,8 +149,9 @@ describe('storage file permissions', () => {
     'keeps the file owner-only across repeated writes',
     { skip: posixOnly },
     async () => {
-      // lowdb writes through steno, which renames a fresh temp file over the
-      // storage file, so every write hands it a new inode with the umask's mode.
+      // Every write renames a fresh temp file over the storage file, so this
+      // pins that the new inode lands at STORAGE_FILE_MODE every time, not
+      // just on the first write.
       const dbPath = path.join(makeScratchDir(), 'storage.json')
       setEnvForTest({ DB_PATH: dbPath })
 
@@ -288,6 +289,41 @@ describe('storage file permissions', () => {
         `every temp file must be created at 0600, observed: ${observedModes
           .map((mode) => mode.toString(8))
           .join(', ')}`,
+      )
+    },
+  )
+
+  test(
+    'resets a stale temp file left at a wider mode by a crash or an older release',
+    { skip: posixOnly },
+    async () => {
+      // POSIX `open()` only applies the `mode` argument when it actually
+      // creates the file: if `.storage.json.tmp` already exists (left behind
+      // by a process that died between the write and the rename, or by a
+      // pre-#820 server build), `writeFile(tmp, data, { mode })` would
+      // silently keep that leftover file's wider mode unless the adapter
+      // resets it first.
+      const dbPath = path.join(makeScratchDir(), 'storage.json')
+      const tempPath = path.join(
+        path.dirname(dbPath),
+        `.${path.basename(dbPath)}.tmp`,
+      )
+      setEnvForTest({ DB_PATH: dbPath })
+      await writeFile(tempPath, '{}', { mode: 0o644 })
+      assert.equal(
+        await modeOf(tempPath),
+        0o644,
+        'the leftover temp file must start wide',
+      )
+
+      const db = await loadStorage()
+      db.data.auth.salt = 'test-salt'
+      await db.write()
+
+      assert.equal(
+        await modeOf(dbPath),
+        0o600,
+        "the published file must not inherit the leftover temp file's mode",
       )
     },
   )
