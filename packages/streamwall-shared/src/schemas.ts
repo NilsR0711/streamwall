@@ -537,11 +537,24 @@ const blockedLayerURLsGenerationSchema = z
   // than the one dismissal edge this counter fixes.
   .default(0)
 
+/**
+ * A data source's health message reports whatever the polled endpoint said
+ * back - including its raw HTTP reason phrase, entirely controlled by that
+ * endpoint - and flows unbounded into the broadcast `StreamwallState`. Left
+ * unbounded, a hostile or misbehaving data source is the same
+ * denial-of-service vector #734 fixed for `document.title`: it can grow
+ * every state frame the desktop pushes over the uplink without limit. The
+ * producer (`DataSourceHealthTracker.report`) truncates to this length
+ * before the message ever reaches this schema; the bound here is the
+ * server-side backstop in case that truncation is ever bypassed.
+ */
+export const MAX_DATA_SOURCE_MESSAGE_LENGTH = 500
+
 const dataSourceHealthSchema = z.object({
   id: z.string(),
   type: z.enum(['json-url', 'toml-file']),
   status: z.enum(['ok', 'error']),
-  message: z.string().nullable(),
+  message: z.string().max(MAX_DATA_SOURCE_MESSAGE_LENGTH).nullable(),
   updatedAt: z.number(),
 })
 

@@ -1,3 +1,4 @@
+import { MAX_DATA_SOURCE_MESSAGE_LENGTH } from 'streamwall-shared'
 import { describe, expect, test } from 'vitest'
 import { DataSourceHealthTracker } from './dataSourceHealth'
 
@@ -67,6 +68,31 @@ describe('DataSourceHealthTracker', () => {
     const result = tracker.report('url-b', 'toml-file', false, 'boom')
 
     expect(result.map((h) => h.id)).toEqual(['url-a', 'url-b'])
+  })
+
+  // Issue #817: a data source's message forwards whatever the polled
+  // endpoint said back, entirely under that endpoint's control, and flows
+  // unbounded into the broadcast state -- the same denial-of-service vector
+  // #734 fixed for `document.title`. Truncated at the producer, mirroring
+  // `formatError` for view errors, so the server-side schema bound is a
+  // backstop rather than the only thing standing between a hostile source
+  // and an oversized state frame.
+  test('truncates a message longer than the allowed length', () => {
+    const tracker = new DataSourceHealthTracker(() => 1000)
+    const oversized = 'x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH + 500)
+
+    const result = tracker.report('url', 'json-url', false, oversized)
+
+    expect(result[0].message).toBe('x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH))
+  })
+
+  test('does not truncate a message at exactly the allowed length', () => {
+    const tracker = new DataSourceHealthTracker(() => 1000)
+    const atLimit = 'x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH)
+
+    const result = tracker.report('url', 'json-url', false, atLimit)
+
+    expect(result[0].message).toBe(atLimit)
   })
 
   test('updates an existing entry in place rather than duplicating it', () => {

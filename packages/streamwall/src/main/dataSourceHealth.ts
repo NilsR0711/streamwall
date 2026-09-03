@@ -1,4 +1,8 @@
-import { DataSourceHealth, DataSourceType } from 'streamwall-shared'
+import {
+  DataSourceHealth,
+  DataSourceType,
+  MAX_DATA_SOURCE_MESSAGE_LENGTH,
+} from 'streamwall-shared'
 
 /**
  * Aggregates the latest health of each configured stream data source, keyed
@@ -20,7 +24,13 @@ export class DataSourceHealthTracker {
       id,
       type,
       status: ok ? 'ok' : 'error',
-      message: ok ? null : (message ?? null),
+      // `message` forwards whatever the data source said back (issue #817),
+      // entirely under that source's control -- truncate here, the same way
+      // `formatError` does for view errors, so the schema's own bound is a
+      // backstop rather than the only limit.
+      message: ok
+        ? null
+        : (message?.slice(0, MAX_DATA_SOURCE_MESSAGE_LENGTH) ?? null),
       updatedAt: this.now(),
     })
     return [...this.byId.values()]

@@ -6,6 +6,7 @@ import {
   localStreamDataSchema,
   MAX_BLOCKED_LAYER_URL_LENGTH,
   MAX_BLOCKED_LAYER_URLS,
+  MAX_DATA_SOURCE_MESSAGE_LENGTH,
   MAX_URL_LENGTH,
   MAX_VIEW_ERROR_LENGTH,
   MAX_VIEW_IDX,
@@ -890,6 +891,43 @@ describe('streamwallStateSchema', () => {
             error: 'x'.repeat(MAX_VIEW_ERROR_LENGTH),
             volume: 1,
           },
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
+  })
+
+  // Issue #817: a data source's health message forwards whatever the polled
+  // endpoint said back (including its raw HTTP reason phrase), which is
+  // entirely controlled by that endpoint and re-broadcast on every state
+  // update -- the same denial-of-service vector #734 fixed for
+  // `document.title`.
+  test('rejects a data source health message longer than the allowed length', () => {
+    const tooLong = {
+      ...VALID_STATE,
+      dataSourceHealth: [
+        {
+          id: 'https://source.example/data.json',
+          type: 'json-url',
+          status: 'error',
+          message: 'x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH + 1),
+          updatedAt: 1700000000000,
+        },
+      ],
+    }
+    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+  })
+
+  test('accepts a data source health message at exactly the allowed length', () => {
+    const atLimit = {
+      ...VALID_STATE,
+      dataSourceHealth: [
+        {
+          id: 'https://source.example/data.json',
+          type: 'json-url',
+          status: 'error',
+          message: 'x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH),
+          updatedAt: 1700000000000,
         },
       ],
     }
