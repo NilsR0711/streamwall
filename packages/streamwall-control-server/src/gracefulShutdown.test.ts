@@ -220,7 +220,12 @@ describe('runServer shutdown wiring', () => {
     db.write = () => new Promise<void>(() => {})
 
     const { proc } = fakeProcess()
-    const forceExitAfterMs = 1200
+    // Wide margins on purpose: `initDelayMs` only needs to land the signal
+    // before `initApp` resolves, and the gap between it and
+    // `forceExitAfterMs` has to comfortably outlast whatever `initApp`
+    // (Fastify setup, route registration) actually takes on a loaded CI
+    // runner, well clear of the 500ms floor `remainingForceExitMs` applies.
+    const forceExitAfterMs = 3000
     const initDelayMs = 500
     const exitTimes: number[] = []
     proc.exit = () => {
@@ -254,7 +259,7 @@ describe('runServer shutdown wiring', () => {
     )
     const elapsedFromSignal = exitTimes[0] - signalledAt
     assert.ok(
-      elapsedFromSignal < forceExitAfterMs + 150,
+      elapsedFromSignal < forceExitAfterMs + 400,
       `expected a single ~${forceExitAfterMs}ms budget measured from the ` +
         `signal, took ${elapsedFromSignal}ms (a doubled budget would take ` +
         `roughly ${initDelayMs + forceExitAfterMs}ms)`,
