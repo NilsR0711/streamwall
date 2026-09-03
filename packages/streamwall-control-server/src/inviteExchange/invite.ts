@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, onRequestAsyncHookHandler } from 'fastify'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -34,8 +34,8 @@ export interface InviteRouteOptions {
   auth: Auth
   /** Whether the server is reached over TLS, gating the `Secure` cookie flag. */
   isSecure: boolean
-  /** Per-IP budget for the scrypt-bearing redemption route. */
-  authRateLimit: { max: number; timeWindow: string }
+  /** The limiter shared by every scrypt-deriving route. */
+  scryptRateLimit: onRequestAsyncHookHandler
 }
 
 /**
@@ -46,7 +46,7 @@ export interface InviteRouteOptions {
  */
 export async function registerInviteRoutes(
   app: FastifyInstance,
-  { auth, isSecure, authRateLimit }: InviteRouteOptions,
+  { auth, isSecure, scryptRateLimit }: InviteRouteOptions,
 ): Promise<void> {
   const pageHtml = await invitePageHtml()
   const exchangeScript = await inviteExchangeScript()
@@ -70,16 +70,16 @@ export async function registerInviteRoutes(
 
   // Redeems an invite. The secret arrives in the request body (not the URL),
   // and this route runs the expensive scrypt verification, so it carries the
-  // strict auth rate limit.
+  // strict auth rate limit — the one shared across every deriving route, which
+  // is why the budget is spent through the hook rather than a per-route config
+  // (issue #821). A redemption is unconditionally charged: the body is not
+  // parsed yet when the limiter runs, so there is nothing to classify on, and
+  // a redemption that carries no token has no legitimate caller anyway.
   app.post<{ Params: { id: string }; Body: { token?: string } }>(
     '/invite/:id',
     {
-      config: {
-        rateLimit: {
-          max: authRateLimit.max,
-          timeWindow: authRateLimit.timeWindow,
-        },
-      },
+      onRequest: scryptRateLimit,
+      config: { rateLimit: false, scryptDerives: () => true },
     },
     async (request, reply) => {
       const { id } = request.params

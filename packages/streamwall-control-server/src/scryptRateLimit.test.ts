@@ -484,4 +484,105 @@ describe('scrypt-bearing routes', () => {
       'a throttled handshake must be refused before any scrypt work',
     )
   })
+
+  test('the strict budget is one bucket per IP, not one per route', async () => {
+    // `@fastify/rate-limit` hands every route carrying its own `config.rateLimit`
+    // object a fresh store, so four scrypt-deriving routes used to mean four
+    // independent budgets — four times the ceiling this limit documents
+    // (issue #821). One IP gets one budget for scrypt work, whichever route it
+    // spends it on.
+    setEnvForTest({
+      STREAMWALL_RATE_LIMIT_MAX: '100',
+      STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+    })
+    const { app, auth } = await buildTestApp()
+    after(() => app.close())
+    const invite = await auth.createToken({
+      kind: 'invite',
+      role: 'admin',
+      name: 'client',
+    })
+
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/status',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:bbbb${i}` },
+      })
+      assert.equal(res.statusCode, 403, 'the budget must be spent, not refused')
+    }
+    const spent = await app.inject({
+      method: 'GET',
+      url: '/admin/status',
+      headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:cccc` },
+    })
+    assert.equal(
+      spent.statusCode,
+      429,
+      'the strict budget must be spent for this spec to mean anything',
+    )
+
+    const derivations = countDerivations(auth)
+    const redeem = await app.inject({
+      method: 'POST',
+      url: `/invite/${invite.tokenId}`,
+      headers: { 'content-type': 'application/json' },
+      payload: { token: invite.secret },
+    })
+    assert.equal(
+      redeem.statusCode,
+      429,
+      'the invite route must share the strict budget, not hold its own',
+    )
+    assert.equal(
+      derivations.calls,
+      0,
+      'a throttled redemption must be refused before any scrypt work',
+    )
+  })
+
+  test('a spent strict budget also refuses the uplink handshake', async () => {
+    // Same shared bucket seen from the other end: the desktop uplink route is
+    // the fourth scrypt-deriving route and must not hand out a fresh budget
+    // after the browser-facing ones have spent theirs (issue #821).
+    setEnvForTest({
+      STREAMWALL_RATE_LIMIT_MAX: '100',
+      STREAMWALL_AUTH_RATE_LIMIT_MAX: '2',
+    })
+    const { app, auth } = await buildTestApp()
+    after(() => app.close())
+    const port = await listenTestApp(app)
+    const { base } = await mintUplinkToken(auth, port)
+
+    for (let i = 0; i < 3; i++) {
+      await app.inject({
+        method: 'GET',
+        url: '/admin/status',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=aaaaaaaa:bbbb${i}` },
+      })
+    }
+
+    const derivations = countDerivations(auth)
+    const ws = new WebSocket(base, {
+      headers: { authorization: 'Bearer wrong-secret' },
+    })
+    ws.on('error', () => {})
+    after(() => ws.terminate())
+    const outcome = await Promise.race([
+      once(ws, 'open').then(() => 'open'),
+      once(ws, 'unexpected-response').then(
+        (args) => `http-${(args[1] as { statusCode: number }).statusCode}`,
+      ),
+    ])
+    assert.equal(
+      outcome,
+      'http-429',
+      'the uplink handshake must share the strict budget, not hold its own',
+    )
+    assert.equal(
+      derivations.calls,
+      0,
+      'a throttled handshake must be refused before any scrypt work',
+    )
+  })
 })
