@@ -99,6 +99,27 @@ describe('loadStorage', () => {
     const onDisk = JSON.parse(await readFile(dbPath, 'utf-8'))
     assert.equal(onDisk.auth.salt, 'test-salt')
   })
+
+  test('uses an in-memory store when NODE_ENV=test, never touching disk', async () => {
+    // NODE_ENV=test is lowdb's own signal (checked inside JSONFilePreset) to
+    // swap in an in-memory adapter instead of the file on disk -- the README
+    // warns operators never to set it in production for exactly this reason.
+    // OwnerOnlyJSONFile replaces JSONFilePreset on every platform but
+    // Windows, so it has to honour that same signal itself, or the documented
+    // footgun would quietly stop applying there.
+    const dbPath = path.join(makeScratchDir(), 'storage.json')
+    setEnvForTest({ DB_PATH: dbPath, NODE_ENV: 'test' })
+
+    const db = await loadStorage()
+    db.data.auth.salt = 'test-salt'
+    await db.write()
+
+    assert.equal(
+      existsSync(dbPath),
+      false,
+      'NODE_ENV=test must never write the real storage file',
+    )
+  })
 })
 
 describe('storage file permissions', () => {
