@@ -85,9 +85,16 @@ export async function* pollDataURL(
     try {
       const resp = await fetchWithTimeout(url, fetchTimeout)
       if (!resp.ok) {
-        throw new Error(
-          `received HTTP ${resp.status} ${resp.statusText} from ${url}`,
-        )
+        // Drain and discard the unread body instead of leaving it dangling:
+        // undici otherwise holds the connection open until GC reclaims it,
+        // on every failing poll (issue #817).
+        resp.body?.resume()
+        // `statusText` is the HTTP reason phrase, entirely controlled by the
+        // polled endpoint - forwarding it unbounded into the health message
+        // that gets re-broadcast in every state update is the same
+        // denial-of-service vector #734 fixed for `document.title` (issue
+        // #817). The status code and URL are enough to diagnose the failure.
+        throw new Error(`received HTTP ${resp.status} from ${url}`)
       }
       data = parseStreamEntries(await resp.json(), `from ${url}`)
       onHealth?.(true)

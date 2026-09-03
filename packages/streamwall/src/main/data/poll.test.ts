@@ -134,6 +134,41 @@ describe('pollDataURL', () => {
     }
   })
 
+  // Issue #817: the HTTP reason phrase is entirely controlled by the polled
+  // endpoint and flows unbounded into the health message re-broadcast in
+  // every state update -- the same denial-of-service vector #734 fixed for
+  // `document.title`. The status code and URL are enough to diagnose a
+  // failure without it.
+  test('does not forward the endpoint-controlled status text into the health message', async () => {
+    server = createServer((_req, res) => {
+      res.statusCode = 503
+      res.statusMessage = 'attacker-controlled reason phrase'
+      res.setHeader('content-type', 'application/json')
+      res.end('[]')
+    })
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    )
+    const { port } = server.address() as AddressInfo
+    const url = `http://127.0.0.1:${port}/`
+
+    const onHealth = vi.fn()
+    const gen = pollDataURL(url, 999, onHealth)
+    try {
+      await gen.next()
+      expect(onHealth).toHaveBeenCalledWith(
+        false,
+        expect.not.stringContaining('attacker-controlled reason phrase'),
+      )
+      expect(onHealth).toHaveBeenCalledWith(
+        false,
+        expect.stringContaining('503'),
+      )
+    } finally {
+      await gen.return(undefined)
+    }
+  })
+
   // This test (and the next) used to pace itself with real setTimeout races
   // (a 100ms poll interval plus a 150ms "still pending" probe window). That
   // real-time budget stacks with a real timer *inside* pollDataURL itself:
