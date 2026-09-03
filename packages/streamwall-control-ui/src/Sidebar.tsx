@@ -4,6 +4,7 @@ import { useCallback, useState } from 'preact/hooks'
 import {
   Color,
   idColor,
+  isHttpUrl,
   type ContentKind,
   type LocalStreamData,
   type StreamData,
@@ -157,9 +158,18 @@ function StreamLine({
             <strong>{source}</strong>{' '}
             <OrientationIndicator orientation={orientation} />{' '}
             {city ? `(${city} ${state}) ` : ''}
-            <a href={link} target="_blank" rel="noopener noreferrer">
-              {truncate(link, { length: 55 })}
-            </a>{' '}
+            {/* `link` arrives from an untrusted data source (a TOML file or
+             * a polled JSON URL); only render it as a clickable anchor for
+             * an http(s) URL, the same guard applied to `releaseUrl`
+             * (issue #773/PR #793), otherwise fall back to the same
+             * truncated plain text (issue #822). */}
+            {isHttpUrl(link) ? (
+              <a href={link} target="_blank" rel="noopener noreferrer">
+                {truncate(link, { length: 55 })}
+              </a>
+            ) : (
+              truncate(link, { length: 55 })
+            )}{' '}
             {notes}
           </>
         )}
@@ -221,9 +231,14 @@ export function CustomStreamInput({
         onChange={handleChangeLabel}
         placeholder="Label (optional)"
       />{' '}
-      <a href={props.link} target="_blank" rel="noopener noreferrer">
-        {props.link}
-      </a>{' '}
+      {/* Same untrusted-scheme guard as StreamLine above (issue #822). */}
+      {isHttpUrl(props.link) ? (
+        <a href={props.link} target="_blank" rel="noopener noreferrer">
+          {props.link}
+        </a>
+      ) : (
+        props.link
+      )}{' '}
       <span>({props.kind})</span>{' '}
       <button
         aria-label={`Delete custom stream ${props.label || props.link}`}
