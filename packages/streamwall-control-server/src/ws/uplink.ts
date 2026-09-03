@@ -1,4 +1,8 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type {
+  FastifyInstance,
+  FastifyRequest,
+  onRequestAsyncHookHandler,
+} from 'fastify'
 import * as Y from 'yjs'
 
 import {
@@ -6,7 +10,6 @@ import {
   streamwallStateSchema,
 } from 'streamwall-shared'
 import { StateWrapper } from '../auth.ts'
-import type { RateLimitConfig } from '../config.ts'
 import type { AppContext } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
 import type { VerifiedTokenCache } from '../verifiedTokenCache.ts'
@@ -17,12 +20,9 @@ import {
   startHeartbeat,
 } from '../wsSupport.ts'
 
-/** Where a request remembers whether it was charged for a derivation. */
-const DERIVES = Symbol('streamwall.derivesToken')
-
 export interface UplinkRouteOptions {
-  /** Per-IP budgets: the strict one guards routes that derive a token hash. */
-  rateLimit: RateLimitConfig
+  /** The limiter shared by every scrypt-deriving route. */
+  scryptRateLimit: onRequestAsyncHookHandler
   /** Shared cache of recently verified credentials. */
   verifiedTokens: VerifiedTokenCache
 }
@@ -36,7 +36,7 @@ export interface UplinkRouteOptions {
 export function registerUplinkRoute(
   app: FastifyInstance,
   ctx: AppContext,
-  { rateLimit, verifiedTokens }: UplinkRouteOptions,
+  { scryptRateLimit, verifiedTokens }: UplinkRouteOptions,
 ): void {
   /** Whether this handshake will have to derive the bearer token's hash. */
   // Typed against the bare request the rate-limit hooks are handed, which does
@@ -51,17 +51,6 @@ export function registerUplinkRoute(
     )
   }
 
-  /**
-   * `keyGenerator` and `max` both run per request and must agree, so the
-   * classification is computed once and remembered on the request rather than
-   * re-derived from a cache that may have changed in between.
-   */
-  const derivesOnce = (request: FastifyRequest): boolean => {
-    const memo = request as unknown as Record<symbol, boolean | undefined>
-    memo[DERIVES] ??= derives(request)
-    return memo[DERIVES]
-  }
-
   app.get<{ Params: { id: string } }>(
     '/streamwall/:id/ws',
     {
@@ -73,16 +62,11 @@ export function registerUplinkRoute(
       // against the strict budget: a desktop reconnecting through a flapping
       // link presents a token the server verified moments ago, and must not be
       // locked out of its own uplink by its own retries — nor by anyone else
-      // spraying bogus tokens from the same address.
-      config: {
-        rateLimit: {
-          keyGenerator: (request: FastifyRequest) =>
-            `${request.ip}:${derivesOnce(request) ? 'derive' : 'verified'}`,
-          max: (request: FastifyRequest) =>
-            derivesOnce(request) ? rateLimit.authMax : rateLimit.globalMax,
-          timeWindow: rateLimit.timeWindow,
-        },
-      },
+      // spraying bogus tokens from the same address. The budget is the one
+      // shared with the other deriving routes rather than a per-route config,
+      // so it bounds scrypt work per IP rather than per route (issue #821).
+      onRequest: scryptRateLimit,
+      config: { rateLimit: false, scryptDerives: derives },
     },
     async (ws, request) => {
       ws.binaryType = 'arraybuffer'

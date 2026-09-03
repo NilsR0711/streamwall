@@ -1,5 +1,9 @@
 import fastifyStatic from '@fastify/static'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type {
+  FastifyInstance,
+  FastifyRequest,
+  onRequestAsyncHookHandler,
+} from 'fastify'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 
@@ -9,7 +13,7 @@ import {
   type StreamwallRole,
 } from 'streamwall-shared'
 import { uniqueRand62 } from '../auth.ts'
-import { SESSION_COOKIE_NAME, type RateLimitConfig } from '../config.ts'
+import { SESSION_COOKIE_NAME } from '../config.ts'
 import { type AppContext, type Client } from '../context.ts'
 import { identityDebugFields, identityFields } from '../logger.ts'
 import { applyValidatedDocUpdate } from '../stateDocGuard.ts'
@@ -23,14 +27,11 @@ import {
 export interface ClientRouteOptions {
   /** Filesystem root of the built control client served at `/`. */
   clientStaticPath: string
-  /** Per-IP budgets: the strict one guards routes that derive a token hash. */
-  rateLimit: RateLimitConfig
+  /** The limiter shared by every scrypt-deriving route. */
+  scryptRateLimit: onRequestAsyncHookHandler
   /** Shared cache of recently verified credentials. */
   verifiedTokens: VerifiedTokenCache
 }
-
-/** Where a request remembers whether it was charged for a derivation. */
-const DERIVES = Symbol('streamwall.derivesToken')
 
 /** Splits an `s` cookie into its token id and secret, or null if malformed. */
 function parseSessionCookie(
@@ -62,7 +63,7 @@ function parseSessionCookie(
 export function registerClientRoutes(
   app: FastifyInstance,
   ctx: AppContext,
-  { clientStaticPath, rateLimit, verifiedTokens }: ClientRouteOptions,
+  { clientStaticPath, scryptRateLimit, verifiedTokens }: ClientRouteOptions,
 ): void {
   /**
    * Whether serving this request will have to derive a token hash. Evaluated
@@ -88,28 +89,16 @@ export function registerClientRoutes(
   }
 
   /**
-   * `keyGenerator` and `max` both run per request and must agree, so the
-   * classification is computed once and remembered on the request rather than
-   * re-derived from a cache that may have changed in between.
-   */
-  const derivesOnce = (request: FastifyRequest): boolean => {
-    const memo = request as unknown as Record<symbol, boolean | undefined>
-    memo[DERIVES] ??= derives(request)
-    return memo[DERIVES]
-  }
-
-  /**
    * Only a request that actually has to derive is charged against the strict
    * budget; everything else stays on the global one. The two live in separate
    * buckets, so a browser reconnecting on a known session can never be locked
-   * out by an attacker spraying unknown cookies from the same IP.
+   * out by an attacker spraying unknown cookies from the same IP. Both buckets
+   * are held by the one limiter shared with the other deriving routes, so the
+   * strict budget bounds scrypt work per IP rather than per route (issue #821).
    */
-  const derivationRateLimit = {
-    keyGenerator: (request: FastifyRequest) =>
-      `${request.ip}:${derivesOnce(request) ? 'derive' : 'verified'}`,
-    max: (request: FastifyRequest) =>
-      derivesOnce(request) ? rateLimit.authMax : rateLimit.globalMax,
-    timeWindow: rateLimit.timeWindow,
+  const derivationRouteConfig = {
+    onRequest: scryptRateLimit,
+    config: { rateLimit: false as const, scryptDerives: derives },
   }
 
   const authenticate = async (request: FastifyRequest) => {
@@ -141,7 +130,7 @@ export function registerClientRoutes(
       '/admin/status',
       {
         preHandler: authenticate,
-        config: { rateLimit: derivationRateLimit },
+        ...derivationRouteConfig,
       },
       async (request, reply) => {
         if (!roleCan(request.identity?.role ?? null, 'view-server-status')) {
@@ -164,7 +153,7 @@ export function registerClientRoutes(
       {
         websocket: true,
         preHandler: authenticate,
-        config: { rateLimit: derivationRateLimit },
+        ...derivationRouteConfig,
       },
       async (ws, request) => {
         ws.binaryType = 'arraybuffer'

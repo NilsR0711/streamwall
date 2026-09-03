@@ -29,6 +29,7 @@ import {
 import { registerInviteRoutes } from './inviteExchange/invite.ts'
 import { getLoggerOptions, type LogLevel } from './logger.ts'
 import type { Clock } from './rateLimiter.ts'
+import { createScryptRateLimit } from './scryptRateLimit.ts'
 import {
   captureException,
   initSentry,
@@ -244,13 +245,16 @@ export async function initApp({
     },
   })
 
+  // One limiter instance, hence one store, for every route that verifies a
+  // credential. A per-route `config.rateLimit` object would have given each of
+  // them a private store and therefore a private budget — four times the
+  // ceiling this limit is documented to enforce (issue #821).
+  const scryptRateLimit = createScryptRateLimit(app, rateLimitConfig)
+
   await registerInviteRoutes(app, {
     auth,
     isSecure,
-    authRateLimit: {
-      max: rateLimitConfig.authMax,
-      timeWindow: rateLimitConfig.timeWindow,
-    },
+    scryptRateLimit,
   })
   // One cache for both routes: a credential verified for the uplink or for a
   // browser session is the same derivation either way, and a single instance
@@ -262,12 +266,12 @@ export async function initApp({
   })
 
   registerUplinkRoute(app, ctx, {
-    rateLimit: rateLimitConfig,
+    scryptRateLimit,
     verifiedTokens,
   })
   registerClientRoutes(app, ctx, {
     clientStaticPath,
-    rateLimit: rateLimitConfig,
+    scryptRateLimit,
     verifiedTokens,
   })
 
