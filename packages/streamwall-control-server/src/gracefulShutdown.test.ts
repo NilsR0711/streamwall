@@ -204,6 +204,63 @@ describe('runServer shutdown wiring', () => {
     assert.deepEqual(exitCodes, [0])
   })
 
+  test('a signal during a slow init force-exits within one budget of the signal, not two', async () => {
+    // Issue #823: the force-exit budget used to be armed twice in series
+    // for exactly this path -- once by the init-window listener above, then
+    // again from scratch once `registerShutdownHandlers` took over -- so a
+    // signal landing during a slow `initApp` (a `mkdir` or first write
+    // wedged on an unresponsive volume) could take up to roughly double the
+    // documented budget before the process gave up, well past Docker's stop
+    // grace period.
+    const db = inMemoryDb() as StorageDB
+    // The boot mints the uplink token via `db.update`, which this hangs
+    // forever, so `beforeClose` (the boot) never settles and the shutdown's
+    // own force-exit timer is what has to fire -- the wedged-shutdown case
+    // the budget exists for.
+    db.write = () => new Promise<void>(() => {})
+
+    const { proc } = fakeProcess()
+    const forceExitAfterMs = 1200
+    const initDelayMs = 500
+    const exitTimes: number[] = []
+    proc.exit = () => {
+      exitTimes.push(Date.now())
+    }
+
+    const signalledAt = Date.now()
+    void runServer({
+      baseURL: 'http://127.0.0.1:0',
+      clientStaticPath: import.meta.dirname,
+      db,
+      logLevel: 'silent',
+      updateChecker: fakeUpdateChecker(),
+      process: proc,
+      forceExitAfterMs,
+      initDelayMs,
+    })
+    // `runServer` runs synchronously up to the init delay, so the signal
+    // listeners are already attached by the time this line runs -- still
+    // well inside the delayed init window.
+    proc.emit('SIGTERM')
+
+    // Long enough to observe the force-exit even under the old, doubled
+    // budget (initDelayMs + forceExitAfterMs, roughly).
+    await delay(initDelayMs + forceExitAfterMs + 500)
+
+    assert.equal(
+      exitTimes.length,
+      1,
+      'the process must force-exit exactly once',
+    )
+    const elapsedFromSignal = exitTimes[0] - signalledAt
+    assert.ok(
+      elapsedFromSignal < forceExitAfterMs + 150,
+      `expected a single ~${forceExitAfterMs}ms budget measured from the ` +
+        `signal, took ${elapsedFromSignal}ms (a doubled budget would take ` +
+        `roughly ${initDelayMs + forceExitAfterMs}ms)`,
+    )
+  })
+
   test('a signal during the boot waits for the boot to finish writing', async () => {
     // Minting the uplink token is a scrypt derivation plus persisted writes,
     // so a container stop can easily land inside the boot. Exiting on top of

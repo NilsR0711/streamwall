@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { inviteLink } from 'streamwall-shared'
 import type { Auth } from './auth.ts'
 import { resolveListenPort } from './config.ts'
@@ -265,6 +266,8 @@ export default async function runServer({
   logStream,
   updateChecker: injectedUpdateChecker,
   process: proc = process,
+  forceExitAfterMs = DEFAULT_FORCE_EXIT_MS,
+  initDelayMs,
 }: AppOptions & {
   hostname?: string
   port?: string
@@ -278,6 +281,16 @@ export default async function runServer({
   logStream?: { write(line: string): void }
   /** Test-only override so specs can exercise the real listen() path without reaching GitHub. */
   updateChecker?: UpdateChecker
+  /**
+   * Test-only override for the force-exit budget. Bounds the init-window
+   * listener below and, once a signal replays into it, the shutdown timer
+   * `registerShutdownHandlers` arms further down -- the same single deadline,
+   * measured from whenever the signal actually arrived (issue #823), not two
+   * budgets armed one after the other.
+   */
+  forceExitAfterMs?: number
+  /** Test-only delay inserted before `initApp`, so a spec can land a signal deterministically inside the init window. */
+  initDelayMs?: number
 }) {
   const url = new URL(baseURL)
   const hostname = overrideHostname ?? url.hostname
@@ -293,8 +306,12 @@ export default async function runServer({
   // else, so this one arms a deadline of its own: a `mkdir` or first write
   // wedged on an unresponsive volume must not leave the process unkillable,
   // and a second signal in that window gives up immediately — nothing has been
-  // built yet that could be flushed.
+  // built yet that could be flushed. The timestamp of that first signal is
+  // recorded so the deadline below can be measured from it rather than from
+  // whenever `registerShutdownHandlers` happens to take over -- otherwise the
+  // budget effectively gets armed twice in series (issue #823).
   let signalDuringInit: 'SIGTERM' | 'SIGINT' | null = null
+  let signalledDuringInitAt: number | undefined
   let initDeadline: ReturnType<typeof setTimeout> | undefined
   const initListeners = (['SIGTERM', 'SIGINT'] as const).map((signal) => {
     const listener = () => {
@@ -303,11 +320,18 @@ export default async function runServer({
         return
       }
       signalDuringInit = signal
-      initDeadline = setTimeout(() => proc.exit(1), DEFAULT_FORCE_EXIT_MS)
+      signalledDuringInitAt = Date.now()
+      initDeadline = setTimeout(() => proc.exit(1), forceExitAfterMs)
     }
     proc.on(signal, listener)
     return { signal, listener }
   })
+
+  // Test-only: lets a spec land a signal deterministically inside the window
+  // above, simulating a slow `mkdir`/first write without actually needing one.
+  if (initDelayMs) {
+    await delay(initDelayMs)
+  }
 
   // The startup diagnostics below run *after* `initApp` purely so they can go
   // through `app.log`: they belong in the structured stream like every other
@@ -364,9 +388,21 @@ export default async function runServer({
     await app.listen({ port, host: hostname })
   })()
 
+  // A signal that arrived during init already spent part of the force-exit
+  // budget waiting for init itself to finish; the shutdown timer below gets
+  // whatever is left of that one budget, not a fresh one, so the two stages
+  // together never take longer than `forceExitAfterMs` measured from the
+  // signal (issue #823). The floor keeps a signal that arrived right at the
+  // edge of the budget from arming an effectively-zero deadline.
+  const remainingForceExitMs =
+    signalledDuringInitAt !== undefined
+      ? Math.max(500, forceExitAfterMs - (Date.now() - signalledDuringInitAt))
+      : forceExitAfterMs
+
   const { isShuttingDown, shutdown } = registerShutdownHandlers({
     app,
     process: proc,
+    forceExitAfterMs: remainingForceExitMs,
     beforeClose: () => boot,
     flush: flushStorage,
   })
