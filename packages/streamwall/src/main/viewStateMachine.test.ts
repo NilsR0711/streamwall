@@ -2235,4 +2235,25 @@ describe('viewStateMachine PARK/UNPARK (issue #816)', () => {
 
     expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
   })
+
+  it('un-parks a view that was parked while recovering from an error', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.actor.send({ type: 'VIEW_ERROR', error: new Error('boom') })
+    expect(
+      matchesState('displaying.error', ctx.actor.getSnapshot().value),
+    ).toBe(true)
+
+    ctx.actor.send({ type: 'PARK' })
+    expect(ctx.actor.getSnapshot().context.parked).toBe(true)
+
+    // Collapse while still recovering: same as the loading case, the park
+    // must not outlive the error state, or the view stays off the wall once
+    // it eventually reloads and reaches running again.
+    ctx.actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
+    ctx.actor.send({ type: 'UNPARK' })
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+  })
 })
