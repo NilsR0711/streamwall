@@ -1883,8 +1883,7 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
 
     /** Exactly what `StreamWindow.hideView` does to park a running view. */
     const park = () => {
-      win.contentView.removeChildView(view)
-      offscreenWin.contentView.addChildView(view)
+      actor.send({ type: 'PARK' })
     }
 
     /** Drives the running actor through a content swap to its promotion. */
@@ -1989,5 +1988,190 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
     expect(
       matchesState('displaying.running', ctx.actor.getSnapshot().value),
     ).toBe(true)
+  })
+})
+
+/**
+ * Parking is a state the actor itself tracks (`context.parked`), not an
+ * invisible re-parenting done behind its back: a parked view's `pos` and
+ * `content` are exactly what they were before the expansion, so the collapse
+ * `DISPLAY` matches `contentPosUnchanged` and cannot be what puts the view
+ * back on the wall (issue #816).
+ */
+describe('viewStateMachine PARK/UNPARK (issue #816)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function makeFakeContentView() {
+    const children: unknown[] = []
+    return {
+      children,
+      addChildView: vi.fn((child: unknown, index?: number) => {
+        const existing = children.indexOf(child)
+        if (existing !== -1) {
+          children.splice(existing, 1)
+        }
+        if (index === undefined) {
+          children.push(child)
+        } else {
+          children.splice(index, 0, child)
+        }
+      }),
+      removeChildView: vi.fn((child: unknown) => {
+        const idx = children.indexOf(child)
+        if (idx !== -1) {
+          children.splice(idx, 1)
+        }
+      }),
+    }
+  }
+
+  function makeFakeWindow(width: number, height: number) {
+    return {
+      contentView: makeFakeContentView(),
+      getBounds: () => ({ width, height }),
+    }
+  }
+
+  /**
+   * Runs the *real* `positionView`/`offscreenView` against fake windows, so
+   * park/un-park is asserted on the same child-list bookkeeping production
+   * uses rather than on a hand-rolled fake actor.
+   */
+  function setup() {
+    const win = makeFakeWindow(1920, 1080)
+    const overlay = { setBounds: vi.fn() }
+    const view = { setBounds: vi.fn() }
+    const offscreenWin = makeFakeWindow(100, 100)
+
+    win.contentView.children.push(overlay)
+
+    const machine = viewStateMachine.provide({
+      actions: {
+        offscreenNextView: noop,
+        performSwap: noop,
+        resyncSwappedView: noop,
+        muteAudio: noop,
+        unmuteAudio: noop,
+        openDevTools: noop,
+        sendViewOptions: noop,
+        sendViewVolume: noop,
+        sendViewPause: noop,
+        sendViewResume: noop,
+        logError: noop,
+      },
+      actors: {
+        loadPage: fromPromise(async () => {}),
+      },
+    })
+    const actor = createActor(machine, {
+      input: {
+        id: asViewId(1),
+        view: view as never,
+        win: win as never,
+        offscreenWin: offscreenWin as never,
+        retry: makeRetry(),
+        createNextView: () => ({
+          view: {} as never,
+          offscreenWin: {} as never,
+        }),
+        disposeView: noop,
+      },
+    })
+
+    return { actor, win, overlay, view, offscreenWin }
+  }
+
+  it('takes the view off the wall and records the park on PARK', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    expect(ctx.win.contentView.children).toContain(ctx.view)
+
+    ctx.actor.send({ type: 'PARK' })
+
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+    expect(ctx.offscreenWin.contentView.children).toContain(ctx.view)
+    expect(ctx.view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+    })
+    expect(ctx.actor.getSnapshot().context.parked).toBe(true)
+  })
+
+  it('re-attaches the view on UNPARK after a DISPLAY that changed nothing', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.actor.send({ type: 'PARK' })
+
+    // What the collapse `setViews` sends: freshly-built but structurally
+    // equal pos/content objects, so `contentPosUnchanged` matches and the
+    // DISPLAY alone is a noop.
+    ctx.actor.send({
+      type: 'DISPLAY',
+      pos: { ...POS, spaces: [...POS.spaces] },
+      content: { ...CONTENT },
+    })
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+
+    ctx.actor.send({ type: 'UNPARK' })
+
+    // Back on the wall, below the overlay, at its cell rectangle.
+    expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
+    expect(ctx.offscreenWin.contentView.children).not.toContain(ctx.view)
+    expect(ctx.view.setBounds).toHaveBeenLastCalledWith(POS)
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+    // Un-parking must never restart the load.
+    expect(
+      matchesState('displaying.running', ctx.actor.getSnapshot().value),
+    ).toBe(true)
+  })
+
+  it('ignores UNPARK for a view that is not parked', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    const childrenBefore = [...ctx.win.contentView.children]
+    ctx.win.contentView.addChildView.mockClear()
+
+    ctx.actor.send({ type: 'UNPARK' })
+
+    expect(ctx.win.contentView.addChildView).not.toHaveBeenCalled()
+    expect(ctx.win.contentView.children).toEqual(childrenBefore)
+  })
+
+  it('clears the park when a repositioning DISPLAY already re-attached the view', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.actor.send({ type: 'PARK' })
+
+    const newPos = { ...POS, x: 400, spaces: [asCellIdx(1)] }
+    ctx.actor.send({ type: 'DISPLAY', pos: newPos, content: CONTENT })
+
+    expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+  })
+
+  it('clears the park when a parked view is reloaded back into running', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.actor.send({ type: 'PARK' })
+
+    ctx.actor.send({ type: 'RELOAD' })
+    await vi.advanceTimersByTimeAsync(0)
+    ctx.actor.send({ type: 'VIEW_INIT' })
+    ctx.actor.send({ type: 'VIEW_LOADED' })
+
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+    expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
   })
 })

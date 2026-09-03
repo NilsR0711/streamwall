@@ -721,8 +721,6 @@ function makeReuseTestActor(opts: {
     stop,
     disposeView,
     setBounds,
-    removeChildViewOnWin,
-    addChildViewOnOffscreen,
   }
 }
 
@@ -1119,9 +1117,10 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
     expect(other.stop).not.toHaveBeenCalled()
     expect(other.disposeView).not.toHaveBeenCalled()
     // ...but is moved off the visible wall onto its own offscreen host so it
-    // does not render on top of (or behind) the expanded view.
-    expect(other.removeChildViewOnWin).toHaveBeenCalled()
-    expect(other.addChildViewOnOffscreen).toHaveBeenCalled()
+    // does not render on top of (or behind) the expanded view. The actor does
+    // the re-parenting itself, via PARK, so it can remember that it is
+    // detached -- see viewStateMachine's `parked` context flag (issue #816).
+    expect(other.send).toHaveBeenCalledWith({ type: 'PARK' })
     // It no longer appears in the emitted view states (only the expanded
     // view is visible, matching the pre-#369 behavior)...
     expect(sw.views.size).toBe(1)
@@ -1192,6 +1191,15 @@ describe('StreamWindow.setViews parking unused views during a fullscreen expansi
     expect(sw.createView).not.toHaveBeenCalled()
     expect(other.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'DISPLAY', content: streamA }),
+    )
+    // The parked view is re-attached to the wall explicitly: that DISPLAY
+    // re-sends the pos/content the cell already had, so the machine's
+    // `contentPosUnchanged` branch runs no actions and cannot put the view
+    // back by itself (issue #816).
+    expect(other.send).toHaveBeenCalledWith({ type: 'UNPARK' })
+    const sentTypes = other.send.mock.calls.map(([event]) => event.type)
+    expect(sentTypes.indexOf('UNPARK')).toBeGreaterThan(
+      sentTypes.indexOf('PARK'),
     )
     expect(sw.views.size).toBe(2)
     expect(sw.views.get(asViewId(2))).toBe(other.actor)
