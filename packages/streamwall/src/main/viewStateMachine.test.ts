@@ -1989,6 +1989,35 @@ describe('viewStateMachine performSwap while the cell is parked (issue #741)', (
       matchesState('displaying.running', ctx.actor.getSnapshot().value),
     ).toBe(true)
   })
+
+  it('never puts the retiring view on the wall when a content-changing DISPLAY is immediately followed by UNPARK', async () => {
+    // Exactly what `StreamWindow.displayPlannedViews` does on every layout
+    // pass: DISPLAY, then unconditionally UNPARK right after, in the same
+    // synchronous call -- long before any preload has a chance to finish.
+    const ctx = setup()
+    ctx.actor.start()
+    await reachRunning(ctx.actor)
+    ctx.park()
+
+    ctx.actor.send({ type: 'DISPLAY', pos: NEW_POS, content: OTHER_CONTENT })
+    ctx.actor.send({ type: 'UNPARK' })
+
+    // Nothing may appear on the wall yet: the old view is stale and about to
+    // be retired, and the new one has not loaded. Popping the old view up at
+    // this point is exactly the "stale content flashes on the wall" failure
+    // the parked-swap handling (issue #741) exists to prevent.
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(0)
+    ctx.actor.send({ type: 'NEXT_VIEW_INIT' })
+    ctx.actor.send({ type: 'NEXT_VIEW_LOADED' })
+
+    // Only once the preload finishes does the promoted view take the cell.
+    expect(ctx.win.contentView.children).toEqual([ctx.nextView, ctx.overlay])
+    expect(ctx.nextView.setBounds).toHaveBeenLastCalledWith(NEW_POS)
+    expect(ctx.win.contentView.children).not.toContain(ctx.view)
+  })
 })
 
 /**
