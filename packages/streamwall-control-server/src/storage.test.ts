@@ -99,6 +99,27 @@ describe('loadStorage', () => {
     const onDisk = JSON.parse(await readFile(dbPath, 'utf-8'))
     assert.equal(onDisk.auth.salt, 'test-salt')
   })
+
+  test('uses an in-memory store when NODE_ENV=test, never touching disk', async () => {
+    // NODE_ENV=test is lowdb's own signal (checked inside JSONFilePreset) to
+    // swap in an in-memory adapter instead of the file on disk -- the README
+    // warns operators never to set it in production for exactly this reason.
+    // OwnerOnlyJSONFile replaces JSONFilePreset on every platform but
+    // Windows, so it has to honour that same signal itself, or the documented
+    // footgun would quietly stop applying there.
+    const dbPath = path.join(makeScratchDir(), 'storage.json')
+    setEnvForTest({ DB_PATH: dbPath, NODE_ENV: 'test' })
+
+    const db = await loadStorage()
+    db.data.auth.salt = 'test-salt'
+    await db.write()
+
+    assert.equal(
+      existsSync(dbPath),
+      false,
+      'NODE_ENV=test must never write the real storage file',
+    )
+  })
 })
 
 describe('storage file permissions', () => {
@@ -149,8 +170,9 @@ describe('storage file permissions', () => {
     'keeps the file owner-only across repeated writes',
     { skip: posixOnly },
     async () => {
-      // lowdb writes through steno, which renames a fresh temp file over the
-      // storage file, so every write hands it a new inode with the umask's mode.
+      // Every write renames a fresh temp file over the storage file, so this
+      // pins that the new inode lands at STORAGE_FILE_MODE every time, not
+      // just on the first write.
       const dbPath = path.join(makeScratchDir(), 'storage.json')
       setEnvForTest({ DB_PATH: dbPath })
 
@@ -215,15 +237,21 @@ describe('storage file permissions', () => {
       assert.equal(
         warnings.length,
         2,
-        'once for the startup pass, once for the writes — not once per write',
+        'once for the directory, once for the file, both at the startup ' +
+          'pass — a write no longer chmods at all, so none of the 3 writes ' +
+          'above adds another warning',
       )
     },
   )
 
   test(
-    'tightens a file left loose by an older server',
+    'tightens a file and a custom DB_PATH directory left loose by an older server',
     { skip: posixOnly },
     async () => {
+      // Issue #820: a directory the operator pointed a custom DB_PATH at —
+      // not the default, not created by this run — used to be left exactly
+      // as loose as it was found, even though it is where the credentials
+      // live. It is now tightened on a best-effort basis, same as the file.
       const dbDir = path.join(makeScratchDir(), 'existing')
       const dbPath = path.join(dbDir, 'storage.json')
       mkdirSync(dbDir, { mode: 0o755 })
@@ -242,12 +270,81 @@ describe('storage file permissions', () => {
 
       assert.equal(db.data.auth.salt, 'old', 'the existing store is still read')
       assert.equal(await modeOf(dbPath), 0o600)
-      // A directory the operator pointed DB_PATH at is left alone: it may be a
-      // home or working directory whose permissions are not ours to decide.
       assert.equal(
         await modeOf(dbDir),
-        0o755,
-        'an existing directory the server did not create keeps its mode',
+        0o700,
+        'a custom DB_PATH directory is tightened too, not just the default one',
+      )
+    },
+  )
+
+  test(
+    'never gives the storage file a wider mode than 0600, not even for an instant',
+    { skip: posixOnly },
+    async () => {
+      // Issue #820: lowdb writes through steno, which creates its temp file
+      // with the process umask's default mode and renames it over the
+      // target, so the live file was 0644 from the rename until the
+      // then-async chmod landed. Spy on the raw `writeFile` call the adapter
+      // uses to create that temp file, and assert the mode is already
+      // correct the instant the inode is created — before the rename ever
+      // makes it visible at the storage path.
+      const dbPath = path.join(makeScratchDir(), 'storage.json')
+      setEnvForTest({ DB_PATH: dbPath })
+      const observedModes: number[] = []
+      const spyWriteFile: typeof writeFile = async (file, data, options) => {
+        const result = await writeFile(file, data, options)
+        observedModes.push(await modeOf(file as string))
+        return result
+      }
+
+      const db = await loadStorage({ writeFileImpl: spyWriteFile })
+      for (let i = 0; i < 5; i++) {
+        db.data.auth.salt = `salt-${i}`
+        await db.write()
+      }
+
+      assert.ok(observedModes.length > 0, 'the spy must have observed writes')
+      assert.ok(
+        observedModes.every((mode) => mode === 0o600),
+        `every temp file must be created at 0600, observed: ${observedModes
+          .map((mode) => mode.toString(8))
+          .join(', ')}`,
+      )
+    },
+  )
+
+  test(
+    'resets a stale temp file left at a wider mode by a crash or an older release',
+    { skip: posixOnly },
+    async () => {
+      // POSIX `open()` only applies the `mode` argument when it actually
+      // creates the file: if `.storage.json.tmp` already exists (left behind
+      // by a process that died between the write and the rename, or by a
+      // pre-#820 server build), `writeFile(tmp, data, { mode })` would
+      // silently keep that leftover file's wider mode unless the adapter
+      // resets it first.
+      const dbPath = path.join(makeScratchDir(), 'storage.json')
+      const tempPath = path.join(
+        path.dirname(dbPath),
+        `.${path.basename(dbPath)}.tmp`,
+      )
+      setEnvForTest({ DB_PATH: dbPath })
+      await writeFile(tempPath, '{}', { mode: 0o644 })
+      assert.equal(
+        await modeOf(tempPath),
+        0o644,
+        'the leftover temp file must start wide',
+      )
+
+      const db = await loadStorage()
+      db.data.auth.salt = 'test-salt'
+      await db.write()
+
+      assert.equal(
+        await modeOf(dbPath),
+        0o600,
+        "the published file must not inherit the leftover temp file's mode",
       )
     },
   )
