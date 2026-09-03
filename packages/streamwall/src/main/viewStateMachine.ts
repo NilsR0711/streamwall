@@ -16,7 +16,7 @@ import {
   ContentDisplayOptions,
   ContentViewInfo,
 } from 'streamwall-shared/src/types'
-import { Actor, assign, fromPromise, setup } from 'xstate'
+import { Actor, assign, enqueueActions, fromPromise, setup } from 'xstate'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { loadHTML } from './loadHTML'
 import log from './logger'
@@ -172,6 +172,15 @@ const viewStateMachine = setup({
       // parked (hidden) view instead of keeping it fully live while it's
       // hidden behind a fullscreen expansion (issue #374).
       desiredPaused: boolean
+      // Whether `StreamWindow` has parked this view: taken off the wall
+      // window onto its own offscreen host to survive a fullscreen expansion
+      // (issue #369) without being torn down. Parking leaves `pos` and
+      // `content` untouched, so the collapse's `DISPLAY` re-sends exactly
+      // what the cell already had and is a noop -- the actor has to remember
+      // that it is detached, or nothing would ever put it back on the wall
+      // (issue #816). Also tells `performSwap` where a promoted view belongs
+      // (issue #741).
+      parked: boolean
     },
 
     events: {} as
@@ -193,6 +202,12 @@ const viewStateMachine = setup({
       | { type: 'NEXT_VIEW_INIT' }
       | { type: 'NEXT_VIEW_LOADED' }
       | { type: 'NEXT_VIEW_ERROR'; error: unknown }
+      // Sent by `StreamWindow.hideView`/`displayPlannedViews` to take this
+      // view off the wall while a fullscreen expansion covers it, and to put
+      // it back afterwards (issues #369, #816). UNPARK is ignored unless the
+      // view is actually parked and running.
+      | { type: 'PARK' }
+      | { type: 'UNPARK' }
       | { type: 'MUTE' }
       | { type: 'UNMUTE' }
       | { type: 'BACKGROUND' }
@@ -276,6 +291,13 @@ const viewStateMachine = setup({
       view.setBounds({ x: 0, y: 0, width, height })
     },
 
+    markParked: assign({ parked: true }),
+
+    // Every path that (re-)attaches the view to the wall window clears the
+    // park, so `context.parked` always answers "is this view detached from
+    // the wall?" -- see the `parked` context field.
+    clearParked: assign({ parked: false }),
+
     positionView: ({ context }) => {
       const { pos, view, win, offscreenWin } = context
 
@@ -335,19 +357,28 @@ const viewStateMachine = setup({
       // of the expansion at the parked cell's stale rectangle, playing, with
       // nothing to remove it until the next layout change (issue #741). Leave
       // it on the offscreen host it already lives on -- the one
-      // `promoteNextView` adopts as this actor's offscreen window -- and let
-      // the DISPLAY that un-parks the cell position it via `positionView`.
+      // `promoteNextView` adopts as this actor's offscreen window -- until
+      // `context.parked` actually clears (issue #816).
       //
-      // `StreamWindow.hideView` is the only thing that takes a *running*
-      // view out of the wall window, so a missing child means exactly that:
-      // parked. Keep the two in step if that ever changes.
+      // A collapse that also changes the cell's content unparks it (via
+      // `preloading`'s own UNPARK handler) before this swap finishes, so
+      // `context.parked` is often already false by the time this runs and
+      // `oldView` never made it back onto the wall -- `existingIdx` is then
+      // -1. Fall back to the same "below the overlay" slot `positionView`
+      // uses in that case, rather than handing `addChildView` an invalid
+      // index.
       const existingIdx = win.contentView.children.indexOf(oldView)
-      if (existingIdx === -1) {
+      if (context.parked) {
         const { width, height } = next.offscreenWin.getBounds()
         next.view.setBounds({ x: 0, y: 0, width, height })
       } else {
         next.offscreenWin.contentView.removeChildView(next.view)
-        win.contentView.addChildView(next.view, existingIdx)
+        win.contentView.addChildView(
+          next.view,
+          existingIdx !== -1
+            ? existingIdx
+            : win.contentView.children.length - 1,
+        )
         if (pos) {
           next.view.setBounds(pos)
         }
@@ -412,6 +443,8 @@ const viewStateMachine = setup({
     volumeChanged: ({ context }, params: { volume: number }) => {
       return context.volume !== params.volume
     },
+
+    isParked: ({ context }) => context.parked,
 
     // Whether the view is still allowed to reload itself automatically.
     canRetry: ({ context }) =>
@@ -507,8 +540,22 @@ const viewStateMachine = setup({
     desiredAudio: 'muted',
     desiredBlurred: false,
     desiredPaused: false,
+    parked: false,
   }),
   on: {
+    PARK: {
+      actions: ['offscreenView', 'markParked'],
+    },
+    // Fallback for a view that is parked while not `running` (it was still
+    // loading, or is recovering from an error, when the expansion started).
+    // Such a view is offscreen for its own reasons and is placed on the wall
+    // by `running`'s entry once it gets there, so un-parking it is purely a
+    // bookkeeping change -- but the flag has to be cleared, or it would stay
+    // "parked" forever. `displaying.running`'s own UNPARK handler takes
+    // precedence over this one.
+    UNPARK: {
+      actions: 'clearParked',
+    },
     DISPLAY: {
       target: '.displaying',
       actions: assign({
@@ -695,13 +742,30 @@ const viewStateMachine = setup({
           // its backoff (issue #645). The streak is instead cleared once the
           // view has stayed healthy for retry.healthyDuration -- see
           // `playback.playing` below.
-          entry: 'positionView',
+          // Placing the view on the wall is what makes a cell visible, so a
+          // parked cell must not do it: a view that finishes loading (or
+          // recovers from an error) while an expansion covers its cell would
+          // otherwise pop up on top of that expansion. It stays on its
+          // offscreen host until the collapse's UNPARK, exactly like a view
+          // that was already `running` when it was parked.
+          entry: enqueueActions(({ context, enqueue }) => {
+            if (!context.parked) {
+              enqueue('positionView')
+            }
+          }),
           // Leaving `running` for any reason (manual RELOAD, a renderer-
           // reported VIEW_ERROR, or a stalled-view auto-reload) abandons any
           // preload that was in flight for this cell, so its WebContentsView
           // and offscreen window don't leak.
           exit: 'disposeStaleNextView',
           on: {
+            // Puts a parked view back on the wall. The collapse's DISPLAY
+            // cannot do it: it re-sends the pos/content the cell already has,
+            // so `contentPosUnchanged` matches and no action runs (#816).
+            UNPARK: {
+              guard: 'isParked',
+              actions: ['positionView', 'clearParked'],
+            },
             DISPLAY: [
               // Noop if nothing changed.
               {
@@ -716,6 +780,7 @@ const viewStateMachine = setup({
                     pos: ({ event }) => event.pos,
                   }),
                   'positionView',
+                  'clearParked',
                 ],
                 guard: {
                   type: 'contentUnchanged',
@@ -938,6 +1003,21 @@ const viewStateMachine = setup({
                         type: 'logError',
                         params: ({ event: { error } }) => ({ error }),
                       },
+                    },
+                    // `running`'s own UNPARK (below) runs `positionView` on
+                    // `context.view` -- but while a swap is preloading,
+                    // that's the *retiring* view, not the one about to take
+                    // the cell. `StreamWindow.displayPlannedViews` sends
+                    // UNPARK right after every DISPLAY, including one that
+                    // just changed the content and started this preload, so
+                    // reaching this state still parked is routine, not rare.
+                    // Only clear the flag here: `performSwap` already reads
+                    // `context.parked` to decide where the *promoted* view
+                    // belongs once the preload actually finishes (issue
+                    // #816).
+                    UNPARK: {
+                      guard: 'isParked',
+                      actions: 'clearParked',
                     },
                     // Content changed again while a preload was already in
                     // flight for a since-superseded target (rapid successive

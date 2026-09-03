@@ -578,25 +578,24 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
 
   /**
    * Moves a running actor's view off the visible wall onto its own offscreen
-   * host window, without touching the actor's state. Used to keep a
-   * non-focused view alive (rather than torn down) across a fullscreen
-   * expansion: `setViews`' own matchers can then find and reposition it again
-   * on collapse -- via a normal `DISPLAY` event -- instead of recreating it
-   * from scratch (issue #369). Mirrors `viewStateMachine`'s `offscreenView`
-   * action, which the actor itself uses while a fresh view is loading.
+   * host window. Used to keep a non-focused view alive (rather than torn
+   * down) across a fullscreen expansion: `setViews`' own matchers can then
+   * find it again on collapse and `displayPlannedViews` un-parks it, instead
+   * of recreating it from scratch (issue #369).
+   *
+   * The re-parenting is done by the actor itself, via PARK, rather than
+   * behind its back: parking leaves `pos` and `content` untouched, so the
+   * collapse's DISPLAY re-sends exactly what the cell already had and its
+   * `contentPosUnchanged` branch is a noop. Only the actor's own `parked`
+   * flag can tell a detached view apart from an attached one, which is what
+   * both the un-parking UNPARK and `performSwap` rely on (issue #816).
    */
   private hideView(
     actor: ViewActor,
     previouslyParkedAudio: Map<ViewId, DesiredAudio>,
   ) {
-    const { id, view, win, offscreenWin } = actor.getSnapshot().context
-    // Taking a running view out of the wall window happens here and nowhere
-    // else, which is how viewStateMachine's `performSwap` recognizes a parked
-    // cell (issue #741) -- keep the two in step.
-    win.contentView.removeChildView(view)
-    offscreenWin.contentView.addChildView(view)
-    const { width, height } = offscreenWin.getBounds()
-    view.setBounds({ x: 0, y: 0, width, height })
+    const { id } = actor.getSnapshot().context
+    actor.send({ type: 'PARK' })
     // A parked view is entirely invisible, so it must be inaudible too:
     // before #369 these views were destroyed, which silenced them as a side
     // effect, and leaving one audible means a stream the operator cannot see
@@ -763,6 +762,12 @@ export default class StreamWindow extends EventEmitter<StreamWindowEventMap> {
       }
 
       view.send({ type: 'DISPLAY', pos, content })
+      // Put a parked view back on the wall. The DISPLAY above cannot do it:
+      // on a collapse it carries the pos/content the cell already had, so the
+      // machine's `contentPosUnchanged` branch runs no actions (issue #816).
+      // Harmless for a view that was never parked -- the machine ignores
+      // UNPARK unless it is actually parked.
+      view.send({ type: 'UNPARK' })
       view.send({ type: 'OPTIONS', options: getDisplayOptions(stream) })
       const viewId = view.getSnapshot().context.id
       if (previouslyParkedAudio.has(viewId)) {
