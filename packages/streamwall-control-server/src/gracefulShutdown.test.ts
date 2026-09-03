@@ -226,7 +226,7 @@ describe('runServer shutdown wiring', () => {
     // (Fastify setup, route registration) actually takes on a loaded CI
     // runner, well clear of the 500ms floor `remainingForceExitMs` applies.
     const forceExitAfterMs = 3000
-    const initDelayMs = 500
+    const initDelayMs = 1500
     const exitTimes: number[] = []
     proc.exit = () => {
       exitTimes.push(Date.now())
