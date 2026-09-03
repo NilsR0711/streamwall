@@ -65,10 +65,17 @@ function patchState(
   return patched as StreamwallState
 }
 
+/** A callback awaiting a response, plus the eviction timer guarding it. */
+interface PendingResponse {
+  cb: (msg: object) => void
+  /** Cleared once the reply arrives, so eviction never fires afterward. */
+  timeoutId: ReturnType<typeof setTimeout>
+}
+
 interface WsRef {
   ws: ReconnectingWebSocket
   msgId: number
-  responseMap: Map<number, (msg: object) => void>
+  responseMap: Map<number, PendingResponse>
 }
 
 /**
@@ -80,6 +87,22 @@ interface WsRef {
  * server to answer the commands that do reply.
  */
 const RESPONSE_TIMEOUT_MS = 5000
+
+/**
+ * Eviction window for the two commands the server answers by deriving a
+ * scrypt hash (`create-invite`, `delete-token`): tens of milliseconds of
+ * libuv-threadpool work each (issues #735/#799) that can queue behind other
+ * derivations on a loaded or modest self-hosted box. `RESPONSE_TIMEOUT_MS` is
+ * comfortably enough for every other command, which the control server never
+ * derives anything for (issue #819).
+ */
+const CRYPTO_RESPONSE_TIMEOUT_MS = 15000
+
+function responseTimeoutMsFor(commandType: string): number {
+  return commandType === 'create-invite' || commandType === 'delete-token'
+    ? CRYPTO_RESPONSE_TIMEOUT_MS
+    : RESPONSE_TIMEOUT_MS
+}
 
 /**
  * WebSocket adapter: the transport-specific half of the collab wiring the
@@ -111,19 +134,30 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
         }
         ws.send(JSON.stringify({ ...msg, id: msgId }))
         if (cb) {
-          responseMap.set(msgId, cb)
           // The control server only ever answers a handful of commands
           // (create-invite, delete-token); every other command is forwarded
           // to the uplink with no reply. createErrorSurfacingSend always
           // supplies a callback (to surface `{ error }` responses), so
           // without this eviction a forwarded command's entry - and the
           // closure it holds - would sit in responseMap for the lifetime of
-          // the socket instead of just until the next close (issue #745). A
-          // reply that does arrive after eviction is simply ignored, same as
-          // any other late reply for an id no longer in the map.
-          setTimeout(() => {
-            responseMap.delete(msgId)
-          }, RESPONSE_TIMEOUT_MS)
+          // the socket instead of just until the next close (issue #745).
+          //
+          // Eviction fires the callback with a synthetic error rather than
+          // just deleting the entry: PR #759 introduced this timer but left
+          // the callback uninvoked, so a reply that genuinely took longer
+          // than the window arrived to no callback and was silently dropped
+          // - the operator saw neither success nor an error (issue #819).
+          const timeoutId = setTimeout(() => {
+            const pending = responseMap.get(msgId)
+            if (pending) {
+              responseMap.delete(msgId)
+              pending.cb({
+                response: true,
+                error: 'No response from the server',
+              })
+            }
+          }, responseTimeoutMsFor(msg.type))
+          responseMap.set(msgId, { cb, timeoutId })
         }
         wsRef.current.msgId++
       },
@@ -181,7 +215,8 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
           events.onClose()
           const { responseMap } = wsRef.current ?? {}
           if (responseMap) {
-            for (const responseCb of responseMap.values()) {
+            for (const { cb: responseCb, timeoutId } of responseMap.values()) {
+              clearTimeout(timeoutId)
               responseCb({ response: true, error: 'Connection closed' })
             }
             responseMap.clear()
@@ -204,10 +239,20 @@ function useWebsocketCollabTransport(wsEndpoint: string): CollabTransport {
           const msg = JSON.parse(ev.data)
           if (msg.response && wsRef.current != null) {
             const { responseMap } = wsRef.current
-            const responseCb = responseMap.get(msg.id)
-            if (responseCb) {
+            const pending = responseMap.get(msg.id)
+            if (pending) {
               responseMap.delete(msg.id)
-              responseCb(msg)
+              clearTimeout(pending.timeoutId)
+              pending.cb(msg)
+            } else {
+              // No pending callback for this id: either it was already
+              // evicted with a synthetic timeout error (issue #819) and the
+              // caller has moved on, or the id is otherwise stale. Either
+              // way, log the late reply instead of silently dropping it.
+              console.warn(
+                'Ignored a Streamwall response with no pending callback:',
+                msg,
+              )
             }
           } else if (msg.type === 'state') {
             desynced = false
