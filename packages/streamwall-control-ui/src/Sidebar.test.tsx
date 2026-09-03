@@ -583,3 +583,132 @@ describe('stream links open away from the control UI', () => {
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
 })
+
+// `link` arrives from an untrusted data source (a TOML file or a polled JSON
+// URL, per `streamDataInputSchema`'s own doc comment) and was rendered
+// straight into `href` with no scheme check, unlike `releaseUrl` (issue
+// #773/PR #793). A compromised or misconfigured data source could put an
+// arbitrary scheme there and get an operator to activate it (issue #822).
+describe("validating a stream link's scheme before rendering it as an anchor (issue #822)", () => {
+  test('still renders a normal http(s) stream link as a clickable anchor', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ link: 'https://example.com/stream' })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    const link = container.querySelector('a')
+    expect(link).not.toBeNull()
+    expect(link!.getAttribute('href')).toBe('https://example.com/stream')
+    expect(container.textContent).toContain('https://example.com/stream')
+  })
+
+  test('renders a javascript: stream link as plain text, not an anchor', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ link: 'javascript:alert(1)' })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain('javascript:alert(1)')
+  })
+
+  test('renders a data: stream link as plain text, not an anchor', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ link: 'data:text/html,<script>alert(1)</script>' })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain(
+      'data:text/html,<script>alert(1)</script>',
+    )
+  })
+
+  test('still truncates a non-http(s) stream link the same way a rendered anchor would be', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    const longJsLink = `javascript:${'a'.repeat(80)}`
+    act(() => {
+      render(
+        <StreamList
+          rows={[baseRow({ link: longJsLink })]}
+          disabled={false}
+          onClickId={() => {}}
+          favorites={new Set()}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).not.toContain(longJsLink)
+    expect(container.textContent).toContain('javascript:')
+  })
+
+  test('renders a javascript: custom stream link as plain text, not an anchor', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <CustomStreamInput
+          link="javascript:alert(1)"
+          kind="video"
+          onChange={() => {}}
+          onDelete={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain('javascript:alert(1)')
+  })
+
+  test('renders a data: custom stream link as plain text, not an anchor', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    act(() => {
+      render(
+        <CustomStreamInput
+          link="data:text/html,<script>alert(1)</script>"
+          kind="video"
+          onChange={() => {}}
+          onDelete={() => {}}
+        />,
+        container!,
+      )
+    })
+
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain(
+      'data:text/html,<script>alert(1)</script>',
+    )
+  })
+})
