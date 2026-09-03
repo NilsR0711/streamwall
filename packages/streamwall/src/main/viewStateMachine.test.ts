@@ -2160,18 +2160,50 @@ describe('viewStateMachine PARK/UNPARK (issue #816)', () => {
     expect(ctx.actor.getSnapshot().context.parked).toBe(false)
   })
 
-  it('clears the park when a parked view is reloaded back into running', async () => {
+  it('keeps a parked view offscreen when it reaches running again', async () => {
     const ctx = setup()
     ctx.actor.start()
     await reachRunning(ctx.actor)
     ctx.actor.send({ type: 'PARK' })
 
+    // A parked cell whose view reloads must not pop up on top of the
+    // expansion that is still covering it.
     ctx.actor.send({ type: 'RELOAD' })
     await vi.advanceTimersByTimeAsync(0)
     ctx.actor.send({ type: 'VIEW_INIT' })
     ctx.actor.send({ type: 'VIEW_LOADED' })
 
+    expect(
+      matchesState('displaying.running', ctx.actor.getSnapshot().value),
+    ).toBe(true)
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+    expect(ctx.actor.getSnapshot().context.parked).toBe(true)
+
+    // The collapse still gets it back.
+    ctx.actor.send({ type: 'UNPARK' })
+    expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
     expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+  })
+
+  it('un-parks a view that was parked before it finished loading', async () => {
+    const ctx = setup()
+    ctx.actor.start()
+    // Still in `displaying.loading`: never sent VIEW_INIT/VIEW_LOADED.
+    ctx.actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
+    await vi.advanceTimersByTimeAsync(0)
+    ctx.actor.send({ type: 'PARK' })
+    expect(ctx.actor.getSnapshot().context.parked).toBe(true)
+
+    // Collapse while the view is still loading: nothing to place yet, but the
+    // park must not outlive it, or the view would stay off the wall for good.
+    ctx.actor.send({ type: 'DISPLAY', pos: POS, content: CONTENT })
+    ctx.actor.send({ type: 'UNPARK' })
+    expect(ctx.actor.getSnapshot().context.parked).toBe(false)
+    expect(ctx.win.contentView.children).toEqual([ctx.overlay])
+
+    ctx.actor.send({ type: 'VIEW_INIT' })
+    ctx.actor.send({ type: 'VIEW_LOADED' })
+
     expect(ctx.win.contentView.children).toEqual([ctx.view, ctx.overlay])
   })
 })

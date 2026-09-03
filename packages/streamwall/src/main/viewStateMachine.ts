@@ -16,7 +16,7 @@ import {
   ContentDisplayOptions,
   ContentViewInfo,
 } from 'streamwall-shared/src/types'
-import { Actor, assign, fromPromise, setup } from 'xstate'
+import { Actor, assign, enqueueActions, fromPromise, setup } from 'xstate'
 import { createSessionHostResolver, ensureValidURL } from '../util'
 import { loadHTML } from './loadHTML'
 import log from './logger'
@@ -360,7 +360,6 @@ const viewStateMachine = setup({
       // `promoteNextView` adopts as this actor's offscreen window -- and let
       // the UNPARK that follows the collapse's DISPLAY position it via
       // `positionView` (issue #816).
-      //
       const existingIdx = win.contentView.children.indexOf(oldView)
       if (context.parked) {
         const { width, height } = next.offscreenWin.getBounds()
@@ -534,6 +533,16 @@ const viewStateMachine = setup({
   on: {
     PARK: {
       actions: ['offscreenView', 'markParked'],
+    },
+    // Fallback for a view that is parked while not `running` (it was still
+    // loading, or is recovering from an error, when the expansion started).
+    // Such a view is offscreen for its own reasons and is placed on the wall
+    // by `running`'s entry once it gets there, so un-parking it is purely a
+    // bookkeeping change -- but the flag has to be cleared, or it would stay
+    // "parked" forever. `displaying.running`'s own UNPARK handler takes
+    // precedence over this one.
+    UNPARK: {
+      actions: 'clearParked',
     },
     DISPLAY: {
       target: '.displaying',
@@ -721,7 +730,17 @@ const viewStateMachine = setup({
           // its backoff (issue #645). The streak is instead cleared once the
           // view has stayed healthy for retry.healthyDuration -- see
           // `playback.playing` below.
-          entry: ['positionView', 'clearParked'],
+          // Placing the view on the wall is what makes a cell visible, so a
+          // parked cell must not do it: a view that finishes loading (or
+          // recovers from an error) while an expansion covers its cell would
+          // otherwise pop up on top of that expansion. It stays on its
+          // offscreen host until the collapse's UNPARK, exactly like a view
+          // that was already `running` when it was parked.
+          entry: enqueueActions(({ context, enqueue }) => {
+            if (!context.parked) {
+              enqueue('positionView')
+            }
+          }),
           // Leaving `running` for any reason (manual RELOAD, a renderer-
           // reported VIEW_ERROR, or a stalled-view auto-reload) abandons any
           // preload that was in flight for this cell, so its WebContentsView
