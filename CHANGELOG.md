@@ -17,6 +17,19 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.8](https://github.com/NilsR0711/streamwall/compare/v0.10.7...v0.10.8) (2026-09-03)
+
+
+### Fixed
+
+* **control-client:** fire evicted response callbacks instead of dropping them ([#824](https://github.com/NilsR0711/streamwall/issues/824)) ([10fdb1f](https://github.com/NilsR0711/streamwall/commit/10fdb1f700dc63eac32a6bac4d8dee3e1d39e058)), closes [#819](https://github.com/NilsR0711/streamwall/issues/819)
+* **control-server:** close the storage write's world-readable window ([#829](https://github.com/NilsR0711/streamwall/issues/829)) ([012e752](https://github.com/NilsR0711/streamwall/commit/012e7526d13e951adf81943f6f6fd5485778b239))
+* **control-server:** measure the shutdown force-exit from the signal ([#831](https://github.com/NilsR0711/streamwall/issues/831)) ([83bebb2](https://github.com/NilsR0711/streamwall/commit/83bebb260106429431280651341f1b3883e04b8e))
+* **control-server:** share one scrypt rate-limit bucket across deriving routes ([#825](https://github.com/NilsR0711/streamwall/issues/825)) ([24a955e](https://github.com/NilsR0711/streamwall/commit/24a955e10d4b2532842c4fa2343c586214f27865)), closes [#821](https://github.com/NilsR0711/streamwall/issues/821)
+* **control-ui:** validate a stream link's scheme before rendering it as an anchor ([#827](https://github.com/NilsR0711/streamwall/issues/827)) ([9809d50](https://github.com/NilsR0711/streamwall/commit/9809d5003c26621641ce784c982448701ff8ef3b)), closes [#822](https://github.com/NilsR0711/streamwall/issues/822)
+* **electron:** bound the data-source health message before it enters the broadcast state ([#830](https://github.com/NilsR0711/streamwall/issues/830)) ([a6b4d8a](https://github.com/NilsR0711/streamwall/commit/a6b4d8a2b856b8803356a40c3ea3751b3d20e897))
+* **electron:** re-attach a parked view when the fullscreen expansion collapses ([#828](https://github.com/NilsR0711/streamwall/issues/828)) ([1f5f321](https://github.com/NilsR0711/streamwall/commit/1f5f321a8e0446ce6f0d5f74592e2a0d52227690))
+
 ## [0.10.7](https://github.com/NilsR0711/streamwall/compare/v0.10.6...v0.10.7) (2026-09-02)
 
 
