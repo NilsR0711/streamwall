@@ -41,7 +41,7 @@
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "keywords": [],
   "author": "Nils Reeh <info@nilsreeh.de>",
