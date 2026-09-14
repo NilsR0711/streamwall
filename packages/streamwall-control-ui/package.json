@@ -22,7 +22,7 @@
     "styled-components": "^6.5.3",
     "xstate": "^5.32.6",
     "yjs": "^13.6.32",
-    "zod": "^4.5.4"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
