@@ -20,9 +20,9 @@
     "reconnecting-websocket": "^4.4.0",
     "streamwall-shared": "*",
     "styled-components": "^6.5.3",
-    "xstate": "^5.32.6",
+    "xstate": "^5.33.2",
     "yjs": "^13.6.32",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
