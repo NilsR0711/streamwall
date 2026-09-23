@@ -100,6 +100,21 @@ const urlSchema = z.string().max(MAX_URL_LENGTH)
 const nonEmptyUrlSchema = z.string().min(1).max(MAX_URL_LENGTH)
 
 /**
+ * A string cut down to `max` characters instead of rejected (issue #818).
+ *
+ * For the fields of the desktop's broadcast `StreamwallState` only: the
+ * desktop and the control server are released and deployed separately, and
+ * `streamwallStateSchema.safeParse` rejects the whole snapshot on any field
+ * failure - so a desktop that predates a producer-side bound would otherwise
+ * lose its entire state broadcast over one long page title. Truncating still
+ * caps the frame size the bound exists for. Control commands keep the strict
+ * `.max()`: their sender is a live client that is told its request failed.
+ */
+function truncatedString(max: number) {
+  return z.string().transform((value) => value.slice(0, max))
+}
+
+/**
  * True for a value that is a syntactically valid, bounded `http:`/`https:`
  * URL - the only schemes a `target="_blank"` anchor should ever be allowed
  * to carry (issue #773). Exported so the control UI can apply the same
@@ -363,8 +378,36 @@ const streamDataSchema = localStreamDataSchema.extend({
   _dataSource: z.string(),
 })
 
+/**
+ * A snapshot's stream list, minus any entry whose `link` exceeds
+ * {@link MAX_URL_LENGTH} (issue #818).
+ *
+ * A stream's `link` is its identity, so it is not truncated into a different
+ * address the way the display-only fields are ({@link truncatedString}). A
+ * desktop that predates #778 forwards such a link from its data source
+ * unfiltered; dropping that one entry - what the desktop's own
+ * {@link parseStreamList} does since #778 - keeps the rest of its state
+ * broadcast alive. Entries malformed in any other way still fail the snapshot.
+ */
+const streamListSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value)
+      ? value.filter(
+          (entry: unknown) =>
+            !(
+              typeof entry === 'object' &&
+              entry !== null &&
+              'link' in entry &&
+              typeof entry.link === 'string' &&
+              entry.link.length > MAX_URL_LENGTH
+            ),
+        )
+      : value,
+  z.array(streamDataSchema),
+)
+
 const viewContentSchema = z.object({
-  url: urlSchema,
+  url: truncatedString(MAX_URL_LENGTH),
   kind: contentKindSchema,
 })
 
@@ -377,11 +420,12 @@ const viewContentSchema = z.object({
  * its title without limit and push a `state` frame over the uplink's
  * `maxPayload`, repeatedly dropping the connection. The preload truncates to
  * the same length before this ever reaches the wire; this bound is the
- * server-side backstop in case that truncation is ever bypassed.
+ * server-side backstop in case that truncation is ever bypassed, and it
+ * truncates too, for a desktop that predates it (issue #818).
  */
 export const MAX_VIEW_INFO_TITLE_LENGTH = 200
 const contentViewInfoSchema = z.object({
-  title: z.string().max(MAX_VIEW_INFO_TITLE_LENGTH),
+  title: truncatedString(MAX_VIEW_INFO_TITLE_LENGTH),
 })
 
 const viewPosSchema = z.object({
@@ -445,7 +489,7 @@ export const viewStateValueSchema = z.union([
  * same denial-of-service vector #734 fixed for `document.title`.
  * `formatError()` truncates to this length before the reason ever reaches
  * this schema; the bound here is the server-side backstop in case that
- * truncation is ever bypassed.
+ * truncation is ever bypassed, and it truncates too (issue #818).
  */
 export const MAX_VIEW_ERROR_LENGTH = 1000
 
@@ -458,7 +502,7 @@ const viewStateSchema = z.object({
     content: viewContentSchema.nullable(),
     info: contentViewInfoSchema.nullable(),
     pos: viewPosSchema.nullable(),
-    error: z.string().max(MAX_VIEW_ERROR_LENGTH).nullable(),
+    error: truncatedString(MAX_VIEW_ERROR_LENGTH).nullable(),
     volume: volumeSchema,
   }),
 })
@@ -493,7 +537,8 @@ const layoutPresetSchema = z.object({
  * long URL, must not be able to grow a re-broadcast `state` frame past the
  * uplink's `maxPayload` (the denial-of-service loop #734 fixed for
  * `document.title`). The producer truncates and caps before publishing; these
- * bounds are the enforcement at the trust boundary.
+ * bounds are the enforcement at the trust boundary, and they narrow rather
+ * than reject, like every other bound on the broadcast state (issue #818).
  *
  * Deliberately much shorter than {@link MAX_URL_LENGTH}: this value is only
  * ever shown to a human, who needs the host and the beginning of the path to
@@ -504,8 +549,8 @@ export const MAX_BLOCKED_LAYER_URLS = 5
 export const MAX_BLOCKED_LAYER_URL_LENGTH = 200
 
 const blockedLayerURLsSchema = z
-  .array(z.string().max(MAX_BLOCKED_LAYER_URL_LENGTH))
-  .max(MAX_BLOCKED_LAYER_URLS)
+  .array(truncatedString(MAX_BLOCKED_LAYER_URL_LENGTH))
+  .transform((urls) => urls.slice(0, MAX_BLOCKED_LAYER_URLS))
   // A desktop older than #797 sends no such field, and the desktop and the
   // control server are released and deployed separately. Rejecting the
   // payload would take that desktop's entire state broadcast down rather
@@ -546,7 +591,8 @@ const blockedLayerURLsGenerationSchema = z
  * every state frame the desktop pushes over the uplink without limit. The
  * producer (`DataSourceHealthTracker.report`) truncates to this length
  * before the message ever reaches this schema; the bound here is the
- * server-side backstop in case that truncation is ever bypassed.
+ * server-side backstop in case that truncation is ever bypassed, and it
+ * truncates too, for a desktop that predates it (issue #818).
  */
 export const MAX_DATA_SOURCE_MESSAGE_LENGTH = 500
 
@@ -554,7 +600,7 @@ const dataSourceHealthSchema = z.object({
   id: z.string(),
   type: z.enum(['json-url', 'toml-file']),
   status: z.enum(['ok', 'error']),
-  message: z.string().max(MAX_DATA_SOURCE_MESSAGE_LENGTH).nullable(),
+  message: truncatedString(MAX_DATA_SOURCE_MESSAGE_LENGTH).nullable(),
   updatedAt: z.number(),
 })
 
@@ -577,8 +623,8 @@ export const streamwallStateSchema = z.object({
     })
     .optional(),
   config: streamWindowConfigSchema,
-  streams: z.array(streamDataSchema),
-  customStreams: z.array(streamDataSchema),
+  streams: streamListSchema,
+  customStreams: streamListSchema,
   views: z.array(viewStateSchema),
   fullscreenViewIdx: viewIdxSchema.nullable(),
   streamdelay: streamDelayStatusSchema.nullable(),

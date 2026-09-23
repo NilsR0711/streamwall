@@ -2,13 +2,17 @@ import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { StreamwallRole } from 'streamwall-shared'
+import {
+  MAX_VIEW_INFO_TITLE_LENGTH,
+  type StreamwallRole,
+} from 'streamwall-shared'
 import * as Y from 'yjs'
 import {
   bootServerWithUplink,
   isBareError,
   isCommandType,
   isResponseTo,
+  isStateMessage,
   VALID_STATE,
 } from './testHelpers.ts'
 
@@ -184,6 +188,40 @@ test('accepts an initial state payload with legitimately empty views', async () 
     streamwall.messages.some((m) => m.type === 'reload-view'),
     'the connection must be fully established for a valid, empty-views state',
   )
+})
+
+test('keeps the state of a desktop that sends an over-length view title (issue #818)', async () => {
+  // A desktop that predates the preload's title truncation sends
+  // `document.title` as-is. Rejecting the snapshot over that one field would
+  // freeze the control UI for every operator while the desktop looks healthy;
+  // the server narrows the title and keeps the rest of the state instead.
+  const fromOlderDesktop = {
+    ...VALID_STATE,
+    views: [
+      {
+        state: 'empty',
+        context: {
+          id: 0,
+          content: { url: 'https://example.com/s', kind: 'video' },
+          info: { title: 'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH * 5) },
+          pos: null,
+          error: null,
+          volume: 1,
+        },
+      },
+    ],
+  }
+
+  const { client, logs } = await connectStreamwallAndClient({
+    stateMessage: { type: 'state', state: fromOlderDesktop },
+  })
+
+  const { state } = await client.waitFor(isStateMessage)
+  assert.equal(
+    state.views[0]?.context.info?.title,
+    'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH),
+  )
+  assert.ok(!logs.hasMessage('Rejected invalid Streamwall state payload'))
 })
 
 test('drops a malformed state update on an already-connected uplink without crashing the session (issue #387)', async () => {
