@@ -769,7 +769,11 @@ describe('streamwallStateSchema', () => {
   // unbounded into a view's info.title. Without a cap, a hostile page can
   // grow it without limit and push a broadcast state frame over the
   // uplink's maxPayload, repeatedly dropping the connection.
-  test('rejects a view info title longer than the allowed length', () => {
+  // Issue #818: the desktop and the control server are released and deployed
+  // separately, so a desktop that predates the producer-side truncation can
+  // still send an over-length value. Rejecting it would drop that desktop's
+  // entire state broadcast; the bound narrows the one field instead.
+  test('truncates a view info title longer than the allowed length', () => {
     const tooLong = {
       ...VALID_STATE,
       views: [
@@ -786,7 +790,11 @@ describe('streamwallStateSchema', () => {
         },
       ],
     }
-    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooLong)
+    expect(result.success).toBe(true)
+    expect(result.data?.views[0]?.context.info?.title).toBe(
+      'x'.repeat(MAX_VIEW_INFO_TITLE_LENGTH),
+    )
   })
 
   test('accepts a view info title at exactly the allowed length', () => {
@@ -811,7 +819,8 @@ describe('streamwallStateSchema', () => {
 
   // Issue #770: a view's displayed content `url` is re-broadcast on every
   // state update, the same class of gap #734 fixed for the info.title field.
-  test('rejects a view content url longer than the allowed length', () => {
+  // Narrowed rather than rejected for the version skew described above.
+  test('truncates a view content url longer than the allowed length', () => {
     const tooLong = {
       ...VALID_STATE,
       views: [
@@ -831,7 +840,11 @@ describe('streamwallStateSchema', () => {
         },
       ],
     }
-    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooLong)
+    expect(result.success).toBe(true)
+    expect(result.data?.views[0]?.context.content?.url).toHaveLength(
+      MAX_URL_LENGTH,
+    )
   })
 
   test('accepts a view content url at exactly the allowed length', () => {
@@ -856,8 +869,9 @@ describe('streamwallStateSchema', () => {
 
   // Issue #770: a view's `error` reason can wrap a rejection derived from
   // page-supplied content; it flows into the broadcast state, the same
-  // class of gap #734 fixed for the info.title field.
-  test('rejects a view error reason longer than the allowed length', () => {
+  // class of gap #734 fixed for the info.title field. Narrowed rather than
+  // rejected for the version skew described above.
+  test('truncates a view error reason longer than the allowed length', () => {
     const tooLong = {
       ...VALID_STATE,
       views: [
@@ -874,7 +888,11 @@ describe('streamwallStateSchema', () => {
         },
       ],
     }
-    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooLong)
+    expect(result.success).toBe(true)
+    expect(result.data?.views[0]?.context.error).toBe(
+      'x'.repeat(MAX_VIEW_ERROR_LENGTH),
+    )
   })
 
   test('accepts a view error reason at exactly the allowed length', () => {
@@ -901,8 +919,9 @@ describe('streamwallStateSchema', () => {
   // endpoint said back (including its raw HTTP reason phrase), which is
   // entirely controlled by that endpoint and re-broadcast on every state
   // update -- the same denial-of-service vector #734 fixed for
-  // `document.title`.
-  test('rejects a data source health message longer than the allowed length', () => {
+  // `document.title`. A desktop older than #817 sends it untruncated, so it
+  // is narrowed rather than rejected for the version skew described above.
+  test('truncates a data source health message longer than the allowed length', () => {
     const tooLong = {
       ...VALID_STATE,
       dataSourceHealth: [
@@ -915,7 +934,11 @@ describe('streamwallStateSchema', () => {
         },
       ],
     }
-    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooLong)
+    expect(result.success).toBe(true)
+    expect(result.data?.dataSourceHealth[0]?.message).toBe(
+      'x'.repeat(MAX_DATA_SOURCE_MESSAGE_LENGTH),
+    )
   })
 
   test('accepts a data source health message at exactly the allowed length', () => {
@@ -934,6 +957,45 @@ describe('streamwallStateSchema', () => {
     expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
   })
 
+  // Issue #818: a stream's `link` is its identity, so an over-length one is
+  // not truncated into a different address. A desktop that predates #778
+  // forwards it from its data source unfiltered; the state drops just that
+  // entry - as the desktop's own `parseStreamList` does since #778 - instead
+  // of the whole broadcast.
+  test.each(['streams', 'customStreams'] as const)(
+    'drops a %s entry whose link exceeds the allowed length but keeps the rest',
+    (field) => {
+      const ok = {
+        link: 'https://example.com/ok',
+        kind: 'video',
+        _id: 'ok',
+        _dataSource: 'source-1',
+      }
+      const withOverlong = {
+        ...VALID_STATE,
+        [field]: [
+          {
+            ...ok,
+            link: 'https://example.com/' + 'x'.repeat(MAX_URL_LENGTH),
+            _id: 'too-long',
+          },
+          ok,
+        ],
+      }
+      const result = streamwallStateSchema.safeParse(withOverlong)
+      expect(result.success).toBe(true)
+      expect(result.data?.[field]).toEqual([ok])
+    },
+  )
+
+  test('still rejects a stream entry that is malformed for another reason', () => {
+    const malformed = {
+      ...VALID_STATE,
+      streams: [{ link: 'https://example.com/s', kind: 'video' }],
+    }
+    expect(streamwallStateSchema.safeParse(malformed).success).toBe(false)
+  })
+
   // Issue #797: the refused layer URLs are reported by whatever the wall's
   // chrome layers are framing, so they are attacker-influenced content that
   // is re-broadcast on every state update -- bounded in both count and
@@ -949,15 +1011,19 @@ describe('streamwallStateSchema', () => {
     expect(streamwallStateSchema.safeParse(atLimit).success).toBe(true)
   })
 
-  test('rejects a blocked layer URL longer than the allowed length', () => {
+  test('truncates a blocked layer URL longer than the allowed length', () => {
     const tooLong = {
       ...VALID_STATE,
       blockedLayerURLs: ['x'.repeat(MAX_BLOCKED_LAYER_URL_LENGTH + 1)],
     }
-    expect(streamwallStateSchema.safeParse(tooLong).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooLong)
+    expect(result.success).toBe(true)
+    expect(result.data?.blockedLayerURLs).toEqual([
+      'x'.repeat(MAX_BLOCKED_LAYER_URL_LENGTH),
+    ])
   })
 
-  test('rejects more blocked layer URLs than the allowed count', () => {
+  test('keeps only the first blocked layer URLs past the allowed count', () => {
     const tooMany = {
       ...VALID_STATE,
       blockedLayerURLs: Array.from(
@@ -965,7 +1031,11 @@ describe('streamwallStateSchema', () => {
         (_unused, i) => `https://example.com/${i}`,
       ),
     }
-    expect(streamwallStateSchema.safeParse(tooMany).success).toBe(false)
+    const result = streamwallStateSchema.safeParse(tooMany)
+    expect(result.success).toBe(true)
+    expect(result.data?.blockedLayerURLs).toEqual(
+      tooMany.blockedLayerURLs.slice(0, MAX_BLOCKED_LAYER_URLS),
+    )
   })
 
   // The desktop and the control server are deployed separately, so a desktop
