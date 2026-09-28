@@ -444,8 +444,9 @@ extend) — see #728.
    guard tests above, which read the lockfile directly) rather than the test
    result by itself.
 
-Only `preact`, `styled-components`, `fastify` and `happy-dom` are anchored at
-the root today, because those are the ones that have actually broken. The
+Only `preact`, `styled-components`, `fastify`, `happy-dom` and `tsx` are
+anchored at the root today, because those are the ones that have actually
+broken. The
 other packages several workspaces share (`yjs`, `xstate`, `zod`,
 `jsondiffpatch`, `lodash-es`, `react-icons`) are deliberately left to npm's own
 hoisting choice — anchoring every shared dependency pre-emptively would just
