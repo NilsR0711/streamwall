@@ -20,9 +20,9 @@
     "lowdb": "^7.0.1",
     "streamwall-control-server": "*",
     "streamwall-shared": "*",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "ws": "^8.21.3",
-    "yjs": "^13.6.32"
+    "yjs": "^13.6.33"
   }
 }
