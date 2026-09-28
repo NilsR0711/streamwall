@@ -17,6 +17,14 @@ no workspace is published to npm. The release line is driven by
 [CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release) for how versions and this
 changelog are kept in step.
 
+## [0.10.9](https://github.com/NilsR0711/streamwall/compare/v0.10.8...v0.10.9) (2026-09-28)
+
+
+### Fixed
+
+* **deps:** bump transitive fast-uri to 3.1.8 and 4.1.5 for host confusion ([#846](https://github.com/NilsR0711/streamwall/issues/846)) ([6009c0e](https://github.com/NilsR0711/streamwall/commit/6009c0eac47335067377c146fea187fd33b02ee2))
+* **deps:** keep tsx hoisted to the workspace root ([#847](https://github.com/NilsR0711/streamwall/issues/847)) ([e3a42dc](https://github.com/NilsR0711/streamwall/commit/e3a42dc3ed3e19fd557aad7d71aebec78475d696))
+
 ## [0.10.8](https://github.com/NilsR0711/streamwall/compare/v0.10.7...v0.10.8) (2026-09-23)
 
 
