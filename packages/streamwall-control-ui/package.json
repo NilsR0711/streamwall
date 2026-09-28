@@ -21,7 +21,7 @@
     "streamwall-shared": "*",
     "styled-components": "^6.5.3",
     "xstate": "^5.33.2",
-    "yjs": "^13.6.32",
+    "yjs": "^13.6.33",
     "zod": "^4.6.5"
   },
   "devDependencies": {
