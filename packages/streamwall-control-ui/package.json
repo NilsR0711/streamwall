@@ -19,10 +19,10 @@
     "react-icons": "^5.7.0",
     "reconnecting-websocket": "^4.4.0",
     "streamwall-shared": "*",
-    "styled-components": "^6.5.3",
-    "xstate": "^5.33.2",
+    "styled-components": "^6.6.0",
+    "xstate": "^5.33.3",
     "yjs": "^13.6.33",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
