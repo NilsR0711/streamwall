@@ -15,7 +15,7 @@
   "author": "Nils Reeh <info@nilsreeh.de>",
   "license": "MIT",
   "dependencies": {
-    "jsondiffpatch": "^0.7.6",
+    "jsondiffpatch": "^0.7.7",
     "preact": "^10.29.8",
     "reconnecting-websocket": "^4.4.0",
     "streamwall-shared": "*",
